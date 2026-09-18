@@ -6,6 +6,9 @@ import { SidePanel } from '@/components/sidepanel/SidePanel';
 import { CenterWorkspace } from '@/components/workspace/CenterWorkspace';
 import { SidePanelProvider, useSidePanel } from '@/lib/context/SidePanelContext';
 import { WorkspaceTabsProvider, useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
+import { WorkspaceProvider } from '@/lib/context/WorkspaceContext';
+import { SkillsProvider } from '@/lib/context/SkillsContext';
+import { TrustWorkspaceDialog } from '@/components/workspace/TrustWorkspaceDialog';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
 
 function WorkspaceContent() {
@@ -56,11 +59,16 @@ function WorkspaceContent() {
 
 export function Workspace() {
   return (
-    <WorkspaceTabsProvider>
-      <SidePanelProvider>
-        <WorkspaceContent />
-      </SidePanelProvider>
-    </WorkspaceTabsProvider>
+    <WorkspaceProvider>
+      <SkillsProvider>
+        <WorkspaceTabsProvider>
+          <SidePanelProvider>
+            <WorkspaceContent />
+            <TrustWorkspaceDialog />
+          </SidePanelProvider>
+        </WorkspaceTabsProvider>
+      </SkillsProvider>
+    </WorkspaceProvider>
   );
 }
 

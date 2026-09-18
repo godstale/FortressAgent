@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   ChevronRight,
@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
+import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import type { FileTreeNode } from '@/lib/types/fileTree';
 import { cn } from '@/lib/utils';
 
@@ -46,7 +47,7 @@ const CODE_EXTENSIONS = new Set([
 
 function isImageFile(fileName: string): boolean {
   const ext = fileName.split('.').pop()?.toLowerCase();
-  return !!ext && IMAGE_EXTENSIONS.has(ext);
+  return Boolean(ext) && IMAGE_EXTENSIONS.has(ext!);
 }
 
 function getFileIcon(fileName: string) {
@@ -62,7 +63,8 @@ function getFileIcon(fileName: string) {
 
 export function FileTree() {
   const { openTab } = useWorkspaceTabs();
-  const [workspacePath, setWorkspacePath] = useState<string | null>(null);
+  const { workspaceRoot, setWorkspaceRoot } = useWorkspace();
+  const workspacePath = workspaceRoot;
   const [tree, setTree] = useState<FileTreeNode | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -97,12 +99,27 @@ export function FileTree() {
     }
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      await Promise.resolve();
+      if (!active) return;
+      if (workspaceRoot) {
+        await loadTree(workspaceRoot);
+      } else {
+        setTree(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [workspaceRoot, loadTree]);
+
   const handlePickFolder = async () => {
     try {
       const picked = await invoke<string | null>('pick_project_folder');
       if (picked) {
-        setWorkspacePath(picked);
-        await loadTree(picked);
+        setWorkspaceRoot(picked);
       }
     } catch (err) {
       console.error('Failed to pick project folder:', err);

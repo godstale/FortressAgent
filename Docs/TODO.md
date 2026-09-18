@@ -49,16 +49,16 @@
 - [x] P2-08 ChatTab 실동작 연결 (도구 카드/컨텍스트 게이지 포함)
 - [x] P2-09 에러 처리/재시도 UI
 
-## Phase 3 — Skills & AGENTS.md Loader `[ ]`
+## Phase 3 — Skills & AGENTS.md Loader `[x]`
 
-- [ ] P3-01 frontmatter 파서
-- [ ] P3-02 컨텍스트 파일(AGENTS.md) 계층 수집
-- [ ] P3-03 스킬 스캐너 (Agent Skills 표준 검증)
-- [ ] P3-04 프롬프트 노출 (`<available_skills>`)
-- [ ] P3-05 SkillsContext + 워크스페이스 신뢰 확인
-- [ ] P3-06 SkillListPanel + SkillViewerTab (진단 표시 포함)
-- [ ] P3-07 프롬프트 병합 (useChat에 데이터 전달)
-- [ ] P3-08 `/skill:name` 명시 호출
+- [x] P3-01 frontmatter 파서
+- [x] P3-02 컨텍스트 파일(AGENTS.md) 계층 수집
+- [x] P3-03 스킬 스캐너 (Agent Skills 표준 검증)
+- [x] P3-04 프롬프트 노출 (`<available_skills>`)
+- [x] P3-05 SkillsContext + 워크스페이스 신뢰 확인
+- [x] P3-06 SkillListPanel + SkillViewerTab (진단 표시 포함)
+- [x] P3-07 프롬프트 병합 (useChat에 데이터 전달)
+- [x] P3-08 `/skill:name` 명시 호출
 
 ## Phase 4 — Session Storage & Compaction `[ ]`
 

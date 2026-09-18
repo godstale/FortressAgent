@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { Agent } from '@/lib/types/agent';
 import type { AgentEvent, AgentMessage } from '@/lib/agent/types';
+import type { SkillManifest } from '@/lib/types/skill';
+import type { ContextFileItem } from '@/lib/skills/contextFiles';
 import { FortressAgent } from '@/lib/agent/agent';
 import { getBuiltinTools } from '@/lib/tools/registry';
 import { buildSystemPromptSections, formatSystemPrompt } from '@/lib/prompt/buildSystemPrompt';
+import { diffSections } from '@/lib/prompt/diffSections';
+import { useSafeSkills } from '@/lib/context/SkillsContext';
 import type { streamChat } from '@/lib/llm/ollamaClient';
 
 export interface ChatPersistence {
@@ -40,6 +44,8 @@ export interface UseChatOptions {
   baseUrl?: string;
   streamChatFn?: typeof streamChat;
   cwd?: string;
+  skills?: SkillManifest[];
+  contextFiles?: ContextFileItem[];
 }
 
 export interface UseChatReturn {
@@ -59,6 +65,7 @@ export function useChat(
   options: UseChatOptions = {},
 ): UseChatReturn {
   const persistence = options.persistence ?? defaultInMemoryPersistence;
+  const skillsCtx = useSafeSkills();
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
@@ -76,17 +83,40 @@ export function useChat(
     });
   }, [agentConfig.enabledBuiltinTools, options.cwd]);
 
+  // Read skills and context files from options or context
+  const rawSkills = useMemo(() => {
+    return options.skills ?? skillsCtx?.activeSkillsForPrompt ?? [];
+  }, [options.skills, skillsCtx?.activeSkillsForPrompt]);
+
+  const rawContextFiles = useMemo(() => {
+    return options.contextFiles ?? skillsCtx?.contextFiles ?? [];
+  }, [options.contextFiles, skillsCtx?.contextFiles]);
+
+  // Filter skills by agentConfig.enabledSkills if specified
+  const filteredSkills = useMemo(() => {
+    if (agentConfig.enabledSkills && agentConfig.enabledSkills.length > 0) {
+      const allowed = new Set(agentConfig.enabledSkills);
+      return rawSkills.filter((s) => allowed.has(s.name));
+    }
+    return rawSkills;
+  }, [rawSkills, agentConfig.enabledSkills]);
+
   // Construct system prompt using section builder
-  const systemPrompt = useMemo(() => {
-    const sections = buildSystemPromptSections({
+  const currentSections = useMemo(() => {
+    return buildSystemPromptSections({
       agent: {
         systemPrompt: agentConfig.systemPrompt,
       },
       tools,
+      contextFiles: rawContextFiles,
+      skills: filteredSkills,
       cwd: options.cwd,
     });
-    return formatSystemPrompt(sections);
-  }, [agentConfig.systemPrompt, tools, options.cwd]);
+  }, [agentConfig.systemPrompt, tools, rawContextFiles, filteredSkills, options.cwd]);
+
+  const systemPrompt = useMemo(() => {
+    return formatSystemPrompt(currentSections);
+  }, [currentSections]);
 
   // Agent instance ref
   const agentRef = useRef<FortressAgent | null>(null);
@@ -206,6 +236,34 @@ export function useChat(
       }
     };
   }, [sessionId, createAgentInstance, persistence]);
+
+  // Inject diff updates when system prompt sections change dynamically
+  const prevSectionsRef = useRef<Record<string, string>>(currentSections);
+  useEffect(() => {
+    const prev = prevSectionsRef.current;
+    if (prev && Object.keys(prev).length > 0) {
+      const diff = diffSections(prev, currentSections);
+      const changedKeys = Object.keys(diff);
+      if (changedKeys.length > 0 && messages.length > 0) {
+        const diffText = Object.entries(diff)
+          .map(([k, v]) => (v === null ? `<${k}>\n(This section has been removed)\n</${k}>` : v))
+          .join('\n\n');
+
+        if (diffText.trim()) {
+          const updateMsg: AgentMessage = {
+            role: 'system',
+            content: `[System prompt updated]\n\n${diffText}`,
+            sections: currentSections,
+          };
+          setMessages((prevMsgs) => [...prevMsgs, updateMsg]);
+          if (agentRef.current) {
+            agentRef.current.setMessages([...agentRef.current.getMessages(), updateMsg]);
+          }
+        }
+      }
+    }
+    prevSectionsRef.current = currentSections;
+  }, [currentSections, messages.length]);
 
   const sendMessage = useCallback(
     async (text: string): Promise<void> => {
