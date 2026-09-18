@@ -140,3 +140,60 @@ pub fn delete_path(path: String) -> Result<(), String> {
         std::fs::remove_file(target).map_err(|e| format!("Failed to delete {}: {}", path, e))
     }
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DirEntryItem {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
+
+pub fn verify_path_in_workspace(target: &Path, workspace_root: Option<&str>) -> Result<std::path::PathBuf, String> {
+    let canonical = target.canonicalize().map_err(|e| format!("Path '{}' error: {}", target.display(), e))?;
+    if let Some(ws) = workspace_root {
+        if !ws.trim().is_empty() {
+            let ws_canonical = Path::new(ws).canonicalize().map_err(|e| format!("Workspace '{}' error: {}", ws, e))?;
+            if !canonical.starts_with(&ws_canonical) {
+                return Err(format!("Access denied: path '{}' is outside workspace '{}'", target.display(), ws));
+            }
+        }
+    }
+    Ok(canonical)
+}
+
+#[tauri::command]
+pub fn list_dir(path: String, workspace_root: Option<String>) -> Result<Vec<DirEntryItem>, String> {
+    let target = Path::new(&path);
+    let verified = verify_path_in_workspace(target, workspace_root.as_deref())?;
+    if !verified.is_dir() {
+        return Err(format!("Not a directory: {}", path));
+    }
+    let read_res = std::fs::read_dir(&verified).map_err(|e| format!("Failed to read directory '{}': {}", path, e))?;
+    let mut entries = Vec::new();
+    for entry in read_res.flatten() {
+        let entry_path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_dir = entry_path.is_dir();
+        let size = if is_dir { 0 } else { entry.metadata().map(|m| m.len()).unwrap_or(0) };
+        entries.push(DirEntryItem {
+            name,
+            path: entry_path.to_string_lossy().to_string(),
+            is_dir,
+            size,
+        });
+    }
+    entries.sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            if a.is_dir {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        } else {
+            a.name.cmp(&b.name)
+        }
+    });
+    Ok(entries)
+}
+

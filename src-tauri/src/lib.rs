@@ -1,6 +1,9 @@
 pub mod commands;
 
 use commands::fs_commands::*;
+use commands::search_commands::*;
+use commands::shell_commands::*;
+use commands::web_commands::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,6 +28,11 @@ pub fn run() {
             create_folder,
             rename_path,
             delete_path,
+            list_dir,
+            grep_files,
+            find_files,
+            run_shell,
+            web_search,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

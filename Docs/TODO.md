@@ -37,17 +37,17 @@
 - [x] P1-09 Settings 라우트 골격
 - [x] P1-10 ThemeContext + 다크모드
 
-## Phase 2 — Agent Runtime & Chat `[ ]`
+## Phase 2 — Agent Runtime & Chat `[x]`
 
-- [ ] P2-01 Ollama 클라이언트 (/api/chat 스트리밍 + usage + 에러 분류)
-- [ ] P2-02 런타임 타입 + 훅 레지스트리 + 도구 레지스트리
-- [ ] P2-03 FortressAgent 루프 (턴 반복/큐/재시도/취소)
-- [ ] P2-04 시스템 프롬프트 섹션 빌더 + diff
-- [ ] P2-05 읽기 도구: read/ls/grep/find + 출력 절단
-- [ ] P2-06 변경 도구: write/edit + shell + web_search
-- [ ] P2-07 useChat 훅
-- [ ] P2-08 ChatTab 실동작 연결 (도구 카드/컨텍스트 게이지 포함)
-- [ ] P2-09 에러 처리/재시도 UI
+- [x] P2-01 Ollama 클라이언트 (/api/chat 스트리밍 + usage + 에러 분류)
+- [x] P2-02 런타임 타입 + 훅 레지스트리 + 도구 레지스트리
+- [x] P2-03 FortressAgent 루프 (턴 반복/큐/재시도/취소)
+- [x] P2-04 시스템 프롬프트 섹션 빌더 + diff
+- [x] P2-05 읽기 도구: read/ls/grep/find + 출력 절단
+- [x] P2-06 변경 도구: write/edit + shell + web_search
+- [x] P2-07 useChat 훅
+- [x] P2-08 ChatTab 실동작 연결 (도구 카드/컨텍스트 게이지 포함)
+- [x] P2-09 에러 처리/재시도 UI
 
 ## Phase 3 — Skills & AGENTS.md Loader `[ ]`
 

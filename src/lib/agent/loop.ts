@@ -1,0 +1,442 @@
+import {
+  type AgentEvent,
+  type AgentMessage,
+  type AgentTool,
+  type AgentToolCall,
+  type AgentToolResult,
+  type TokenUsage,
+} from '@/lib/agent/types';
+import type { AgentHooks } from '@/lib/agent/hooks';
+import type { MessageQueue } from '@/lib/agent/queue';
+import { type RetryPolicy, withRetry } from '@/lib/agent/retry';
+import {
+  OllamaContextOverflowError,
+  streamChat as defaultStreamChat,
+} from '@/lib/llm/ollamaClient';
+import {
+  mapAgentMessagesToOllama,
+  mapAgentToolsToOllama,
+} from '@/lib/llm/messageMapper';
+
+export interface LoopAgentConfig {
+  model: string;
+  systemPrompt?: string;
+  temperature?: number;
+  options?: Record<string, unknown>;
+}
+
+export interface RunAgentLoopOptions {
+  agent: LoopAgentConfig;
+  messages: AgentMessage[];
+  tools: AgentTool[];
+  hooks?: AgentHooks;
+  signal: AbortSignal;
+  steeringQueue: MessageQueue;
+  followUpQueue: MessageQueue;
+  emit: (event: AgentEvent) => void;
+  baseUrl?: string;
+  retryPolicy?: Partial<RetryPolicy>;
+  streamChatFn?: typeof defaultStreamChat;
+  onRetry?: (attempt: number, maxRetries: number, error: unknown) => void;
+}
+
+export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentMessage[]> {
+  const {
+    agent,
+    tools,
+    hooks = {},
+    signal,
+    steeringQueue,
+    followUpQueue,
+    emit,
+    baseUrl,
+    retryPolicy,
+    streamChatFn = defaultStreamChat,
+    onRetry,
+  } = options;
+
+  // Clone messages so caller's original array isn't directly mutated
+  const messages: AgentMessage[] = [...options.messages];
+  const toolMap = new Map<string, AgentTool>();
+  for (const t of tools) {
+    toolMap.set(t.name, t);
+  }
+
+  emit({ type: 'agent_start' });
+
+  let turnIndex = 0;
+  let hasFollowUp = true;
+
+  while (hasFollowUp && !signal.aborted) {
+    while (!signal.aborted) {
+      turnIndex++;
+
+      // 1. transformContext hook
+      let activeMessages = messages;
+      if (hooks.transformContext) {
+        activeMessages = await hooks.transformContext(messages, signal);
+      }
+
+      emit({ type: 'turn_start' });
+
+      // 2. Prepare Ollama request
+      const ollamaMessages = mapAgentMessagesToOllama(activeMessages);
+      const ollamaTools = mapAgentToolsToOllama(tools);
+
+      let assistantContent = '';
+      let assistantToolCalls: AgentToolCall[] = [];
+      let finalUsage: TokenUsage | undefined;
+      let stopReason: 'stop' | 'toolUse' | 'length' | 'aborted' | 'error' = 'stop';
+      let errorMessage: string | undefined;
+
+      // Stream assistant response with retry and context overflow recovery
+      let overflowRetried = false;
+
+      const executeStreamAttempt = async (): Promise<void> => {
+        while (true) {
+          try {
+            await withRetry(
+              async (attempt) => {
+                if (attempt > 0) {
+                  assistantContent = '';
+                  assistantToolCalls = [];
+                }
+
+                const stream = streamChatFn(
+                  {
+                    baseUrl,
+                    model: agent.model,
+                    messages: ollamaMessages,
+                    tools: ollamaTools.length > 0 ? ollamaTools : undefined,
+                    temperature: agent.temperature,
+                    options: agent.options,
+                  },
+                  signal,
+                );
+
+                for await (const chunk of stream) {
+                  if (signal.aborted) {
+                    stopReason = 'aborted';
+                    break;
+                  }
+
+                  if (chunk.content) {
+                    assistantContent += chunk.content;
+                  }
+
+                  if (chunk.toolCalls && chunk.toolCalls.length > 0) {
+                    for (const tc of chunk.toolCalls) {
+                      const existing = assistantToolCalls.find(
+                        (call) => call.name === tc.function.name,
+                      );
+                      if (existing) {
+                        existing.arguments = tc.function.arguments;
+                      } else {
+                        assistantToolCalls.push({
+                          id: `call_${Math.random().toString(36).slice(2, 11)}`,
+                          name: tc.function.name,
+                          arguments: tc.function.arguments,
+                        });
+                      }
+                    }
+                  }
+
+                  if (chunk.usage) {
+                    finalUsage = chunk.usage;
+                  }
+
+                  const partialAssistant: AgentMessage = {
+                    role: 'assistant',
+                    content: assistantContent,
+                    toolCalls:
+                      assistantToolCalls.length > 0
+                        ? [...assistantToolCalls]
+                        : undefined,
+                    usage: finalUsage,
+                    stopReason: 'stop',
+                  };
+
+                  emit({
+                    type: 'message_update',
+                    message: partialAssistant,
+                    delta: chunk.content || '',
+                  });
+                }
+              },
+              retryPolicy,
+              signal,
+              onRetry,
+            );
+
+            // Successfully finished streaming
+            break;
+          } catch (err: unknown) {
+            if (signal.aborted) {
+              stopReason = 'aborted';
+              break;
+            }
+
+            // Check for context overflow hook
+            if (
+              err instanceof OllamaContextOverflowError &&
+              !overflowRetried &&
+              hooks.onContextOverflow
+            ) {
+              overflowRetried = true;
+              const compacted = await hooks.onContextOverflow(messages, signal);
+              if (compacted && compacted.length > 0) {
+                // Replace messages and retry turn
+                messages.length = 0;
+                messages.push(...compacted);
+                const newOllamaMsgs = mapAgentMessagesToOllama(messages);
+                ollamaMessages.length = 0;
+                ollamaMessages.push(...newOllamaMsgs);
+                assistantContent = '';
+                assistantToolCalls = [];
+                continue;
+              }
+            }
+
+            stopReason = 'error';
+            errorMessage = err instanceof Error ? err.message : String(err);
+            emit({
+              type: 'error',
+              error: err instanceof Error ? err : new Error(String(err)),
+            });
+            throw err;
+          }
+        }
+      };
+
+      try {
+        await executeStreamAttempt();
+      } catch {
+        // Stream failed, assistant message recorded as error if not aborted
+        if (signal.aborted) {
+          stopReason = 'aborted';
+        }
+      }
+
+      if (errorMessage) {
+        stopReason = 'error';
+      } else if (signal.aborted) {
+        stopReason = 'aborted';
+      } else if (assistantToolCalls.length > 0) {
+        stopReason = 'toolUse';
+      }
+
+      const completedAssistantMessage: AgentMessage = {
+        role: 'assistant',
+        content: assistantContent,
+        toolCalls:
+          assistantToolCalls.length > 0 ? assistantToolCalls : undefined,
+        usage: finalUsage,
+        stopReason,
+        errorMessage,
+      };
+
+      messages.push(completedAssistantMessage);
+      emit({ type: 'message_end', message: completedAssistantMessage });
+
+      // If aborted or error, break turn loop
+      if (stopReason === 'aborted' || stopReason === 'error') {
+        break;
+      }
+
+      // If no tool calls, check steering or finish turns
+      if (!assistantToolCalls || assistantToolCalls.length === 0) {
+        const steered = steeringQueue.dequeue();
+        if (steered) {
+          const steerMsg: AgentMessage = { role: 'user', content: steered };
+          messages.push(steerMsg);
+          continue;
+        }
+        break;
+      }
+
+      // 3. Execute tool calls
+      const toolResults: AgentMessage[] = [];
+      const rawResults: AgentToolResult[] = [];
+
+      // Determine execution mode (sequential if any tool requires sequential)
+      const hasSequential = assistantToolCalls.some((tc) => {
+        const tool = toolMap.get(tc.name);
+        return tool?.executionMode === 'sequential';
+      });
+
+      const executeSingleTool = async (
+        tc: AgentToolCall,
+      ): Promise<{ toolResultMsg: AgentMessage; rawResult: AgentToolResult }> => {
+        emit({
+          type: 'tool_execution_start',
+          toolCallId: tc.id,
+          toolName: tc.name,
+          args: tc.arguments,
+        });
+
+        const tool = toolMap.get(tc.name);
+        let result: AgentToolResult;
+
+        if (!tool) {
+          result = {
+            content: `Tool '${tc.name}' not found or not enabled`,
+            isError: true,
+          };
+        } else {
+          // Validate parameters schema
+          const parseResult = tool.parameters.safeParse(tc.arguments);
+          if (!parseResult.success) {
+            result = {
+              content: `Invalid parameters for tool '${tc.name}': ${parseResult.error.message}`,
+              isError: true,
+            };
+          } else {
+            // Check beforeToolCall hook
+            let blockDecision: { block?: boolean; reason?: string; terminate?: boolean } | undefined;
+            if (hooks.beforeToolCall) {
+              blockDecision = await hooks.beforeToolCall(
+                {
+                  toolCallId: tc.id,
+                  toolName: tc.name,
+                  arguments: tc.arguments,
+                  risk: tool.risk,
+                },
+                signal,
+              );
+            }
+
+            if (blockDecision?.block) {
+              result = {
+                content:
+                  blockDecision.reason ||
+                  `Tool execution of '${tc.name}' was blocked by approval policy.`,
+                isError: true,
+                terminate: blockDecision.terminate,
+              };
+            } else {
+              try {
+                result = await tool.execute(
+                  tc.id,
+                  parseResult.data,
+                  signal,
+                  (partial) => {
+                    emit({
+                      type: 'tool_execution_update',
+                      toolCallId: tc.id,
+                      partial,
+                    });
+                  },
+                );
+              } catch (execErr: unknown) {
+                result = {
+                  content:
+                    execErr instanceof Error
+                      ? execErr.message
+                      : String(execErr),
+                  isError: true,
+                };
+              }
+            }
+          }
+
+          // Check afterToolCall hook (e.g. truncation, normalization)
+          if (hooks.afterToolCall) {
+            const afterResult = await hooks.afterToolCall(
+              {
+                toolCallId: tc.id,
+                toolName: tc.name,
+                arguments: tc.arguments,
+                result,
+              },
+              signal,
+            );
+            if (afterResult) {
+              result = { ...result, ...afterResult };
+            }
+          }
+        }
+
+        const isError = Boolean(result.isError);
+        emit({
+          type: 'tool_execution_end',
+          toolCallId: tc.id,
+          result,
+          isError,
+        });
+
+        const toolResultMsg: AgentMessage = {
+          role: 'toolResult',
+          toolCallId: tc.id,
+          toolName: tc.name,
+          content: result.content,
+          isError,
+        };
+
+        return { toolResultMsg, rawResult: result };
+      };
+
+      if (hasSequential) {
+        for (const tc of assistantToolCalls) {
+          if (signal.aborted) break;
+          const { toolResultMsg, rawResult } = await executeSingleTool(tc);
+          toolResults.push(toolResultMsg);
+          rawResults.push(rawResult);
+        }
+      } else {
+        // Parallel execution, maintaining exact order of assistantToolCalls
+        const execPromises = assistantToolCalls.map((tc) => executeSingleTool(tc));
+        const executed = await Promise.all(execPromises);
+        for (const item of executed) {
+          toolResults.push(item.toolResultMsg);
+          rawResults.push(item.rawResult);
+        }
+      }
+
+      // Append all tool results to messages
+      messages.push(...toolResults);
+
+      emit({
+        type: 'turn_end',
+        message: completedAssistantMessage,
+        toolResults,
+      });
+
+      // Check terminate conditions
+      const allTerminated =
+        rawResults.length > 0 && rawResults.every((r) => r.terminate === true);
+      if (allTerminated) {
+        break;
+      }
+
+      if (hooks.shouldStopAfterTurn) {
+        const stop = await hooks.shouldStopAfterTurn({
+          messages,
+          turnIndex,
+        });
+        if (stop) {
+          break;
+        }
+      }
+
+      // Check steering queue
+      const steered = steeringQueue.dequeue();
+      if (steered) {
+        messages.push({ role: 'user', content: steered });
+      }
+    }
+
+    // Check followUp queue
+    if (!signal.aborted && !followUpQueue.isEmpty()) {
+      const nextFollowUp = followUpQueue.dequeue();
+      if (nextFollowUp) {
+        messages.push({ role: 'user', content: nextFollowUp });
+        hasFollowUp = true;
+        continue;
+      }
+    }
+    hasFollowUp = false;
+  }
+
+  emit({ type: 'agent_end', messages });
+  return messages;
+}
