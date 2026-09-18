@@ -13,7 +13,10 @@ import { ChatSessionsProvider } from '@/lib/context/ChatSessionsContext';
 import { TrustWorkspaceDialog } from '@/components/workspace/TrustWorkspaceDialog';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
 
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+
 function WorkspaceContent() {
+  useKeyboardShortcuts();
   const { activeView, setActiveView } = useSidePanel();
   const { tabs, openTab } = useWorkspaceTabs();
   const sidePanelRef = useRef<ImperativePanelHandle | null>(null);

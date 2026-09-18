@@ -28,8 +28,10 @@ pnpm typecheck
 pnpm test
 ```
 
-## 📖 문서 및 아키텍처
+## 📖 문서 및 가이드
 
+- [사용자 가이드 (User Guide)](./Docs/UserGuide.md)
+- [품질 검증 체크리스트 (QA Checklist)](./Docs/QA-Checklist.md)
 - [아키텍처 설계서 (Architecture)](./Docs/Architecture.md)
 - [단계별 구현 계획서 (Implementation Plan)](./Docs/ImplementationPlan.md)
 - [진행상황 트래커 (TODO)](./Docs/TODO.md)
