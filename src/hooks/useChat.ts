@@ -6,6 +6,7 @@ import type { ContextFileItem } from '@/lib/skills/contextFiles';
 import { FortressAgent } from '@/lib/agent/agent';
 import { getBuiltinTools } from '@/lib/tools/registry';
 import { buildSystemPromptSections, formatSystemPrompt } from '@/lib/prompt/buildSystemPrompt';
+import { getVisualizationPromptSection } from '@/lib/prompt/visualizationSection';
 import { diffSections } from '@/lib/prompt/diffSections';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
 import type { streamChat } from '@/lib/llm/ollamaClient';
@@ -17,6 +18,8 @@ import {
 import { setActiveCompactionSession } from '@/lib/compaction/register';
 import { resolveCompactionSettings } from '@/lib/compaction/settings';
 import { prepareCompaction, executeCompact } from '@/lib/compaction/compact';
+import { approvalBus } from '@/lib/approval/approvalBus';
+import { setActiveApprovalMode } from '@/lib/approval/register';
 import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
 import { buildLlmContext } from '@/lib/db/buildContext';
 
@@ -108,6 +111,7 @@ export function useChat(
       tools,
       contextFiles: rawContextFiles,
       skills: filteredSkills,
+      visualization: getVisualizationPromptSection(),
       cwd: options.cwd,
     });
   }, [agentConfig.systemPrompt, tools, rawContextFiles, filteredSkills, options.cwd]);
@@ -241,12 +245,18 @@ export function useChat(
 
     return () => {
       cancelled = true;
+      approvalBus.abortAll();
       if (agentRef.current) {
         agentRef.current.abort();
         agentRef.current = null;
       }
     };
   }, [sessionId, createAgentInstance, persistence]);
+
+  // Sync active approval mode
+  useEffect(() => {
+    setActiveApprovalMode(agentConfig.approvalMode);
+  }, [agentConfig.approvalMode]);
 
   // Inject diff updates when system prompt sections change dynamically
   const prevSectionsRef = useRef<Record<string, string>>(currentSections);
@@ -308,6 +318,7 @@ export function useChat(
   }, []);
 
   const stop = useCallback(() => {
+    approvalBus.abortAll();
     if (agentRef.current) {
       agentRef.current.abort();
     }

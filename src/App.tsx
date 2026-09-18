@@ -6,11 +6,13 @@ import SettingsModel from '@/pages/Settings/SettingsModel';
 import SettingsApproval from '@/pages/Settings/SettingsApproval';
 
 import { ThemeProvider } from '@/lib/context/ThemeContext';
+import { SettingsProvider } from '@/lib/context/SettingsContext';
 
 export default function App() {
   return (
     <ThemeProvider>
-      <HashRouter>
+      <SettingsProvider>
+        <HashRouter>
         <Routes>
           <Route path="/" element={<Workspace />} />
           <Route path="/settings" element={<SettingsLayout />}>
@@ -22,6 +24,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </HashRouter>
-    </ThemeProvider>
-  );
+    </SettingsProvider>
+  </ThemeProvider>
+);
 }

@@ -72,15 +72,15 @@
 - [x] P4-08 compact() + 훅 등록 + 오버플로우 복구
 - [x] P4-09 압축 UI (배너/게이지/`/compact`)
 
-## Phase 5 — Visualization & HITL `[ ]`
+## Phase 5 — Visualization & HITL `[x]`
 
-- [ ] P5-01 parseVisualBlocks
-- [ ] P5-02 MermaidViewer
-- [ ] P5-03 RechartsViewer + JSON DSL
-- [ ] P5-04 시각화 지침 프롬프트 섹션
-- [ ] P5-05 위험도 분류 + 승인 버스
-- [ ] P5-06 승인 훅 등록 + ApprovalDialog
-- [ ] P5-07 approvalMode 설정 연동
+- [x] P5-01 parseVisualBlocks
+- [x] P5-02 MermaidViewer
+- [x] P5-03 RechartsViewer + JSON DSL
+- [x] P5-04 시각화 지침 프롬프트 섹션
+- [x] P5-05 위험도 분류 + 승인 버스
+- [x] P5-06 승인 훅 등록 + ApprovalDialog
+- [x] P5-07 approvalMode 설정 연동
 
 ## Phase 6 — Agent Management UI `[ ]`
 

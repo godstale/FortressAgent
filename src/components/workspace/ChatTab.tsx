@@ -6,6 +6,7 @@ import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { ContextGauge } from '@/components/chat/ContextGauge';
 import { ErrorBanner } from '@/components/chat/ErrorBanner';
+import { ApprovalDialog } from '@/components/chat/ApprovalDialog';
 
 export interface ChatTabProps {
   tab: WorkspaceTab;
@@ -61,6 +62,9 @@ export function ChatTab({ tab }: ChatTabProps) {
           isStreaming={isStreaming}
         />
       </div>
+
+      {/* Human-in-the-loop approval dialog */}
+      <ApprovalDialog />
     </div>
   );
 }

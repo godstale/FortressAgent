@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm';
 import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain } from 'lucide-react';
 import type { AgentMessage } from '@/lib/agent/types';
 import { ToolCallCard } from './ToolCallCard';
+import { MermaidViewer } from './MermaidViewer';
+import { RechartsViewer } from './RechartsViewer';
 
 export interface MessageBubbleProps {
   message: AgentMessage;
@@ -106,7 +108,29 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
         {/* Markdown content */}
         {message.content ? (
           <div className="relative text-sm text-foreground leading-relaxed prose prose-sm dark:prose-invert max-w-none break-words">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                code({ className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  const language = match ? match[1].toLowerCase() : '';
+                  const codeString = String(children).replace(/\n$/, '');
+
+                  if (language === 'mermaid') {
+                    return <MermaidViewer code={codeString} />;
+                  }
+                  if (language === 'recharts') {
+                    return <RechartsViewer code={codeString} />;
+                  }
+
+                  return (
+                    <code className={className} {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+              }}
+            >
               {message.content}
             </ReactMarkdown>
             {isStreaming && (
