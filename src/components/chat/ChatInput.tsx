@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
-import { Send, Square, CornerDownLeft, Puzzle, AlertCircle } from 'lucide-react';
+import { useState, useRef, useEffect, useMemo, useContext, type KeyboardEvent } from 'react';
+import { Send, Square, CornerDownLeft, Puzzle, AlertCircle, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { SkillManifest } from '@/lib/types/skill';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
+import { AgentsContext } from '@/lib/context/AgentsContext';
 import { resolveSkillInvocation, parseSkillCommand } from '@/lib/skills/invokeSkill';
 
 export interface ChatInputProps {
@@ -13,6 +14,9 @@ export interface ChatInputProps {
   isStreaming: boolean;
   placeholder?: string;
   skills?: SkillManifest[];
+  selectedAgentId?: string;
+  onSelectAgent?: (agentId: string) => void;
+  isAgentLocked?: boolean;
 }
 
 export function ChatInput({
@@ -23,11 +27,21 @@ export function ChatInput({
   isStreaming,
   placeholder,
   skills: skillsProp,
+  selectedAgentId,
+  onSelectAgent,
+  isAgentLocked,
 }: ChatInputProps) {
   const safeSkillsCtx = useSafeSkills();
   const availableSkills = useMemo(() => {
     return skillsProp ?? safeSkillsCtx?.skills ?? [];
   }, [skillsProp, safeSkillsCtx?.skills]);
+
+  const agentsCtx = useContext(AgentsContext);
+  const currentAgent = useMemo(() => {
+    if (!agentsCtx) return null;
+    const targetId = selectedAgentId || agentsCtx.defaultAgent.id;
+    return agentsCtx.getAgent(targetId) || agentsCtx.defaultAgent;
+  }, [agentsCtx, selectedAgentId]);
 
   const [text, setText] = useState('');
   const [autocompleteDismissed, setAutocompleteDismissed] = useState(false);
@@ -238,6 +252,36 @@ export function ChatInput({
         <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-destructive bg-destructive/10 border-b border-destructive/20 rounded-t-xl">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>{errorMessage}</span>
+        </div>
+      )}
+
+      {/* Agent Selector / Lock Bar */}
+      {agentsCtx && agentsCtx.agents.length > 0 && (
+        <div className="flex items-center justify-between px-3.5 pt-2 pb-1 text-[11px] text-muted-foreground border-b border-border/30">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Bot className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="text-[10px] uppercase font-mono tracking-wider text-muted-foreground/70 shrink-0">
+              에이전트:
+            </span>
+            {isAgentLocked ? (
+              <span className="font-semibold text-foreground truncate">
+                {currentAgent?.name} ({currentAgent?.model})
+              </span>
+            ) : (
+              <select
+                value={currentAgent?.id}
+                onChange={(e) => onSelectAgent?.(e.target.value)}
+                className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none pr-2 focus:ring-0 text-xs"
+                title="대화할 에이전트 선택"
+              >
+                {agentsCtx.agents.map((a) => (
+                  <option key={a.id} value={a.id} className="bg-card text-foreground">
+                    {a.name} ({a.model}) {a.isDefault ? '★' : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
       )}
 

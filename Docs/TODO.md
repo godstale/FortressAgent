@@ -82,14 +82,14 @@
 - [x] P5-06 승인 훅 등록 + ApprovalDialog
 - [x] P5-07 approvalMode 설정 연동
 
-## Phase 6 — Agent Management UI `[ ]`
+## Phase 6 — Agent Management UI `[x]`
 
-- [ ] P6-01 AgentsContext
-- [ ] P6-02 AgentListPanel 실동작
-- [ ] P6-03 AgentEditorForm / AgentEditorTab
-- [ ] P6-04 Agent 삭제 확인 + 기본 승격
-- [ ] P6-05 ChatTab에서 Agent 선택/전환
-- [ ] P6-06 Agent 사용 통계(축소 버전)
+- [x] P6-01 AgentsContext
+- [x] P6-02 AgentListPanel 실동작
+- [x] P6-03 AgentEditorForm / AgentEditorTab
+- [x] P6-04 Agent 삭제 확인 + 기본 승격
+- [x] P6-05 ChatTab에서 Agent 선택/전환
+- [x] P6-06 Agent 사용 통계(축소 버전)
 
 ## Phase 7 — Polish & QA `[ ]`
 

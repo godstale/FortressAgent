@@ -22,7 +22,7 @@ import { ChatTab } from '@/components/workspace/ChatTab';
 import { EditorTab } from '@/components/workspace/EditorTab';
 import { ImageViewerTab } from '@/components/workspace/ImageViewerTab';
 import { SkillViewerTab } from '@/components/workspace/SkillViewerTab';
-import { TabPlaceholder } from '@/components/workspace/TabPlaceholder';
+import { AgentEditorTab } from '@/components/workspace/AgentEditorTab';
 import { cn } from '@/lib/utils';
 
 const TAB_ICONS: Record<WorkspaceTabType, LucideIcon> = {
@@ -165,7 +165,7 @@ export function CenterWorkspace() {
                 {tab.type === 'chat' && <ChatTab tab={tab} />}
                 {tab.type === 'editor' && <EditorTab tab={tab} />}
                 {tab.type === 'image-viewer' && <ImageViewerTab tab={tab} />}
-                {tab.type === 'agent-editor' && <TabPlaceholder tab={tab} />}
+                {tab.type === 'agent-editor' && <AgentEditorTab tab={tab} />}
                 {tab.type === 'skill-viewer' && <SkillViewerTab tab={tab} />}
               </div>
             );

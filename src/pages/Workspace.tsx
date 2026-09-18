@@ -8,6 +8,7 @@ import { SidePanelProvider, useSidePanel } from '@/lib/context/SidePanelContext'
 import { WorkspaceTabsProvider, useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { WorkspaceProvider } from '@/lib/context/WorkspaceContext';
 import { SkillsProvider } from '@/lib/context/SkillsContext';
+import { AgentsProvider } from '@/lib/context/AgentsContext';
 import { ChatSessionsProvider } from '@/lib/context/ChatSessionsContext';
 import { TrustWorkspaceDialog } from '@/components/workspace/TrustWorkspaceDialog';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
@@ -62,14 +63,16 @@ export function Workspace() {
   return (
     <WorkspaceProvider>
       <SkillsProvider>
-        <ChatSessionsProvider>
-          <WorkspaceTabsProvider>
-            <SidePanelProvider>
-              <WorkspaceContent />
-              <TrustWorkspaceDialog />
-            </SidePanelProvider>
-          </WorkspaceTabsProvider>
-        </ChatSessionsProvider>
+        <AgentsProvider>
+          <ChatSessionsProvider>
+            <WorkspaceTabsProvider>
+              <SidePanelProvider>
+                <WorkspaceContent />
+                <TrustWorkspaceDialog />
+              </SidePanelProvider>
+            </WorkspaceTabsProvider>
+          </ChatSessionsProvider>
+        </AgentsProvider>
       </SkillsProvider>
     </WorkspaceProvider>
   );

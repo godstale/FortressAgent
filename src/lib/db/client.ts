@@ -56,7 +56,7 @@ export const MIGRATION_STATEMENTS: string[] = [
   )`,
 ];
 
-class MemorySqlFallback implements SqlDatabase {
+export class MemorySqlFallback implements SqlDatabase {
   private tables = new Map<string, Map<string, Record<string, unknown>>>();
 
   constructor() {
