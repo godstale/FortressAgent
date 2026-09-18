@@ -68,7 +68,7 @@
 
 ## P0-05. 기본 폴더 구조 생성
 
-- **소유 파일**: `src/lib/context/.gitkeep`, `src/lib/graph/.gitkeep`, `src/lib/llm/.gitkeep`, `src/lib/tools/.gitkeep`, `src/lib/skills-loader/.gitkeep`, `src/lib/db/.gitkeep`, `src/lib/tokens/.gitkeep`, `src/lib/markdown/.gitkeep`, `src/lib/types/.gitkeep`, `src/lib/utils/.gitkeep`(이미 P0-03에서 `utils.ts`가 생겼다면 `.gitkeep` 생략), `src/components/layout/.gitkeep`, `src/components/sidepanel/.gitkeep`, `src/components/explorer/.gitkeep`, `src/components/chatsessions/.gitkeep`, `src/components/agents/.gitkeep`, `src/components/skills/.gitkeep`, `src/components/workspace/.gitkeep`, `src/components/chat/.gitkeep`, `src/pages/Settings/.gitkeep`, `src/hooks/.gitkeep`
+- **소유 파일**: `src/lib/context/.gitkeep`, `src/lib/agent/.gitkeep`, `src/lib/llm/.gitkeep`, `src/lib/prompt/.gitkeep`, `src/lib/tools/.gitkeep`, `src/lib/skills/.gitkeep`, `src/lib/compaction/.gitkeep`, `src/lib/approval/.gitkeep`, `src/lib/db/.gitkeep`, `src/lib/markdown/.gitkeep`, `src/lib/types/.gitkeep`, `src/lib/utils/.gitkeep`(이미 P0-03에서 `utils.ts`가 생겼다면 `.gitkeep` 생략), `src/components/layout/.gitkeep`, `src/components/sidepanel/.gitkeep`, `src/components/explorer/.gitkeep`, `src/components/chatsessions/.gitkeep`, `src/components/agents/.gitkeep`, `src/components/skills/.gitkeep`, `src/components/workspace/.gitkeep`, `src/components/chat/.gitkeep`, `src/pages/Settings/.gitkeep`, `src/hooks/.gitkeep`
 - **작업 내용**: `Docs/Architecture.md` §2의 최종 디렉터리 트리에 나오는 폴더 중 아직 존재하지 않는 것을 빈 `.gitkeep`으로 미리 만들어 둔다 (git은 빈 폴더를 추적하지 않으므로). 실제 코드 파일은 각 폴더를 채우는 Phase가 추가하면서 `.gitkeep`을 지운다.
 - **확인 방법**: `git status`에 새 폴더들이 보이는지 확인.
 
@@ -88,6 +88,21 @@
 - **작업 내용**: 로컬에서 `http://127.0.0.1:11434/api/tags`를 호출해 Ollama 서버가 떠 있는지, 설치된 모델 목록이 무엇인지 콘솔에 출력하는 간단한 Node 스크립트를 작성한다. `package.json`에 `"check:ollama": "node scripts/check-ollama.mjs"` 스크립트 추가(이 필드 추가만 담당, P0-04의 다른 스크립트는 건드리지 않음).
 - **확인 방법**: `pnpm check:ollama` 실행 시 Ollama가 켜져 있으면 모델 목록이, 꺼져 있으면 친절한 에러 메시지가 출력되는지 확인. (이 스크립트는 Phase 2 개발자의 로컬 확인용 도구이며, 앱 자체 기능은 아님.)
 
+## P0-08. 에이전트 루프 스파이크 (버리는 코드)
+
+- **소유 파일**: `scripts/spike-agent-loop.mjs`(신규), `Docs/spikes/ollama-tool-calling.md`(신규)
+- **배경**: Phase 2~5 전체가 **로컬 모델의 tool-calling이 실제로 동작한다**는 전제 위에 서 있습니다. 이 전제는 모델마다 편차가 크므로, UI를 다 만든 뒤 Phase 2에서 확인하면 너무 늦습니다. Phase 0에서 20~30분짜리 스파이크로 먼저 확인합니다.
+- **작업 내용**: React/Tauri 없이 Node 스크립트만으로 최소 루프를 구현합니다.
+  1. `POST /api/chat`에 `tools`로 도구 2개(`list_files`, `read_file`)를 선언하고 `stream: true`로 호출.
+  2. `tool_calls`가 오면 실제로 실행하고 결과를 `{role:"tool"}`로 되돌려 보낸 뒤 다시 호출 — **최소 3턴**을 반복.
+  3. 각 응답의 `prompt_eval_count`/`eval_count`를 출력해 usage 실측이 실제로 오는지 확인.
+  4. 후보 모델 3개 이상(예: `qwen2.5-coder:7b`, `llama3.1:8b`, `mistral-nemo`)에 대해 반복하고 결과를 표로 기록.
+- **기록할 것** (`Docs/spikes/ollama-tool-calling.md`):
+  | 모델 | 단일 도구 호출 | 멀티턴(3턴) | 병렬 호출 | usage 보고 | 비고 |
+  - 실패하는 모델은 **무엇이 어떻게 실패하는지**(도구를 아예 안 부름 / 인자 JSON이 깨짐 / 2턴째부터 루프에 빠짐)를 적을 것.
+- **스파이크 실패 시**: `Docs/TODO.md` 이슈에 기록하고, Phase 2 진입 전에 폴백 전략을 결정합니다 — ① 지원 모델 화이트리스트만 노출, ② 한 번에 도구 1개만 바인딩, ③ tool-calling 대신 텍스트 프로토콜(모델이 정해진 형식으로 출력 → 파서가 도구 호출로 변환).
+- **확인 방법**: 문서에 최소 3개 모델의 결과가 표로 기록되어 있고, Phase 2에서 기본값으로 쓸 모델이 하나 정해져 있을 것. **스크립트는 스파이크용이므로 lint/test 대상에서 제외하고, Phase 2 완료 후 삭제해도 무방합니다**(문서는 남깁니다).
+
 ---
 
 ## Phase 0 완료 조건
@@ -95,5 +110,6 @@
 - [ ] `pnpm tauri dev`로 빈 네이티브 창이 정상적으로 뜬다.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`가 모두 에러 없이 통과한다.
 - [ ] `Docs/Architecture.md` §2의 폴더 구조가 (내용은 비어 있더라도) 전부 존재한다.
+- [ ] `Docs/spikes/ollama-tool-calling.md`에 최소 3개 모델의 tool-calling 검증 결과가 기록되어 있고, Phase 2 기본 모델이 정해져 있다.
 - [ ] git 초기 커밋이 완료되어 있다.
 - [ ] `Docs/TODO.md`의 Phase 0 항목이 모두 `[x]`다.

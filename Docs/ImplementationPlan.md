@@ -14,31 +14,40 @@
 
 각 Phase는 앱의 한 "레이어"를 완성합니다. Phase는 순서대로 의존하므로, 이전 Phase의 작업 ID들이 `[x]` 완료되기 전에 다음 Phase를 시작하지 않는 것이 원칙입니다. 단, 같은 Phase 내의 작업 ID들은 "소유 파일"이 겹치지 않는 한 여러 에이전트가 병렬로 진행할 수 있습니다.
 
-| Phase | 이름 | 목표 | 문서 |
-| --- | --- | --- | --- |
-| 0 | Foundation | 레포/툴체인/기본 골격 셋업 | [Phase0-Foundation.md](./phases/Phase0-Foundation.md) |
-| 1 | Shell & Layout UI | VivoStudio 스타일 좌측 사이드바/패널/우측 탭 UI 골격 (LLM 미연동, placeholder) | [Phase1-Shell-UI.md](./phases/Phase1-Shell-UI.md) |
-| 2 | LLM Engine | LangGraph.js + Ollama 연동, 실제 채팅 동작(스트리밍, 기본 도구 호출) | [Phase2-LLM-Engine.md](./phases/Phase2-LLM-Engine.md) |
-| 3 | Skills & AGENTS.md Loader | 워크스페이스 `AGENTS.md`/`.agents/skills` 로더, 스킬 샌드박스 | [Phase3-Skills-Agents-Loader.md](./phases/Phase3-Skills-Agents-Loader.md) |
-| 4 | Session Storage & Compression | SQLite 세션/메시지 저장, 탭 영속화, 컨텍스트 75% 자동 압축 | [Phase4-Session-Storage.md](./phases/Phase4-Session-Storage.md) |
-| 5 | Visualization & HITL | Mermaid/Recharts 렌더링, 승인 모드(Human-in-the-loop) | [Phase5-Visualization-HITL.md](./phases/Phase5-Visualization-HITL.md) |
-| 6 | Agent Management UI | 에이전트(페르소나) CRUD UI, 채팅에서 에이전트 선택 | [Phase6-Agent-Management-UI.md](./phases/Phase6-Agent-Management-UI.md) |
-| 7 | Polish & QA | 단축키, 에러 처리, 패키징, 수동 QA, 문서화 | [Phase7-Polish-QA.md](./phases/Phase7-Polish-QA.md) |
+| Phase | 이름                         | 목표                                                                           | 문서                                                                      |
+| ----- | ---------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| 0     | Foundation                   | 레포/툴체인/기본 골격 셋업 + **에이전트 루프 스파이크**                        | [Phase0-Foundation.md](./phases/Phase0-Foundation.md)                     |
+| 1     | Shell & Layout UI            | VivoStudio 스타일 좌측 사이드바/패널/우측 탭 UI 골격 (LLM 미연동, placeholder) | [Phase1-Shell-UI.md](./phases/Phase1-Shell-UI.md)                         |
+| 2     | Agent Runtime & Chat         | 자체 에이전트 루프 + Ollama 직접 연동, 내장 도구 8종, 실제 채팅 동작           | [Phase2-Agent-Runtime.md](./phases/Phase2-Agent-Runtime.md)               |
+| 3     | Skills & AGENTS.md Loader    | 컨텍스트 파일 계층 수집, Agent Skills 표준 스킬 스캔·프롬프트 노출             | [Phase3-Skills-Agents-Loader.md](./phases/Phase3-Skills-Agents-Loader.md) |
+| 4     | Session Storage & Compaction | SQLite 엔트리 저장, 탭 영속화, 컨텍스트 자동 압축                              | [Phase4-Session-Storage.md](./phases/Phase4-Session-Storage.md)           |
+| 5     | Visualization & HITL         | Mermaid/Recharts 렌더링, 승인 모드(Human-in-the-loop)                          | [Phase5-Visualization-HITL.md](./phases/Phase5-Visualization-HITL.md)     |
+| 6     | Agent Management UI          | 에이전트(페르소나) CRUD UI, 채팅에서 에이전트 선택                             | [Phase6-Agent-Management-UI.md](./phases/Phase6-Agent-Management-UI.md)   |
+| 7     | Polish & QA                  | 단축키, 에러 처리, 패키징, 수동 QA, 문서화                                     | [Phase7-Polish-QA.md](./phases/Phase7-Polish-QA.md)                       |
 
 ## 의존성 그래프
 
 ```
 Phase 0 (Foundation)
    └─▶ Phase 1 (Shell & Layout UI)
-           └─▶ Phase 2 (LLM Engine)
-                   ├─▶ Phase 3 (Skills & AGENTS.md Loader)
-                   ├─▶ Phase 4 (Session Storage & Compression)
-                   └─▶ Phase 5 (Visualization & HITL)
+           └─▶ Phase 2 (Agent Runtime & Chat)
+                   ├─▶ Phase 3 (Skills & AGENTS.md Loader)   ┐
+                   ├─▶ Phase 4 (Session Storage & Compaction) ├ 병렬 가능 (§확장점 규약)
+                   └─▶ Phase 5 (Visualization & HITL)         ┘
                            └─▶ Phase 6 (Agent Management UI)   ※ Phase 3, 4 완료 필요 (enabledSkills, Agent 저장)
                                    └─▶ Phase 7 (Polish & QA)
 ```
 
-Phase 3, 4, 5는 Phase 2 완료 후 **병렬 진행 가능**합니다(서로 다른 파일을 소유). Phase 6은 Phase 3(스킬 선택)과 Phase 4(에이전트 저장)의 산출물이 필요하므로 그 둘이 끝난 뒤 시작합니다.
+### Phase 3·4·5 병렬 진행 조건 (중요)
+
+초안은 "서로 다른 파일을 소유하므로 병렬 가능"이라고 했지만 실제로는 `buildGraph.ts` / `agentNode.ts` / `state.ts` / `useChat.ts`를 세 Phase가 모두 수정하는 구조였습니다. `Docs/Architecture.md` §5.0/§5.6의 재설계로 이 충돌을 제거했습니다:
+
+- Phase 2가 `src/lib/agent/hooks.ts`와 `hookRegistry.ts`를 만들고, **이후 아무도 수정하지 않습니다.**
+- Phase 4(압축)는 `src/lib/compaction/register.ts`에서, Phase 5(승인)는 `src/lib/approval/register.ts`에서 **자기 훅만 등록**합니다.
+- Phase 3(스킬)은 런타임을 아예 건드리지 않습니다 — 스킬은 도구가 아니라 시스템 프롬프트 데이터이므로, `buildSystemPrompt()`에 넘길 `skills`/`contextFiles` 배열만 생산합니다.
+- 세 Phase가 공유하는 유일한 파일은 `src/lib/agent/bootstrap.ts`이며 **Phase당 import 한 줄**입니다. 충돌해도 병합이 자명합니다.
+
+이 조건이 깨지는 변경(예: 새 노드/새 공유 상태 도입)을 하려면 먼저 `Docs/TODO.md`의 "이슈" 섹션에 기록하십시오.
 
 ## 완료 기준 (Definition of Done) — 모든 작업 공통
 
@@ -51,4 +60,25 @@ Phase 3, 4, 5는 Phase 2 완료 후 **병렬 진행 가능**합니다(서로 다
 ## 참고 리서치 자료
 
 - 최초 요구사항/기술 리서치: `Docs/FortressPlan.txt`
-- VivoStudio UI 아키텍처 리서치 결과, VivoAcademy 에이전트/채팅 리서치 결과는 `Docs/Architecture.md` §1에 요약되어 있습니다. 원본 소스 코드가 필요하면 `..\VivoStudio`, `..\VivoAcademy` 프로젝트를 직접 참고하되, **코드를 그대로 복사하지 말고 패턴만 재구현**하십시오 (라이선스/의존성 불일치 방지, `AGENTS.md` 참고).
+- VivoStudio UI 아키텍처, VivoAcademy 에이전트/채팅, **pi 에이전트 런타임** 리서치 결과는 `Docs/Architecture.md` §1에 요약되어 있습니다. 원본 소스가 필요하면 `..\VivoStudio`, `..\VivoAcademy`, `..\pi`를 직접 참고하되, **코드를 그대로 복사하지 말고 패턴만 재구현**하십시오 (라이선스/의존성 불일치 방지, `AGENTS.md` 참고).
+- pi에서 특히 자주 참조하게 될 파일:
+  - `packages/agent/src/types.ts` — 루프 설정/훅/도구/이벤트 타입
+  - `packages/agent/src/harness/compaction/compaction.ts` — 압축 알고리즘
+  - `packages/coding-agent/src/core/skills.ts` — 스킬 스캔/검증/프롬프트 노출
+  - `packages/coding-agent/src/core/resource-loader.ts` — AGENTS.md 계층 수집
+  - `packages/coding-agent/src/core/system-prompt.ts` — 섹션 프롬프트 + diff
+  - `packages/coding-agent/src/core/tools/` — 도구 구현과 출력 절단
+  - `packages/coding-agent/docs/{compaction,skills,sessions}.md` — 위 구현의 산문 설명
+
+## 초안 대비 주요 설계 변경 (2026-09-18)
+
+`..\pi` 검토 결과 아래 네 가지를 변경했습니다. 각 항목의 근거는 `Docs/Architecture.md`의 해당 절에 있습니다.
+
+| 변경            | 이전                                                                    | 이후                                                                                                                                    | 근거      |
+| --------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 에이전트 런타임 | LangGraph.js `StateGraph` + `interrupt()` + 자체 `BaseCheckpointSaver`  | 자체 턴 루프 + 콜백 훅, Ollama HTTP 직접 호출                                                                                           | §5.0      |
+| 스킬            | 프롬프트 스킬을 `DynamicTool`로 등록, 코드 스킬은 QuickJS 샌드박스 실행 | Agent Skills 표준 마크다운 스킬만. 프롬프트에 이름·설명·경로만 노출하고 `read`로 로드(프로그레시브 디스클로저). 코드 스킬·샌드박스 폐기 | §6.2, §7  |
+| 도구 세트       | `read_file`/`write_file`/`list_directory`/`web_search`                  | `read`/`write`/`edit`/`ls`/`grep`/`find`/`shell`/`web_search` + 출력 이중 상한 절단                                                     | §12, §5.2 |
+| 세션 저장       | `messages(role, content TEXT)` 정규화 테이블                            | append-only 엔트리(`message`/`compaction`/`custom`) + JSON payload                                                                      | §4.3      |
+
+부수 효과: `@langchain/*` 의존성 제거, `js-tiktoken` 제거(Ollama 실측 usage 사용), `rquickjs` 제거, P4-07(Checkpointer) 작업 삭제.

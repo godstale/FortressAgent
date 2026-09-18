@@ -1,10 +1,12 @@
 # Phase 5 — Visualization & Human-in-the-Loop (HITL)
 
-**목표**: 어시스턴트 응답에 포함된 Mermaid/Recharts 코드펜스를 인라인 시각화로 렌더링하고, 위험한 도구 호출(파일 쓰기/삭제, 코드 스킬 실행) 전에 사용자 승인을 받는 흐름을 완성한다.
+**목표**: 어시스턴트 응답에 포함된 Mermaid/Recharts 코드펜스를 인라인 시각화로 렌더링하고, 위험한 도구 호출(파일 쓰기/편집, 셸 실행) 전에 사용자 승인을 받는 흐름을 완성한다.
 
-**선행 조건**: Phase 2 완료. (Phase 3, 4와 병렬 진행 가능 — 단, P5-05/06은 Phase 3의 `codeSkillTool`이 `riskLevel` 메타데이터를 이미 부여했다고 가정하므로, 코드 스킬 승인까지 검증하려면 Phase 3 완료가 필요. 파일시스템 도구 승인만 검증한다면 Phase 3 없이도 진행 가능.)
+**선행 조건**: Phase 2 완료. (Phase 3, 4와 완전히 병렬 진행 가능 — `Docs/ImplementationPlan.md`의 "병렬 진행 조건" 참고)
 
-**공통 참고**: `Docs/Architecture.md` §8(HITL), §10(시각화).
+**공통 참고**: `Docs/Architecture.md` §5.6(확장점 규약), §8(HITL — **필독**), §10(시각화).
+
+> 📌 **초안 대비 변경**: 승인이 `approvalNode` + LangGraph `interrupt()` + 체크포인터 재개 → **`beforeToolCall` 훅이 Promise를 await**하는 방식으로 바뀌었습니다(§5.0, §8.2). 그 결과 이 Phase는 Phase 4의 산출물에 의존하지 않고, 그래프/루프 파일을 수정하지 않습니다. 코드 스킬 승인은 코드 스킬 자체가 폐기되어 사라졌고, 대신 **`shell` 도구가 `critical` 위험도**로 그 자리를 대신합니다.
 
 ---
 
@@ -27,10 +29,16 @@
   1. `chartDsl.ts`에 최소 DSL 스키마 정의(Zod):
      ```ts
      const ChartDsl = z.object({
-       type: z.enum(["bar", "line", "pie", "area"]),
+       type: z.enum(['bar', 'line', 'pie', 'area']),
        data: z.array(z.record(z.union([z.string(), z.number()]))),
        xKey: z.string().optional(),
-       series: z.array(z.object({ key: z.string(), label: z.string().optional(), color: z.string().optional() })),
+       series: z.array(
+         z.object({
+           key: z.string(),
+           label: z.string().optional(),
+           color: z.string().optional(),
+         }),
+       ),
        title: z.string().optional(),
      });
      ```
@@ -39,34 +47,49 @@
 
 ## P5-04. 시각화 지침 시스템 프롬프트 통합
 
-- **소유 파일**: `src/lib/graph/nodes/agentNode.ts`(Phase 2/3 파일에 소규모 추가), `src/components/chat/MessageBubble.tsx`(Phase 2 파일에 `parseVisualBlocks` 연동 추가)
-- **작업 내용**: 모든 Agent의 시스템 프롬프트에 공통으로 "다이어그램이 필요하면 \`\`\`mermaid, 차트가 필요하면 위 JSON 스키마를 따르는 \`\`\`recharts 코드펜스로 응답하라"는 지침을 자동 추가(`buildSystemPrompt()` 공통 헬퍼 함수를 만들어 `agentNode`가 사용). `MessageBubble`은 react-markdown 커스텀 컴포넌트 매핑(`code` 렌더러)에서 언어가 `mermaid`/`recharts`이면 각각 `MermaidViewer`/`RechartsViewer`로 치환.
-- **확인 방법**: "지난 3개월 매출 추이를 막대그래프로 보여줘" 같은 프롬프트에 대해 실제 차트가 인라인 렌더링되는지 확인(모델의 형식 준수 여부는 프롬프트 튜닝이 필요할 수 있음 — 안 되면 few-shot 예시를 시스템 프롬프트에 추가).
+- **소유 파일**: `src/lib/prompt/visualizationSection.ts`(신규), `src/hooks/useChat.ts`(P2-07 파일에 **소규모 추가** — `buildSystemPromptSections()`에 `visualization` 값을 넘기는 것뿐), `src/components/chat/MessageBubble.tsx`(P2-08 파일에 `parseVisualBlocks` 연동 추가)
+- **작업 내용**: `visualizationSection.ts`가 "다이어그램이 필요하면 \`\`\`mermaid, 차트가 필요하면 아래 JSON 스키마를 따르는 \`\`\`recharts 코드펜스로 응답하라"는 지침 + P5-03의 DSL 스키마 예시 문자열을 반환한다. **`buildSystemPrompt.ts`는 수정하지 않는다** — P2-04에서 `visualization` 슬롯이 이미 준비되어 있다(§5.5).
+  `MessageBubble`은 react-markdown 커스텀 컴포넌트 매핑(`code` 렌더러)에서 언어가 `mermaid`/`recharts`이면 각각 `MermaidViewer`/`RechartsViewer`로 치환.
+- **확인 방법**: "지난 3개월 매출 추이를 막대그래프로 보여줘" 같은 프롬프트에 대해 실제 차트가 인라인 렌더링되는지 확인. 로컬 모델이 형식을 안 지키면 `visualizationSection.ts`에 few-shot 예시를 추가한다(다른 파일을 건드리지 않고 해결 가능한 구조).
 
-## P5-05. approvalNode + 위험도 분류
+## P5-05. 위험도 분류 + 승인 버스
 
-- **소유 파일**: `src/lib/graph/nodes/approvalNode.ts`, `src/lib/graph/state.ts`(`pendingApproval` 필드 실제 사용 시작), `src/lib/graph/buildGraph.ts`(엣지 재구성: `agentNode → 위험도판정 → approvalNode(위험) / toolNode(안전) `), `src/lib/tools/riskLevel.ts`(신규 — 도구 이름/타입 → `"low" | "high"` 매핑, `Docs/Architecture.md` §8.1 표 구현)
-- **작업 내용**: LangGraph.js의 `interrupt()`를 사용해 위험한 도구 호출 직전 그래프를 정지시키고 `pendingApproval = {toolCallId, toolName, args, riskLevel}`을 state에 기록. `agent.approvalMode`에 따라 판정 로직 분기(`Docs/Architecture.md` §8.1). Phase 4의 `checkpointer.ts`가 이 정지 상태를 저장할 수 있어야 하므로, 이 작업에서 Phase 4 완료 여부를 확인하고 안 되어 있으면 `checkpointer.ts`에 필요한 최소 인터페이스를 함께 보강한다.
-- **확인 방법**: `approvalMode: "always"`인 테스트 Agent로 안전한 도구(웹검색)도 승인 대기 상태가 되는지, `"dangerous-only"`에서는 파일 쓰기만 대기하는지 단위 테스트.
+- **소유 파일**: `src/lib/approval/approvalBus.ts`, `src/lib/approval/policy.ts`, `src/lib/tools/risk.ts`(P2-02 파일 — 이미 §8.1 표가 구현되어 있으면 **수정 불필요**, 누락분만 보강)
+- **작업 내용**:
+  1. `policy.ts`: `needsApproval(tool, agentApprovalMode, sessionOverrides): boolean` — §8.1 규칙 구현.
+     - `"always"` → 모든 도구
+     - `"dangerous-only"`(기본) → `high` 이상
+     - `"never"` → `high`는 자동 승인, **`critical`(셸)은 여전히 승인 필요**
+     - 세션 내 "이 도구는 항상 승인" 오버라이드가 있으면 건너뜀
+  2. `approvalBus.ts`: `request(payload): Promise<ApprovalDecision>` — 승인 요청을 발행하고 UI 응답을 기다리는 Promise를 반환. `resolve(id, decision)` / `rejectAll(reason)` 제공. **`abort()`와 창 닫힘 시 대기 중인 Promise를 모두 정리**해야 한다(§8.2) — 안 그러면 루프가 영원히 멈춘다.
+- **확인 방법**: 3가지 `approvalMode` × 3가지 위험도 조합에 대한 `needsApproval` 진리표를 Vitest로 검증(특히 `never` + `critical` = true). `rejectAll`이 대기 중 Promise를 해제하는지도 확인.
 
-## P5-06. ApprovalDialog UI + 재개 연결
+## P5-06. 승인 훅 등록 + ApprovalDialog
 
-- **소유 파일**: `src/components/chat/ApprovalDialog.tsx`, `src/hooks/useChat.ts`(Phase 2/4 파일에 승인 대기 상태 구독 및 `Command({resume: ...})` 호출 로직 추가)
-- **작업 내용**: `pendingApproval`이 감지되면 다이얼로그를 띄워 도구명/인자(JSON pretty-print)/위험도 배지를 표시. "승인" 클릭 시 그래프를 `resume: {approved: true}`로 재개, "거절" 클릭 시 사유 입력(선택) 후 `resume: {approved: false, reason}`으로 재개(거절 사유는 `ToolMessage`로 LLM에 전달되어 대안을 제시하도록 유도).
-- **확인 방법**: 파일 삭제를 요청하는 프롬프트로 실제 승인 다이얼로그가 뜨고, 승인/거절 각각에 대해 그래프가 올바르게 재개되는지 수동 확인.
+- **소유 파일**: `src/lib/approval/register.ts`, `src/components/chat/ApprovalDialog.tsx`, `src/lib/agent/bootstrap.ts`(**import 한 줄만 추가** — §5.6), `src/hooks/useChat.ts`(P2-07 파일에 `approval_request` 이벤트 구독 **추가**)
+- **작업 내용**:
+  1. `register.ts`: `registerHooks("approval", { beforeToolCall })`. `beforeToolCall`은 `needsApproval`이 false면 `undefined`(즉시 실행), true면 `approvalBus.request(...)`를 await 해서 거절 시 `{ block: true, reason }`을 반환한다. 거절 사유는 루프가 `isError: true` `toolResult`로 만들어 LLM에 전달하므로, 모델이 대안을 찾을 수 있다.
+  2. `ApprovalDialog.tsx`: 도구명, 위험도 배지, 인자(JSON pretty-print — **`shell`은 실행될 명령 전문을 그대로**), 대상 파일 경로를 표시. 버튼: "승인" / "거절(+사유 입력)" / "이 세션에서 이 도구는 항상 승인". `edit` 도구는 변경 전후 diff를 보여주면 더 좋다(선택).
+  3. `bootstrap.ts`에 `import "../approval/register";` 한 줄 추가.
+  4. **`loop.ts`/`agent.ts`를 수정하지 않는다.**
+- **확인 방법**: 파일 쓰기를 요청하는 프롬프트로 다이얼로그가 뜨는지, 승인 시 실행되고 거절 시 사유가 모델에게 전달되어 모델이 다른 방법을 제안하는지 수동 확인. 승인 대기 중 "중지" 버튼을 눌렀을 때 멈추지 않고 정상 종료되는지도 반드시 확인.
 
 ## P5-07. approvalMode 설정 연동
 
 - **소유 파일**: `src/pages/Settings/SettingsApproval.tsx`(Phase 1 placeholder 실동작 전환), `src/lib/context/SettingsContext.tsx`(신규 — 전역 기본값 관리, Phase 1/4에서 `localStorage`/`app_settings`에 흩어져 있던 설정을 이 Context로 통합 참조하도록 정리)
-- **작업 내용**: 전역 기본 `approvalMode`(`SettingsApproval.tsx`에서 라디오 버튼 3종) 설정, Agent별로는 Phase 6의 `AgentEditorForm`에서 override 가능하도록 타입은 이미 §4.2에 존재하므로 UI만 연결. `"never"` 선택 시 명확한 경고 문구 표시.
-- **확인 방법**: 전역 설정 변경이 새 세션에 즉시 반영되는지 확인.
+- **작업 내용**: 전역 기본 `approvalMode`(라디오 버튼 3종) 설정. Agent별 override는 Phase 6의 `AgentEditorForm`에서 연결하므로 여기서는 전역값만. `"never"` 선택 시 명확한 경고 문구와 함께 "셸 실행은 이 설정과 무관하게 항상 승인을 요구합니다"를 명시한다. `shell` 도구 활성화 UI에도 위험 경고를 표시한다(§7).
+- **확인 방법**: 전역 설정 변경이 새 세션에 즉시 반영되는지, `never`에서도 셸이 승인을 요구하는지 확인.
 
 ---
 
 ## Phase 5 완료 조건
 
-- [ ] Mermaid 다이어그램과 Recharts 차트가 채팅 응답에 인라인으로 렌더링된다.
-- [ ] 위험한 도구 호출 전에 승인 다이얼로그가 뜨고, 승인/거절에 따라 그래프가 올바르게 동작한다.
+- [ ] Mermaid 다이어그램과 Recharts 차트가 채팅 응답에 인라인으로 렌더링되고, 문법 오류 시 원본 코드로 폴백한다.
+- [ ] 위험한 도구 호출(`write`/`edit`) 전에 승인 다이얼로그가 뜨고, 승인/거절에 따라 루프가 올바르게 이어진다.
+- [ ] 거절 사유가 모델에게 전달되어 모델이 대안을 제시한다.
+- [ ] `shell` 도구는 `approvalMode: "never"`에서도 승인을 요구한다.
+- [ ] 승인 대기 중 "중지"를 누르면 대기가 해제되고 실행이 정상 종료된다(멈추지 않는다).
 - [ ] 승인 모드(always/dangerous-only/never)를 전역 설정에서 변경할 수 있다.
+- [ ] **`src/lib/agent/` 아래에서 `bootstrap.ts`의 import 한 줄 외에는 수정하지 않았다**(§5.6 확장점 규약 준수 확인).
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` 통과.
 - [ ] `Docs/TODO.md`의 Phase 5 항목이 모두 `[x]`다.

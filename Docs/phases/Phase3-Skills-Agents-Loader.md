@@ -1,64 +1,94 @@
 # Phase 3 — Skills & AGENTS.md Loader
 
-**목표**: 사용자의 워크스페이스 폴더에 있는 `AGENTS.md`와 `.agents/skills/`를 스캔해 LLM이 사용할 수 있는 도구/지침으로 등록한다. 스킬 관리 사이드패널(좌측)이 실동작하게 된다.
+**목표**: 사용자의 워크스페이스에 있는 `AGENTS.md` 계층과 `.agents/skills/`의 스킬을 스캔해 시스템 프롬프트에 노출한다. 스킬 관리 사이드패널(좌측)이 실동작하게 된다.
 
 **선행 조건**: Phase 2 완료.
 
-**공통 참고**: `Docs/Architecture.md` §6(로더 설계), §7(스킬 샌드박스).
+**공통 참고**: `Docs/Architecture.md` §4.4(SkillManifest), §6(로더 설계 — **전체 필독**), §7(안전 경계).
 
-> ⚠️ 이름 혼동 주의: 이 Phase가 다루는 `.agents/skills/`는 **Fortress 앱이 여는 사용자 워크스페이스 폴더** 안의 것입니다. Fortress 리포지토리 자체의 `.agents/skills/`(Claude Code 전역 스킬 미러)와는 무관하며 절대 그 폴더를 코드에서 참조하지 않습니다.
+**pi 참고**: `..\pi\packages\coding-agent\src\core\skills.ts`, `core\resource-loader.ts`(`loadProjectContextFiles`), `core\utils\frontmatter.ts`, `docs\skills.md`. **코드를 복사하지 말고 설계만 재구현할 것.**
+
+> ⚠️ **이름 혼동 주의**: 이 Phase가 다루는 `.agents/skills/`는 **Fortress 앱이 연 사용자 워크스페이스 폴더** 안의 것입니다. Fortress 리포지토리 자체의 `.agents/skills/`(Claude Code 전역 스킬 미러)와는 무관하며 절대 그 폴더를 코드에서 참조하지 않습니다.
+
+> 📌 **초안 대비 변경**: 코드 스킬(`index.json`/`index.js`)과 QuickJS 샌드박스는 **폐기**되었습니다(`Docs/Architecture.md` §7). 스킬을 `DynamicTool`로 등록하던 설계도 폐기되었습니다 — 스킬은 도구가 아니라 시스템 프롬프트 데이터입니다(§6.2). 그 결과 **이 Phase는 에이전트 런타임 파일을 전혀 수정하지 않으며**, Phase 4·5와 완전히 병렬 진행할 수 있습니다.
 
 ---
 
-## P3-01. agentsMdParser
+## P3-01. frontmatter 파서
 
-- **소유 파일**: `src/lib/skills-loader/agentsMdParser.ts`
-- **작업 내용**: 워크스페이스 루트 경로를 받아 `AGENTS.md` 파일 존재 여부를 확인(`read_text_file` 커맨드 사용)하고, 있으면 전체 텍스트를 반환하는 `loadWorkspaceInstructions(workspaceRoot: string): Promise<string | null>` 함수. 파일이 없으면 `null` 반환(에러 아님).
-- **확인 방법**: 샘플 `AGENTS.md`가 있는/없는 임시 폴더 두 케이스로 Vitest 작성.
+- **소유 파일**: `src/lib/skills/frontmatter.ts`
+- **작업 내용**: `---\n…\n---` 블록에서 `key: value` 라인을 추출하는 최소 파서. 지원 범위: 문자열, `true`/`false`, 따옴표 제거, 여러 줄 값은 미지원(한 줄로 제한). YAML 전체 문법을 지원하지 않으며, **파싱 실패 시 throw하지 말고 `{frontmatter: {}, body, error}` 형태로 반환**한다(스캐너가 경고로 처리). BOM 제거 포함.
+- **확인 방법**: frontmatter 없음 / 정상 / 깨진 구분자 / BOM 포함 / boolean 값 — 5가지 케이스 Vitest.
 
-## P3-02. skillScanner
+## P3-02. 컨텍스트 파일(AGENTS.md) 계층 수집
 
-- **소유 파일**: `src/lib/skills-loader/skillScanner.ts`, `src/lib/types/skill.ts`
+- **소유 파일**: `src/lib/skills/contextFiles.ts`
+- **작업 내용**: `Docs/Architecture.md` §6.1 구현.
+  1. `loadContextFileFromDir(dir)`: 후보 파일명을 **`AGENTS.override.md` → `AGENTS.md` → `AGENTS.MD` → `CLAUDE.md` → `CLAUDE.MD`** 순으로 확인해 **첫 번째로 존재하는 것 하나만** 반환.
+  2. `loadProjectContextFiles({workspaceRoot, globalDir})`: 전역 디렉터리를 먼저 넣고, 워크스페이스 루트에서 파일시스템 루트까지 조상을 거슬러 올라가며 수집한 뒤 **루트 → 워크스페이스 순서로** 정렬해 반환. 같은 경로는 중복 제거.
+  3. 반환 타입은 `Array<{path: string; content: string}>`.
+- **확인 방법**: 중첩 폴더(조부모/부모/자식 각각에 AGENTS.md)를 만든 임시 디렉터리로 순서와 중복 제거를 검증하는 Vitest. `AGENTS.override.md`가 `AGENTS.md`를 이기는지도 확인.
+
+## P3-03. 스킬 스캐너
+
+- **소유 파일**: `src/lib/skills/scanner.ts`, `src/lib/types/skill.ts`
 - **작업 내용**:
-  1. `skill.ts`에 `Docs/Architecture.md` §4.4의 `SkillManifest`, `SkillKind` 정의.
-  2. `scanSkills(workspaceRoot: string): Promise<SkillManifest[]>` — `.agents/skills/` 하위 1-depth 폴더를 나열(`read_project_folder_tree` 재사용 또는 신규 Tauri 커맨드 `list_dir_shallow` 추가 — 후자를 택할 경우 `src-tauri/src/commands/fs_commands.rs`에 함수 추가는 이 작업이 담당, Phase1이 만든 파일에 **추가만** 하고 기존 함수는 건드리지 않음). 각 폴더에서 `SKILL.md`(→ `kind: "prompt"`) 또는 `index.json`(→ `kind: "code"`)을 찾아 frontmatter/JSON을 파싱해 `SkillManifest`로 변환. 둘 다 없는 폴더는 무시하고 콘솔 경고.
-  3. frontmatter 파싱은 정규식 기반 최소 구현(라이브러리 의존 최소화: `---\n...\n---` 블록에서 `key: value` 라인만 추출, YAML 전체 문법 지원 불필요).
-- **확인 방법**: `.agents/skills/` 하위에 프롬프트 스킬 1개 + 코드 스킬 1개를 둔 임시 폴더로 스캔 결과 검증하는 Vitest 작성.
+  1. `skill.ts`에 `Docs/Architecture.md` §4.4의 `SkillManifest`/`SkillSource`/`SkillDiagnostic` 정의.
+  2. `scanSkills({workspaceRoot, globalDir}): Promise<{skills: SkillManifest[]; diagnostics: SkillDiagnostic[]}>` — §6.2의 탐색 규칙 구현:
+     - 디렉터리에 `SKILL.md`가 있으면 **그 디렉터리를 스킬 루트로 보고 더 내려가지 않는다**.
+     - 없으면 하위로 재귀. `node_modules`와 `.`으로 시작하는 폴더는 건너뛴다.
+     - `.gitignore`/`.ignore` 존중(Rust 쪽 `ignore` 크레이트를 재사용하는 새 커맨드를 만들거나, JS에서 최소 구현 — **JS 최소 구현을 권장**: 이 단계에서 Rust 커맨드를 추가하면 P2-05가 소유한 파일을 건드리게 된다).
+     - 전역(`%APPDATA%/Fortress/skills/`) → 워크스페이스(`.agents/skills/`) 순으로 수집.
+  3. §4.4의 검증 규칙 적용: `name`은 1~64자 `[a-z0-9-]`(위반 시 **경고 후 로드**), `description`은 필수 최대 1024자(**없으면 로드하지 않음**). `name`이 없으면 부모 폴더명을 쓴다.
+  4. 이름 충돌 시 **먼저 찾은 것을 유지**하고 `collision` 진단을 남긴다.
+- **확인 방법**: 정상 스킬 / description 누락 / 이름 규칙 위반 / 중첩 SKILL.md(내려가지 않는지) / 이름 충돌 — 5가지 케이스를 담은 임시 폴더로 Vitest.
 
-## P3-03. promptSkill 로더 (DynamicTool 어댑터)
+## P3-04. 프롬프트 노출 (`<available_skills>`)
 
-- **소유 파일**: `src/lib/skills-loader/promptSkill.ts`
-- **작업 내용**: `Docs/Architecture.md` §6.1-4의 "프롬프트 스킬도 pseudo-tool로 취급" 설계에 따라, `SkillManifest(kind: "prompt")`를 받아 `DynamicTool`(입력 없이 호출하면 `SKILL.md` 본문 텍스트를 그대로 반환)로 변환하는 `toPromptSkillTool(skill: SkillManifest): DynamicTool` 함수 작성.
-- **확인 방법**: 샘플 SKILL.md로 변환한 도구를 `.invoke({})` 했을 때 본문이 그대로 나오는지 확인.
+- **소유 파일**: `src/lib/skills/formatForPrompt.ts`
+- **작업 내용**: §6.2의 XML 형식을 생성하는 `formatSkillsForPrompt(skills): string`. `disableModelInvocation: true`인 스킬은 제외. XML 이스케이프(`& < > " '`) 필수. 스킬이 0개면 빈 문자열 반환(섹션 자체가 생략되도록).
+  프롬프트 머리말에 "`read` 도구로 스킬 파일을 로드하라", "스킬 파일의 상대 경로는 스킬 디렉터리 기준으로 해석하라"를 포함한다.
+- **확인 방법**: 특수문자가 든 설명이 올바르게 이스케이프되는지, `disableModelInvocation` 필터가 동작하는지 Vitest.
 
-## P3-04 / P3-05. codeSkillTool + QuickJS Rust 샌드박스
+## P3-05. SkillsContext + 워크스페이스 신뢰 확인
 
-- **소유 파일**: `src/lib/skills-loader/codeSkillTool.ts`, `src-tauri/src/sandbox/quickjs_runner.rs`, `src-tauri/src/commands/sandbox_commands.rs`, `src-tauri/src/commands/mod.rs`(등록 추가), `src-tauri/Cargo.toml`(`rquickjs` 의존성 추가), `src-tauri/capabilities/default.json`(샌드박스 실행에 필요한 최소 권한만 — 신규 권한 추가하지 않는 것이 원칙, fs 접근은 스킬 코드에 직접 부여하지 않음)
+- **소유 파일**: `src/lib/context/SkillsContext.tsx`, `src/lib/context/WorkspaceContext.tsx`, `src/components/workspace/TrustWorkspaceDialog.tsx`
 - **작업 내용**:
-  1. Rust: `execute_skill_sandboxed(entry_path: String, args_json: String) -> Result<String, String>` 커맨드. `rquickjs`로 격리된 JS 컨텍스트를 만들고, `index.js` 파일 내용을 로드해 `export default async function run(args)`를 호출, 반환값을 JSON 문자열로 직렬화. **Node.js 전역 객체(`process`, `require`, `fs` 등)는 절대 주입하지 않는다** — `Docs/Architecture.md` §7 Layer 1 준수. 실행 시간 제한(예: 10초 타임아웃) 적용.
-  2. `codeSkillTool.ts`: `SkillManifest(kind: "code")` + `index.json`의 `inputSchema`(JSON Schema)를 Zod 스키마로 변환(간단한 하위집합만 지원: `type: "object"`, `properties`, `required` — 복잡한 JSON Schema 기능은 1차 스코프 제외)해 `DynamicStructuredTool`로 감싸고, 실행 시 Tauri `execute_skill_sandboxed`를 호출.
-  3. **이 도구는 항상 "높은 위험도"로 분류**되어 Phase 5의 `approvalNode`를 거치게 된다(이 Phase에서는 아직 approvalNode가 없으므로 즉시 실행되지만, 도구 정의에 `riskLevel: "high"` 메타데이터를 미리 부여해 Phase 5가 바로 사용할 수 있게 한다).
-- **확인 방법**: `console.log`만 하는 간단한 `index.js` 스킬로 실행 결과가 반환되는지, `require("fs")` 같은 코드를 넣었을 때 에러로 막히는지 확인.
+  1. `WorkspaceContext`: 현재 워크스페이스 루트와 신뢰 여부를 관리. 새 폴더를 처음 열면 §7의 **신뢰 확인 다이얼로그**를 띄운다("이 폴더의 AGENTS.md와 스킬을 로드할까요? 스킬은 모델에게 임의 행동을 지시할 수 있습니다"). 신뢰 결정은 폴더 경로 단위로 기억(Phase 4 전까지는 `localStorage`, 이후 `app_settings`로 이관).
+  2. `SkillsContext`: 워크스페이스가 바뀌거나 신뢰가 부여되면 `scanSkills` + `loadProjectContextFiles` 재실행. 결과와 진단을 보관. 사용자가 스킬별로 활성/비활성을 토글할 수 있고(Agent의 `enabledSkills`와 별개인 **로컬 오버라이드**), 신뢰하지 않은 워크스페이스에서는 컨텍스트 파일과 워크스페이스 스킬을 로드하지 않는다(전역 스킬은 로드).
+- **확인 방법**: 신뢰 거부 시 스킬/컨텍스트 파일이 비는지, 승인 후 로드되는지 수동 확인.
 
-## P3-06. SkillsContext + SkillListPanel + SkillViewerTab
+## P3-06. SkillListPanel + SkillViewerTab
 
-- **소유 파일**: `src/lib/context/SkillsContext.tsx`, `src/components/skills/SkillListPanel.tsx`(Phase1 placeholder를 실동작으로 교체), `src/components/workspace/SkillViewerTab.tsx`
-- **작업 내용**: `SkillsContext`는 워크스페이스가 바뀔 때마다 `scanSkills` 재실행, 스킬 목록 + "전역 기본 활성화 여부"(`enabledByDefault`는 SKILL.md/`index.json`에서 읽은 값, 사용자가 앱 내에서 토글 가능하도록 로컬 오버라이드 저장 — 저장소는 Phase 4의 SQLite가 준비되기 전까지 `localStorage` 임시 사용). `SkillListPanel`은 스킬 카드 목록 + 활성/비활성 토글 스위치 + 클릭 시 `skill-viewer` 탭 오픈. `SkillViewerTab`은 `SKILL.md` 본문(markdown 렌더링) 또는 `index.json`/`index.js` 소스 코드(읽기 전용 CodeMirror)를 보여준다.
-- **확인 방법**: 스킬 토글이 즉시 반영되고, 뷰어 탭에서 스킬 내용이 올바르게 보이는지 확인.
+- **소유 파일**: `src/components/skills/SkillListPanel.tsx`(Phase 1 placeholder 교체), `src/components/workspace/SkillViewerTab.tsx`
+- **작업 내용**: `SkillListPanel`은 스킬 카드 목록(이름/설명/출처 배지 `전역`·`워크스페이스`) + 활성 토글 + 클릭 시 `skill-viewer` 탭 오픈. **진단(경고/충돌)을 패널 상단에 접을 수 있는 목록으로 표시**한다 — 스킬이 왜 안 잡히는지 사용자가 알 수 있어야 한다. `SkillViewerTab`은 `SKILL.md` 본문을 react-markdown으로 렌더링하고, 스킬 폴더의 파일 목록도 함께 보여준다.
+- **확인 방법**: 토글이 즉시 반영되고, 잘못된 스킬의 경고가 표시되며, 뷰어에 본문이 보이는지 확인.
 
-## P3-07. AGENTS.md 지침 + 활성 스킬을 그래프에 병합
+## P3-07. 프롬프트 병합
 
-- **소유 파일**: `src/lib/graph/nodes/agentNode.ts`(Phase 2 파일에 로직 추가), `src/lib/graph/buildGraph.ts`(도구 목록 조립 시 스킬 도구 포함하도록 소규모 수정)
-- **작업 내용**: `agentNode`가 시스템 프롬프트를 구성할 때 `loadWorkspaceInstructions()` 결과를 `[Workspace Instructions]` 블록으로 앞에 병합하고, `agentConfig.enabledSkills`에 해당하는 `SkillManifest`들을 `promptSkill`/`codeSkillTool`로 변환해 내장 도구 목록과 합쳐 `bindTools`한다.
-- **확인 방법**: 워크스페이스에 `AGENTS.md`를 두고 "너는 어떤 지침을 따르고 있어?"라고 물었을 때 해당 내용이 반영된 답변이 오는지, 활성화한 코드 스킬을 LLM이 호출하는지 확인.
+- **소유 파일**: `src/hooks/useChat.ts`(P2-07 파일에 **소규모 추가** — `SkillsContext`에서 `contextFiles`/`skills`를 읽어 `buildSystemPromptSections()` 인자로 넘기는 것뿐)
+- **작업 내용**: `useChat`이 `FortressAgent`를 만들 때 `buildSystemPromptSections({agent, tools, contextFiles, skills, cwd})`에 실제 값을 넘긴다. **`buildSystemPrompt.ts`는 수정하지 않는다** — P2-04에서 슬롯이 이미 준비되어 있다.
+  세션 도중 스킬 토글/워크스페이스 변경이 일어나면 `diffSections()`로 변경된 섹션만 새 system 메시지로 주입한다(§5.5).
+  `agent.enabledSkills`에 없는 스킬은 프롬프트에서 제외한다.
+- **확인 방법**: 워크스페이스에 `AGENTS.md`를 두고 "너는 어떤 지침을 따르고 있어?"라고 물어 반영 여부 확인. 스킬을 하나 두고 관련 질문을 던져 모델이 `read`로 `SKILL.md`를 읽는지 확인(안 읽으면 P3-08로 보완).
+
+## P3-08. `/skill:name` 명시 호출
+
+- **소유 파일**: `src/lib/skills/invokeSkill.ts`, `src/components/chat/ChatInput.tsx`(P2-08 파일에 슬래시 명령 처리 **추가**)
+- **작업 내용**: §6.4 구현. 입력창에 `/skill:<name> [args]`를 입력하면 해당 `SKILL.md` 본문을 읽어 user 메시지로 주입하고, 인자가 있으면 본문 뒤에 `User: <args>`를 덧붙인다. 입력 중 `/skill:`을 타이핑하면 스킬 이름 자동완성 목록을 띄운다. `disableModelInvocation: true`인 스킬도 이 경로로는 호출 가능하다.
+- **확인 방법**: 자동완성이 뜨고, 호출 시 본문이 주입되어 모델이 그대로 따르는지 수동 확인.
 
 ---
 
 ## Phase 3 완료 조건
 
-- [ ] 워크스페이스의 `AGENTS.md`가 시스템 프롬프트에 반영된다.
-- [ ] `.agents/skills/`의 프롬프트/코드 스킬이 스캔되어 좌측 패널에 표시된다.
-- [ ] 스킬 활성/비활성 토글이 동작한다.
-- [ ] 코드 스킬이 QuickJS 샌드박스에서 안전하게 실행되고, Node 전역 API 접근은 차단된다.
+- [ ] 워크스페이스 및 조상 디렉터리의 `AGENTS.md`가 루트→워크스페이스 순서로 시스템 프롬프트에 반영된다.
+- [ ] `.agents/skills/`와 전역 스킬 폴더의 `SKILL.md`가 재귀 스캔되어 좌측 패널에 표시된다.
+- [ ] 잘못된 스킬(description 누락, 이름 규칙 위반, 이름 충돌)에 대해 진단이 표시된다.
+- [ ] 시스템 프롬프트에 `<available_skills>`로 이름·설명·경로만 노출되고, 모델이 `read` 도구로 본문을 로드한다.
+- [ ] `/skill:name`으로 스킬을 강제 호출할 수 있다.
+- [ ] 신뢰하지 않은 워크스페이스에서는 컨텍스트 파일과 워크스페이스 스킬이 로드되지 않는다.
+- [ ] 스킬 활성/비활성 토글이 동작하고 프롬프트에 즉시 반영된다.
+- [ ] **`src/lib/agent/` 아래 파일을 하나도 수정하지 않았다**(§5.6 확장점 규약 준수 확인).
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` 통과.
 - [ ] `Docs/TODO.md`의 Phase 3 항목이 모두 `[x]`다.

@@ -8,5 +8,6 @@ src-tauri/gen/
 .env.*
 db.sqlite*
 *.log
+*.tsbuildinfo
 .DS_Store
 Thumbs.db
