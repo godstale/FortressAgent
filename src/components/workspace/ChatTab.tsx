@@ -21,6 +21,7 @@ export function ChatTab({ tab }: ChatTabProps) {
     stop,
     error,
     retry,
+    compact,
   } = useChat(tab.id, DEFAULT_AGENT);
 
   return (
@@ -56,6 +57,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           onSend={sendMessage}
           onSteer={steer}
           onStop={stop}
+          onCompact={compact}
           isStreaming={isStreaming}
         />
       </div>

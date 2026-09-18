@@ -2,7 +2,9 @@
 // Phase 2: Built-in tools and truncation hook
 import '@/lib/tools/registry';
 
-// TODO(Phase4): import '@/lib/compaction/register';
+// Phase 4: Compaction hooks
+import '@/lib/compaction/register';
+
 // TODO(Phase5): import '@/lib/approval/register';
 
 export function bootstrapRuntime(): void {

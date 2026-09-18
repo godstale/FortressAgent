@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, type UIEvent } from 'react';
 import { ArrowDown, Bot } from 'lucide-react';
 import type { AgentMessage } from '@/lib/agent/types';
 import { MessageBubble } from './MessageBubble';
+import { CompactionBanner } from './CompactionBanner';
 import { Button } from '@/components/ui/button';
 
 export interface MessageListProps {
@@ -65,13 +66,36 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
         onScroll={handleScroll}
         className="h-full overflow-y-auto px-4 py-4 space-y-2 scroll-smooth"
       >
-        {messages.map((msg, index) => (
-          <MessageBubble
-            key={index}
-            message={msg}
-            isStreaming={isStreaming && index === messages.length - 1}
-          />
-        ))}
+        {messages.map((msg, index) => {
+          if (
+            msg.role === 'system' &&
+            msg.content.startsWith(
+              'Below is a summary of the earlier conversation:',
+            )
+          ) {
+            const summaryText = msg.content
+              .replace(
+                'Below is a summary of the earlier conversation:\n\n',
+                '',
+              )
+              .trim();
+            return (
+              <CompactionBanner
+                key={index}
+                summary={summaryText}
+                reason="threshold"
+              />
+            );
+          }
+
+          return (
+            <MessageBubble
+              key={index}
+              message={msg}
+              isStreaming={isStreaming && index === messages.length - 1}
+            />
+          );
+        })}
       </div>
 
       {showScrollBottom && (

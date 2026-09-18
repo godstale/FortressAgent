@@ -174,4 +174,27 @@ describe('ChatInput component', () => {
     });
     expect(onSend).not.toHaveBeenCalled();
   });
+
+  it('handles /compact command and invokes onCompact with arguments', async () => {
+    const onCompact = vi.fn();
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        onCompact={onCompact}
+        isStreaming={false}
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox');
+    fireEvent.change(textarea, {
+      target: { value: '/compact focus on auth flow' },
+    });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(onCompact).toHaveBeenCalledWith('focus on auth flow');
+    });
+  });
 });

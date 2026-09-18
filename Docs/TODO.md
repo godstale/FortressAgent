@@ -60,17 +60,17 @@
 - [x] P3-07 프롬프트 병합 (useChat에 데이터 전달)
 - [x] P3-08 `/skill:name` 명시 호출
 
-## Phase 4 — Session Storage & Compaction `[ ]`
+## Phase 4 — Session Storage & Compaction `[x]`
 
-- [ ] P4-01 tauri-plugin-sql 통합 + 엔트리 스키마 마이그레이션
-- [ ] P4-02 Repository 계층(sessions/entries/agents/settings)
-- [ ] P4-03 컨텍스트 재구성 (buildContext)
-- [ ] P4-04 ChatSessionsContext + ChatSessionList 실동작
-- [ ] P4-05 useChat ↔ DB 연결 + 탭 상태 영속화
-- [ ] P4-06 토큰 추정 (Ollama usage 기반) + 압축 예산 해석
-- [ ] P4-07 컷 포인트 + 대화 직렬화
-- [ ] P4-08 compact() + 훅 등록 + 오버플로우 복구
-- [ ] P4-09 압축 UI (배너/게이지/`/compact`)
+- [x] P4-01 tauri-plugin-sql 통합 + 엔트리 스키마 마이그레이션
+- [x] P4-02 Repository 계층(sessions/entries/agents/settings)
+- [x] P4-03 컨텍스트 재구성 (buildContext)
+- [x] P4-04 ChatSessionsContext + ChatSessionList 실동작
+- [x] P4-05 useChat ↔ DB 연결 + 탭 상태 영속화
+- [x] P4-06 토큰 추정 (Ollama usage 기반) + 압축 예산 해석
+- [x] P4-07 컷 포인트 + 대화 직렬화
+- [x] P4-08 compact() + 훅 등록 + 오버플로우 복구
+- [x] P4-09 압축 UI (배너/게이지/`/compact`)
 
 ## Phase 5 — Visualization & HITL `[ ]`
 

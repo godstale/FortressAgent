@@ -10,34 +10,17 @@ import { diffSections } from '@/lib/prompt/diffSections';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
 import type { streamChat } from '@/lib/llm/ollamaClient';
 
-export interface ChatPersistence {
-  loadMessages(sessionId: string): Promise<AgentMessage[]>;
-  saveTurn(
-    sessionId: string,
-    userMessage: AgentMessage,
-    turnMessages: AgentMessage[],
-  ): Promise<void>;
-}
+import {
+  type ChatPersistence,
+  defaultSqlitePersistence,
+} from '@/lib/db/sqlitePersistence';
+import { setActiveCompactionSession } from '@/lib/compaction/register';
+import { resolveCompactionSettings } from '@/lib/compaction/settings';
+import { prepareCompaction, executeCompact } from '@/lib/compaction/compact';
+import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
+import { buildLlmContext } from '@/lib/db/buildContext';
 
-// In-memory persistence used as default (replaced by DB repository in Phase 4)
-class InMemoryChatPersistence implements ChatPersistence {
-  private store = new Map<string, AgentMessage[]>();
-
-  async loadMessages(sessionId: string): Promise<AgentMessage[]> {
-    return [...(this.store.get(sessionId) ?? [])];
-  }
-
-  async saveTurn(
-    sessionId: string,
-    _userMessage: AgentMessage,
-    turnMessages: AgentMessage[],
-  ): Promise<void> {
-    const existing = this.store.get(sessionId) ?? [];
-    this.store.set(sessionId, [...existing, ...turnMessages]);
-  }
-}
-
-const defaultInMemoryPersistence = new InMemoryChatPersistence();
+export type { ChatPersistence };
 
 export interface UseChatOptions {
   persistence?: ChatPersistence;
@@ -57,6 +40,7 @@ export interface UseChatReturn {
   stop: () => void;
   error: Error | null;
   retry: () => Promise<void>;
+  compact: (customInstructions?: string) => Promise<void>;
 }
 
 export function useChat(
@@ -64,17 +48,31 @@ export function useChat(
   agentConfig: Agent,
   options: UseChatOptions = {},
 ): UseChatReturn {
-  const persistence = options.persistence ?? defaultInMemoryPersistence;
+  const persistence = options.persistence ?? defaultSqlitePersistence;
   const skillsCtx = useSafeSkills();
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
   const [contextTokens, setContextTokens] = useState<number>(0);
   const lastPromptRef = useRef<string>('');
+  const persistedCountRef = useRef<number>(0);
 
   const contextLimit = useMemo(() => {
     return agentConfig.contextSize > 0 ? agentConfig.contextSize : 32768;
   }, [agentConfig.contextSize]);
+
+  const compactionSettings = useMemo(() => {
+    return resolveCompactionSettings(agentConfig);
+  }, [agentConfig]);
+
+  useEffect(() => {
+    setActiveCompactionSession({
+      sessionId,
+      model: agentConfig.model,
+      baseUrl: options.baseUrl,
+      settings: compactionSettings,
+    });
+  }, [sessionId, agentConfig.model, options.baseUrl, compactionSettings]);
 
   // Build tools from agent's enabledBuiltinTools
   const tools = useMemo(() => {
@@ -171,9 +169,21 @@ export function useChat(
         break;
       }
 
+      case 'turn_end': {
+        const turnMsgs = [event.message, ...(event.toolResults || [])];
+        persistedCountRef.current += turnMsgs.length;
+        void persistence.saveTurn?.(sessionId, turnMsgs);
+        break;
+      }
+
       case 'agent_end': {
         setIsStreaming(false);
         setMessages(event.messages);
+        if (event.messages.length > persistedCountRef.current) {
+          const unpersisted = event.messages.slice(persistedCountRef.current);
+          persistedCountRef.current = event.messages.length;
+          void persistence.saveTurn?.(sessionId, unpersisted);
+        }
         break;
       }
 
@@ -183,7 +193,7 @@ export function useChat(
         break;
       }
     }
-  }, []);
+  }, [persistence, sessionId]);
 
   const eventHandlerRef = useRef(handleAgentEvent);
   useEffect(() => {
@@ -225,6 +235,7 @@ export function useChat(
     persistence.loadMessages(sessionId).then((loaded) => {
       if (cancelled) return;
       setMessages(loaded);
+      persistedCountRef.current = loaded.length;
       agentRef.current = createAgentInstance(loaded);
     });
 
@@ -274,6 +285,8 @@ export function useChat(
       // Eagerly show user message in UI
       const userMsg: AgentMessage = { role: 'user', content: text };
       setMessages((prev) => [...prev, userMsg]);
+      persistedCountRef.current += 1;
+      void persistence.saveUserMessage?.(sessionId, userMsg);
 
       if (!agentRef.current) {
         agentRef.current = createAgentInstance(messages);
@@ -285,7 +298,7 @@ export function useChat(
         setError(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [createAgentInstance, messages],
+    [createAgentInstance, messages, persistence, sessionId],
   );
 
   const steer = useCallback((text: string) => {
@@ -308,6 +321,39 @@ export function useChat(
     }
   }, [sendMessage]);
 
+  const compact = useCallback(
+    async (customInstructions?: string): Promise<void> => {
+      try {
+        const entries = await entriesRepo.getEntries(sessionId);
+        const prep = prepareCompaction(sessionId, entries, compactionSettings);
+        if (!prep) return;
+        await executeCompact(prep, {
+          model: agentConfig.model,
+          baseUrl: options.baseUrl,
+          reason: 'manual',
+          customInstructions,
+          streamChatFn: options.streamChatFn,
+        });
+        const updated = await entriesRepo.getEntries(sessionId);
+        const newMessages = buildLlmContext(updated);
+        setMessages(newMessages);
+        if (agentRef.current) {
+          agentRef.current.setMessages(newMessages);
+        }
+      } catch (err) {
+        console.error('Manual compaction failed:', err);
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    },
+    [
+      sessionId,
+      compactionSettings,
+      agentConfig.model,
+      options.baseUrl,
+      options.streamChatFn,
+    ],
+  );
+
   return {
     messages,
     isStreaming,
@@ -317,5 +363,6 @@ export function useChat(
     stop,
     error,
     retry,
+    compact,
   };
 }

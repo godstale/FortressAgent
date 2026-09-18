@@ -9,6 +9,7 @@ export interface ChatInputProps {
   onSend: (text: string) => void;
   onSteer: (text: string) => void;
   onStop: () => void;
+  onCompact?: (instructions?: string) => Promise<void> | void;
   isStreaming: boolean;
   placeholder?: string;
   skills?: SkillManifest[];
@@ -18,6 +19,7 @@ export function ChatInput({
   onSend,
   onSteer,
   onStop,
+  onCompact,
   isStreaming,
   placeholder,
   skills: skillsProp,
@@ -81,6 +83,26 @@ export function ChatInput({
     setErrorMessage(null);
 
     let messageToSend = trimmed;
+    const compactMatch = trimmed.match(/^\/compact(?:\s+([\s\S]*))?$/);
+    if (compactMatch) {
+      if (onCompact) {
+        try {
+          await onCompact(compactMatch[1]?.trim());
+          setText('');
+          setAutocompleteDismissed(false);
+          if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+          }
+          return;
+        } catch (err) {
+          setErrorMessage(
+            err instanceof Error ? err.message : '수동 압축에 실패했습니다.',
+          );
+          return;
+        }
+      }
+    }
+
     if (parseSkillCommand(trimmed)) {
       try {
         const resolved = await resolveSkillInvocation(trimmed, availableSkills);
