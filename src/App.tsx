@@ -1,12 +1,27 @@
-import { Button } from '@/components/ui/button';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import Workspace from '@/pages/Workspace';
+import SettingsLayout from '@/pages/Settings/SettingsLayout';
+import SettingsGeneral from '@/pages/Settings/SettingsGeneral';
+import SettingsModel from '@/pages/Settings/SettingsModel';
+import SettingsApproval from '@/pages/Settings/SettingsApproval';
+
+import { ThemeProvider } from '@/lib/context/ThemeContext';
 
 export default function App() {
   return (
-    <main className="flex min-h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <h1 className="text-2xl font-bold">Fortress</h1>
-        <Button>Get Started</Button>
-      </div>
-    </main>
+    <ThemeProvider>
+      <HashRouter>
+        <Routes>
+          <Route path="/" element={<Workspace />} />
+          <Route path="/settings" element={<SettingsLayout />}>
+            <Route index element={<SettingsGeneral />} />
+            <Route path="general" element={<SettingsGeneral />} />
+            <Route path="model" element={<SettingsModel />} />
+            <Route path="approval" element={<SettingsApproval />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </HashRouter>
+    </ThemeProvider>
   );
 }

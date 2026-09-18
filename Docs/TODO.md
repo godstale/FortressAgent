@@ -24,18 +24,18 @@
 - [x] P0-07 Ollama 연결 스모크 테스트 스크립트
 - [x] P0-08 에이전트 루프 스파이크 (모델별 tool-calling 검증)
 
-## Phase 1 — Shell & Layout UI `[ ]`
+## Phase 1 — Shell & Layout UI `[x]`
 
-- [ ] P1-01 타입 정의 + WorkspaceTabsContext + SidePanelContext
-- [ ] P1-02 ActivityBar
-- [ ] P1-03 WorkspaceLayout(리사이저블 스플릿)
-- [ ] P1-04 Workspace 페이지 조립
-- [ ] P1-05 SidePanel 라우터 + 4개 패널(초기)
-- [ ] P1-06 FileTree + Rust fs_commands
-- [ ] P1-07 CenterWorkspace + EditorTab(CodeMirror6) + ImageViewerTab
-- [ ] P1-08 Chat 탭 Placeholder + 시작 시 기본 탭 자동 오픈
-- [ ] P1-09 Settings 라우트 골격
-- [ ] P1-10 ThemeContext + 다크모드
+- [x] P1-01 타입 정의 + WorkspaceTabsContext + SidePanelContext
+- [x] P1-02 ActivityBar
+- [x] P1-03 WorkspaceLayout(리사이저블 스플릿)
+- [x] P1-04 Workspace 페이지 조립
+- [x] P1-05 SidePanel 라우터 + 4개 패널(초기)
+- [x] P1-06 FileTree + Rust fs_commands
+- [x] P1-07 CenterWorkspace + EditorTab(CodeMirror6) + ImageViewerTab
+- [x] P1-08 Chat 탭 Placeholder + 시작 시 기본 탭 자동 오픈
+- [x] P1-09 Settings 라우트 골격
+- [x] P1-10 ThemeContext + 다크모드
 
 ## Phase 2 — Agent Runtime & Chat `[ ]`
 
