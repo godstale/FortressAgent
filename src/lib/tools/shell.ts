@@ -22,44 +22,50 @@ const ShellParametersSchema = z.object({
     .describe('Timeout in milliseconds (default 120,000 ms)'),
 });
 
-export const shellTool: AgentTool<typeof ShellParametersSchema> = {
-  name: 'shell',
-  label: 'Run Shell Command',
-  description:
-    'Executes a command line instruction in the workspace shell. Always requires approval.',
-  parameters: ShellParametersSchema,
-  risk: 'critical',
-  executionMode: 'sequential',
-  async execute(
-    _toolCallId: string,
-    params: z.infer<typeof ShellParametersSchema>,
-  ): Promise<AgentToolResult> {
-    const output = await invoke<ShellOutput>('run_shell', {
-      command: params.command,
-      cwd: params.cwd,
-      timeoutMs: params.timeoutMs,
-    });
-
-    const isError = output.exit_code !== 0;
-    const combinedOutput = [
-      output.stdout ? `STDOUT:\n${output.stdout}` : '',
-      output.stderr ? `STDERR:\n${output.stderr}` : '',
-      `Exit Code: ${output.exit_code}`,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
-
-    const truncated = truncateOutput(combinedOutput);
-
-    return {
-      content: truncated.content,
-      isError,
-      details: {
+export function createShellTool(ctx: { workspaceRoot?: string } = {}): AgentTool<typeof ShellParametersSchema> {
+  return {
+    name: 'shell',
+    label: 'Run Shell Command',
+    description:
+      'Executes a command line instruction in the workspace shell. Always requires approval.',
+    parameters: ShellParametersSchema,
+    risk: 'critical',
+    executionMode: 'sequential',
+    async execute(
+      _toolCallId: string,
+      params: z.infer<typeof ShellParametersSchema>,
+    ): Promise<AgentToolResult> {
+      const output = await invoke<ShellOutput>('run_shell', {
         command: params.command,
-        exitCode: output.exit_code,
-        rawStdout: output.stdout,
-        rawStderr: output.stderr,
-      },
-    };
-  },
-};
+        cwd: params.cwd,
+        timeoutMs: params.timeoutMs,
+        workspaceRoot: ctx.workspaceRoot,
+      });
+
+      const isError = output.exit_code !== 0;
+      const combinedOutput = [
+        output.stdout ? `STDOUT:\n${output.stdout}` : '',
+        output.stderr ? `STDERR:\n${output.stderr}` : '',
+        `Exit Code: ${output.exit_code}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
+      const truncated = truncateOutput(combinedOutput);
+
+      return {
+        content: truncated.content,
+        isError,
+        details: {
+          command: params.command,
+          exitCode: output.exit_code,
+          rawStdout: output.stdout,
+          rawStderr: output.stderr,
+          workspaceRoot: ctx.workspaceRoot,
+        },
+      };
+    },
+  };
+}
+
+export const shellTool = createShellTool();

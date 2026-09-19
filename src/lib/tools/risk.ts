@@ -7,6 +7,7 @@ export const TOOL_RISK_MAP: Record<BuiltinToolId, RiskLevel> = {
   grep: 'low',
   find: 'low',
   web_search: 'low',
+  web_fetch: 'low',
   write: 'high',
   edit: 'high',
   shell: 'critical',

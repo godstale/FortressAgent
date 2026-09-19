@@ -16,7 +16,7 @@ export function SettingsApproval() {
   };
 
   return (
-    <div className="space-y-6 select-none max-w-2xl">
+    <div className="space-y-6 max-w-2xl">
       <div>
         <h2 className="text-lg font-bold text-foreground">도구 승인 정책 (HITL)</h2>
         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">

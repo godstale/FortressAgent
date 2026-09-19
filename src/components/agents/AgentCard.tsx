@@ -9,6 +9,7 @@ import {
   Thermometer,
   Wrench,
   BookOpen,
+  Layers,
 } from 'lucide-react';
 import type { Agent } from '@/lib/types/agent';
 import { Button } from '@/components/ui/button';
@@ -20,11 +21,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Activity, Terminal } from 'lucide-react';
 
 export interface AgentCardProps {
   agent: Agent;
   isOnlyAgent?: boolean;
   onStartChat: (agent: Agent) => void;
+  onShowStats?: (agent: Agent) => void;
+  onShowLogs?: (agent: Agent) => void;
   onEdit: (agent: Agent) => void;
   onSetDefault: (agent: Agent) => void;
   onDelete: (agent: Agent) => void;
@@ -34,6 +38,8 @@ export const AgentCard: React.FC<AgentCardProps> = ({
   agent,
   isOnlyAgent,
   onStartChat,
+  onShowStats,
+  onShowLogs,
   onEdit,
   onSetDefault,
   onDelete,
@@ -109,6 +115,14 @@ export const AgentCard: React.FC<AgentCardProps> = ({
             <span className="truncate max-w-[100px]">{agent.model}</span>
           </span>
           <span className="flex items-center gap-1 bg-muted/60 px-1.5 py-0.5 rounded">
+            <Layers className="h-3 w-3 text-cyan-400" />
+            <span>
+              {agent.contextSize > 0
+                ? `${agent.contextSize >= 1024 ? Math.round(agent.contextSize / 1024) + 'k' : agent.contextSize} ctx`
+                : '8k ctx'}
+            </span>
+          </span>
+          <span className="flex items-center gap-1 bg-muted/60 px-1.5 py-0.5 rounded">
             <Thermometer className="h-3 w-3" />
             <span>{agent.temperature}</span>
           </span>
@@ -124,18 +138,42 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           )}
         </div>
 
-        {/* Action Button: Start Conversation */}
-        <div className="pt-1">
+        {/* Action Buttons: Start Conversation, Statistics & Logs */}
+        <div className="pt-1 space-y-1.5">
           <Button
             type="button"
             size="sm"
             variant="outline"
             onClick={() => onStartChat(agent)}
-            className="w-full h-7 text-xs flex items-center justify-center gap-1.5 border-border/80 hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
+            className="w-full h-7 text-xs flex items-center justify-center gap-1.5 border-border/80 hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors cursor-pointer"
           >
             <MessageSquare className="h-3.5 w-3.5" />
             <span>대화 시작</span>
           </Button>
+
+          <div className="grid grid-cols-2 gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => onShowStats?.(agent)}
+              className="w-full h-7 text-[11px] flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
+            >
+              <Activity className="h-3 w-3 text-primary" />
+              <span>통계 분석</span>
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => onShowLogs?.(agent)}
+              className="w-full h-7 text-[11px] flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
+            >
+              <Terminal className="h-3 w-3 text-sky-400" />
+              <span>실행 로그</span>
+            </Button>
+          </div>
         </div>
       </div>
 

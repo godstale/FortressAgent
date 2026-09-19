@@ -21,9 +21,9 @@ interface ActivityBarItem {
 }
 
 const ITEMS: ActivityBarItem[] = [
+  { view: 'explorer', icon: Files, title: '파일 탐색기' },
   { view: 'chat-sessions', icon: MessageSquare, title: '대화 목록' },
   { view: 'agents', icon: Bot, title: '에이전트 관리' },
-  { view: 'explorer', icon: Files, title: '파일 탐색기' },
   { view: 'skills', icon: Puzzle, title: '스킬 관리' },
 ];
 

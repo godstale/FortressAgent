@@ -9,7 +9,7 @@ export function SettingsGeneral() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div className="space-y-6 select-none">
+    <div className="space-y-6">
       <div>
         <h2 className="text-lg font-bold">일반 설정</h2>
         <p className="text-xs text-muted-foreground mt-1">

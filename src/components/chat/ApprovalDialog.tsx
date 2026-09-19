@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   ShieldAlert,
   Terminal,
@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
+import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,27 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
   const [showRejectInput, setShowRejectInput] = useState(false);
 
   const activeRequest = propRequest !== undefined ? propRequest : busRequest;
+  const workspaceCtx = useSafeWorkspace();
+  const workspaceRoot = workspaceCtx?.workspaceRoot;
+
+  const argsObj = (activeRequest?.arguments ?? {}) as Record<string, unknown>;
+  const isShell = activeRequest?.toolName === 'shell';
+  const isWrite = activeRequest?.toolName === 'write';
+  const isEdit = activeRequest?.toolName === 'edit';
+
+  const shellCommand = isShell ? String(argsObj.command || '') : '';
+  const filePath = isWrite || isEdit ? String(argsObj.path || '') : '';
+  const targetContent = isEdit ? String(argsObj.targetContent || '') : '';
+  const replacementContent = isEdit ? String(argsObj.replacementContent || '') : '';
+
+  const resolvedFilePath = useMemo(() => {
+    if (!filePath || !workspaceRoot) return null;
+    const isAbs = filePath.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(filePath);
+    if (isAbs) return null;
+    const clean = filePath.replace(/^\.[\\/]/, '');
+    const separator = workspaceRoot.includes('\\') ? '\\' : '/';
+    return `${workspaceRoot.replace(/[\\/]+$/, '')}${separator}${clean}`;
+  }, [filePath, workspaceRoot]);
 
   // Subscribe to approval bus if not controlled by props
   useEffect(() => {
@@ -79,16 +101,6 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
     setRejectReason('');
     setShowRejectInput(false);
   };
-
-  const argsObj = (activeRequest.arguments ?? {}) as Record<string, unknown>;
-  const isShell = activeRequest.toolName === 'shell';
-  const isWrite = activeRequest.toolName === 'write';
-  const isEdit = activeRequest.toolName === 'edit';
-
-  const shellCommand = isShell ? String(argsObj.command || '') : '';
-  const filePath = isWrite || isEdit ? String(argsObj.path || '') : '';
-  const targetContent = isEdit ? String(argsObj.targetContent || '') : '';
-  const replacementContent = isEdit ? String(argsObj.replacementContent || '') : '';
 
   const riskBadgeColor =
     activeRequest.risk === 'critical'
@@ -150,8 +162,14 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
           {filePath && (
             <div className="space-y-1">
               <span className="text-[11px] font-medium text-muted-foreground">대상 파일:</span>
-              <div className="p-2 rounded bg-muted/60 font-mono text-xs text-foreground break-all border border-border/40">
-                {filePath}
+              <div className="p-2 rounded bg-muted/60 font-mono text-xs text-foreground break-all border border-border/40 space-y-1">
+                <div>{filePath}</div>
+                {resolvedFilePath && (
+                  <div className="text-[11px] text-muted-foreground font-sans pt-1 border-t border-border/30">
+                    프로젝트 내 저장 위치:{' '}
+                    <span className="font-mono text-foreground font-medium">{resolvedFilePath}</span>
+                  </div>
+                )}
               </div>
             </div>
           )}

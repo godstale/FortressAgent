@@ -1,9 +1,8 @@
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
-use crate::commands::fs_commands::verify_path_in_workspace;
+use crate::commands::fs_commands::resolve_and_verify_workspace_path;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ShellOutput {
@@ -19,12 +18,8 @@ pub async fn run_shell(
     timeout_ms: Option<u64>,
     workspace_root: Option<String>,
 ) -> Result<ShellOutput, String> {
-    let root_str = workspace_root
-        .as_deref()
-        .or(cwd.as_deref())
-        .ok_or_else(|| "No workspace root or working directory provided".to_string())?;
-
-    let verified_cwd = verify_path_in_workspace(Path::new(root_str), workspace_root.as_deref())?;
+    let target_cwd = cwd.unwrap_or_else(|| ".".to_string());
+    let verified_cwd = resolve_and_verify_workspace_path(&target_cwd, workspace_root.as_deref(), true)?;
 
     let timeout_duration = Duration::from_millis(timeout_ms.unwrap_or(120_000));
 

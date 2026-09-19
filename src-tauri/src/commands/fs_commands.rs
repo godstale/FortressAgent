@@ -1,7 +1,177 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_dialog::DialogExt;
+
+static ACTIVE_WORKSPACE: RwLock<Option<String>> = RwLock::new(None);
+
+pub fn set_active_workspace_internal(path: Option<String>) {
+    if let Some(ref p) = path {
+        let _ = std::env::set_current_dir(Path::new(p));
+    }
+    if let Ok(mut lock) = ACTIVE_WORKSPACE.write() {
+        *lock = path;
+    }
+}
+
+pub fn get_active_workspace_internal() -> Option<String> {
+    ACTIVE_WORKSPACE.read().ok().and_then(|lock| lock.clone())
+}
+
+#[tauri::command]
+pub fn set_active_workspace(path: Option<String>) -> Result<(), String> {
+    set_active_workspace_internal(path);
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AppPathsInfo {
+    pub app_data_dir: String,
+    pub app_log_dir: String,
+    pub current_workspace: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_app_paths<R: Runtime>(app: AppHandle<R>) -> Result<AppPathsInfo, String> {
+    use tauri::Manager;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let log_dir = app
+        .path()
+        .app_log_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let current_ws = get_active_workspace_internal();
+
+    Ok(AppPathsInfo {
+        app_data_dir: data_dir,
+        app_log_dir: log_dir,
+        current_workspace: current_ws,
+    })
+}
+
+pub fn resolve_path(path_str: &str, workspace_root: Option<&str>) -> PathBuf {
+    let p = Path::new(path_str);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+
+    let root_opt = workspace_root
+        .map(|s| s.to_string())
+        .or_else(get_active_workspace_internal)
+        .or_else(|| std::env::current_dir().ok().map(|d| d.to_string_lossy().to_string()));
+
+    if let Some(ws) = root_opt {
+        if path_str == "." || path_str == "./" || path_str == ".\\" || path_str.is_empty() {
+            return Path::new(&ws).to_path_buf();
+        }
+        let clean = path_str
+            .strip_prefix("./")
+            .or_else(|| path_str.strip_prefix(".\\"))
+            .unwrap_or(path_str);
+        Path::new(&ws).join(clean)
+    } else {
+        p.to_path_buf()
+    }
+}
+
+pub fn resolve_and_verify_workspace_path(
+    path_str: &str,
+    workspace_root: Option<&str>,
+    must_exist: bool,
+) -> Result<PathBuf, String> {
+    let active_ws = get_active_workspace_internal();
+    let ws_opt = workspace_root.or(active_ws.as_deref());
+    let resolved = resolve_path(path_str, ws_opt);
+
+    if let Some(ws) = ws_opt {
+        if !ws.trim().is_empty() {
+            let ws_canonical = Path::new(ws)
+                .canonicalize()
+                .map_err(|e| format!("Workspace '{}' error: {}", ws, e))?;
+
+            if must_exist {
+                let canonical = resolved
+                    .canonicalize()
+                    .map_err(|e| format!("Path '{}' error: {}", resolved.display(), e))?;
+                if !canonical.starts_with(&ws_canonical) {
+                    return Err(format!(
+                        "Access denied: path '{}' is outside workspace '{}'",
+                        resolved.display(),
+                        ws
+                    ));
+                }
+                return Ok(canonical);
+            } else {
+                if resolved.exists() {
+                    let canonical = resolved
+                        .canonicalize()
+                        .map_err(|e| format!("Path '{}' error: {}", resolved.display(), e))?;
+                    if !canonical.starts_with(&ws_canonical) {
+                        return Err(format!(
+                            "Access denied: path '{}' is outside workspace '{}'",
+                            resolved.display(),
+                            ws
+                        ));
+                    }
+                    return Ok(canonical);
+                }
+
+                // File does not exist yet; find nearest existing ancestor
+                let mut ancestor = resolved.parent();
+                let mut remaining_components = Vec::new();
+                if let Some(file_name) = resolved.file_name() {
+                    remaining_components.push(file_name);
+                }
+
+                let mut existing_ancestor_canonical = None;
+                while let Some(parent) = ancestor {
+                    if parent.exists() {
+                        let anc_canon = parent
+                            .canonicalize()
+                            .map_err(|e| format!("Ancestor path '{}' error: {}", parent.display(), e))?;
+                        existing_ancestor_canonical = Some(anc_canon);
+                        break;
+                    } else {
+                        if let Some(name) = parent.file_name() {
+                            remaining_components.push(name);
+                        }
+                        ancestor = parent.parent();
+                    }
+                }
+
+                let base = existing_ancestor_canonical.unwrap_or_else(|| ws_canonical.clone());
+                if !base.starts_with(&ws_canonical) {
+                    return Err(format!(
+                        "Access denied: path '{}' is outside workspace '{}'",
+                        resolved.display(),
+                        ws
+                    ));
+                }
+
+                let mut full_path = base;
+                for comp in remaining_components.into_iter().rev() {
+                    let s = comp.to_string_lossy();
+                    if s == ".." {
+                        return Err(format!(
+                            "Access denied: parent directory traversal in '{}'",
+                            path_str
+                        ));
+                    } else if s != "." {
+                        full_path.push(comp);
+                    }
+                }
+                return Ok(full_path);
+            }
+        }
+    }
+
+    Ok(resolved)
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileTreeNode {
@@ -63,11 +233,17 @@ pub async fn pick_project_folder<R: Runtime>(app: AppHandle<R>) -> Result<Option
         let _ = tx.send(folder_path);
     });
 
-    tauri::async_runtime::spawn_blocking(move || rx.recv())
+    let picked_opt = tauri::async_runtime::spawn_blocking(move || rx.recv())
         .await
         .map_err(|e| e.to_string())?
         .map(|picked| picked.map(|p| p.to_string()))
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    if let Some(ref path) = picked_opt {
+        set_active_workspace_internal(Some(path.clone()));
+    }
+
+    Ok(picked_opt)
 }
 
 #[tauri::command]
@@ -88,56 +264,59 @@ pub fn read_project_folder_tree(folder_path: String) -> Result<FileTreeNode, Str
 }
 
 #[tauri::command]
-pub fn read_text_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {}: {}", path, e))
+pub fn read_text_file(path: String, workspace_root: Option<String>) -> Result<String, String> {
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), true)?;
+    std::fs::read_to_string(&verified).map_err(|e| format!("Failed to read {}: {}", verified.display(), e))
 }
 
 #[tauri::command]
-pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
-    let target = Path::new(&path);
-    if let Some(parent) = target.parent() {
+pub fn write_text_file(path: String, contents: String, workspace_root: Option<String>) -> Result<(), String> {
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), false)?;
+    if let Some(parent) = verified.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(target, contents).map_err(|e| format!("Failed to write {}: {}", path, e))
+    std::fs::write(&verified, contents).map_err(|e| format!("Failed to write {}: {}", verified.display(), e))
 }
 
 #[tauri::command]
-pub fn create_file(path: String) -> Result<(), String> {
-    let target = Path::new(&path);
-    if target.exists() {
-        return Err(format!("이미 파일이 존재합니다: {}", path));
+pub fn create_file(path: String, workspace_root: Option<String>) -> Result<(), String> {
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), false)?;
+    if verified.exists() {
+        return Err(format!("이미 파일이 존재합니다: {}", verified.display()));
     }
-    if let Some(parent) = target.parent() {
+    if let Some(parent) = verified.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(target, []).map_err(|e| format!("Failed to create {}: {}", path, e))
+    std::fs::write(&verified, []).map_err(|e| format!("Failed to create {}: {}", verified.display(), e))
 }
 
 #[tauri::command]
-pub fn create_folder(path: String) -> Result<(), String> {
-    let target = Path::new(&path);
-    if target.exists() {
-        return Err(format!("이미 폴더가 존재합니다: {}", path));
+pub fn create_folder(path: String, workspace_root: Option<String>) -> Result<(), String> {
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), false)?;
+    if verified.exists() {
+        return Err(format!("이미 폴더가 존재합니다: {}", verified.display()));
     }
-    std::fs::create_dir_all(target).map_err(|e| format!("Failed to create {}: {}", path, e))
+    std::fs::create_dir_all(&verified).map_err(|e| format!("Failed to create {}: {}", verified.display(), e))
 }
 
 #[tauri::command]
-pub fn rename_path(from: String, to: String) -> Result<(), String> {
-    let to_path = Path::new(&to);
-    if to_path.exists() {
-        return Err(format!("이미 대상 경로가 존재합니다: {}", to));
+pub fn rename_path(from: String, to: String, workspace_root: Option<String>) -> Result<(), String> {
+    let verified_from = resolve_and_verify_workspace_path(&from, workspace_root.as_deref(), true)?;
+    let verified_to = resolve_and_verify_workspace_path(&to, workspace_root.as_deref(), false)?;
+    if verified_to.exists() {
+        return Err(format!("이미 대상 경로가 존재합니다: {}", verified_to.display()));
     }
-    std::fs::rename(&from, &to).map_err(|e| format!("Failed to rename {}: {}", from, e))
+    std::fs::rename(&verified_from, &verified_to)
+        .map_err(|e| format!("Failed to rename {} to {}: {}", verified_from.display(), verified_to.display(), e))
 }
 
 #[tauri::command]
-pub fn delete_path(path: String) -> Result<(), String> {
-    let target = Path::new(&path);
-    if target.is_dir() {
-        std::fs::remove_dir_all(target).map_err(|e| format!("Failed to delete {}: {}", path, e))
+pub fn delete_path(path: String, workspace_root: Option<String>) -> Result<(), String> {
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), true)?;
+    if verified.is_dir() {
+        std::fs::remove_dir_all(&verified).map_err(|e| format!("Failed to delete {}: {}", verified.display(), e))
     } else {
-        std::fs::remove_file(target).map_err(|e| format!("Failed to delete {}: {}", path, e))
+        std::fs::remove_file(&verified).map_err(|e| format!("Failed to delete {}: {}", verified.display(), e))
     }
 }
 
@@ -149,27 +328,17 @@ pub struct DirEntryItem {
     pub size: u64,
 }
 
-pub fn verify_path_in_workspace(target: &Path, workspace_root: Option<&str>) -> Result<std::path::PathBuf, String> {
-    let canonical = target.canonicalize().map_err(|e| format!("Path '{}' error: {}", target.display(), e))?;
-    if let Some(ws) = workspace_root {
-        if !ws.trim().is_empty() {
-            let ws_canonical = Path::new(ws).canonicalize().map_err(|e| format!("Workspace '{}' error: {}", ws, e))?;
-            if !canonical.starts_with(&ws_canonical) {
-                return Err(format!("Access denied: path '{}' is outside workspace '{}'", target.display(), ws));
-            }
-        }
-    }
-    Ok(canonical)
+pub fn verify_path_in_workspace(target: &Path, workspace_root: Option<&str>) -> Result<PathBuf, String> {
+    resolve_and_verify_workspace_path(&target.to_string_lossy(), workspace_root, true)
 }
 
 #[tauri::command]
 pub fn list_dir(path: String, workspace_root: Option<String>) -> Result<Vec<DirEntryItem>, String> {
-    let target = Path::new(&path);
-    let verified = verify_path_in_workspace(target, workspace_root.as_deref())?;
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), true)?;
     if !verified.is_dir() {
-        return Err(format!("Not a directory: {}", path));
+        return Err(format!("Not a directory: {}", verified.display()));
     }
-    let read_res = std::fs::read_dir(&verified).map_err(|e| format!("Failed to read directory '{}': {}", path, e))?;
+    let read_res = std::fs::read_dir(&verified).map_err(|e| format!("Failed to read directory '{}': {}", verified.display(), e))?;
     let mut entries = Vec::new();
     for entry in read_res.flatten() {
         let entry_path = entry.path();
@@ -196,4 +365,3 @@ pub fn list_dir(path: String, workspace_root: Option<String>) -> Result<Vec<DirE
     });
     Ok(entries)
 }
-

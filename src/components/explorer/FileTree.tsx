@@ -5,7 +5,6 @@ import {
   ChevronDown,
   File,
   Folder,
-  FolderOpen,
   FolderPlus,
   FilePlus,
   RefreshCw,
@@ -14,8 +13,6 @@ import {
   Trash2,
   Edit2,
   Search,
-  FileCode,
-  Image as ImageIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,36 +26,13 @@ import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import type { FileTreeNode } from '@/lib/types/fileTree';
 import { cn } from '@/lib/utils';
+import { getFileIcon } from '@/lib/fileIcons';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp']);
-const CODE_EXTENSIONS = new Set([
-  'ts',
-  'tsx',
-  'js',
-  'jsx',
-  'json',
-  'md',
-  'rs',
-  'css',
-  'html',
-  'py',
-  'toml',
-]);
 
 function isImageFile(fileName: string): boolean {
   const ext = fileName.split('.').pop()?.toLowerCase();
   return Boolean(ext) && IMAGE_EXTENSIONS.has(ext!);
-}
-
-function getFileIcon(fileName: string) {
-  const ext = fileName.split('.').pop()?.toLowerCase();
-  if (ext && IMAGE_EXTENSIONS.has(ext)) {
-    return <ImageIcon className="h-4 w-4 text-emerald-400 shrink-0" />;
-  }
-  if (ext && CODE_EXTENSIONS.has(ext)) {
-    return <FileCode className="h-4 w-4 text-sky-400 shrink-0" />;
-  }
-  return <File className="h-4 w-4 text-muted-foreground shrink-0" />;
 }
 
 export function FileTree() {
@@ -277,16 +251,28 @@ export function FileTree() {
                       <ChevronRight className="h-3.5 w-3.5" />
                     )}
                   </span>
-                  {isExpanded ? (
-                    <FolderOpen className="h-4 w-4 text-amber-400 shrink-0" />
-                  ) : (
-                    <Folder className="h-4 w-4 text-amber-400 shrink-0" />
-                  )}
+                  {(() => {
+                    const iconSpec = getFileIcon(node.name, true, isExpanded);
+                    return (
+                      <iconSpec.Icon
+                        className="h-4 w-4 shrink-0"
+                        style={{ color: iconSpec.color }}
+                      />
+                    );
+                  })()}
                 </>
               ) : (
                 <>
                   <span className="w-3.5" />
-                  {getFileIcon(node.name)}
+                  {(() => {
+                    const iconSpec = getFileIcon(node.name, false);
+                    return (
+                      <iconSpec.Icon
+                        className="h-4 w-4 shrink-0"
+                        style={{ color: iconSpec.color }}
+                      />
+                    );
+                  })()}
                 </>
               )}
 
@@ -399,10 +385,15 @@ export function FileTree() {
     <div className="flex flex-col h-full bg-sidebar select-none min-w-0">
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-border">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 truncate">
-          <Folder className="h-3.5 w-3.5 shrink-0" />
+        <button
+          type="button"
+          onClick={handlePickFolder}
+          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 truncate hover:text-foreground hover:bg-accent/50 px-1.5 py-0.5 rounded transition-colors text-left"
+          title="클릭하여 프로젝트 폴더 변경"
+        >
+          <Folder className="h-3.5 w-3.5 shrink-0 text-amber-400" />
           <span className="truncate">{tree ? tree.name : '파일 탐색기'}</span>
-        </span>
+        </button>
         <div className="flex items-center gap-0.5 shrink-0">
           {tree && (
             <>
@@ -518,16 +509,22 @@ export function FileTree() {
               )
             ) : (
               <div className="flex flex-col gap-0.5">
-                {filteredFlatFiles.map((file) => (
-                  <div
-                    key={file.path}
-                    onClick={() => handleNodeClick(file)}
-                    className="flex items-center gap-1.5 px-2 py-1 hover:bg-accent/60 rounded cursor-pointer"
-                  >
-                    {getFileIcon(file.name)}
-                    <span className="truncate">{file.name}</span>
-                  </div>
-                ))}
+                {filteredFlatFiles.map((file) => {
+                  const iconSpec = getFileIcon(file.name, false);
+                  return (
+                    <div
+                      key={file.path}
+                      onClick={() => handleNodeClick(file)}
+                      className="flex items-center gap-1.5 px-2 py-1 hover:bg-accent/60 rounded cursor-pointer"
+                    >
+                      <iconSpec.Icon
+                        className="h-4 w-4 shrink-0"
+                        style={{ color: iconSpec.color }}
+                      />
+                      <span className="truncate">{file.name}</span>
+                    </div>
+                  );
+                })}
                 {filteredFlatFiles.length === 0 && (
                   <div className="p-4 text-center text-muted-foreground">
                     검색 결과가 없습니다.

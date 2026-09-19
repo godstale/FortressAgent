@@ -8,7 +8,8 @@ export type BuiltinToolId =
   | 'grep'
   | 'find'
   | 'shell'
-  | 'web_search';
+  | 'web_search'
+  | 'web_fetch';
 
 export interface Agent {
   id: string; // uuid

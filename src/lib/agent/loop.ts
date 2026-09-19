@@ -17,16 +17,23 @@ import {
   mapAgentMessagesToOllama,
   mapAgentToolsToOllama,
 } from '@/lib/llm/messageMapper';
+import { appLogger } from '@/lib/logger/logger';
+import { recordAgentError, recordLlmCall } from '@/lib/metrics/agentMetrics';
 
 export interface LoopAgentConfig {
+  id?: string;
   model: string;
   systemPrompt?: string;
   temperature?: number;
   options?: Record<string, unknown>;
+  contextSize?: number;
+  reserveTokens?: number;
+  keepRecentTokens?: number;
 }
 
 export interface RunAgentLoopOptions {
   agent: LoopAgentConfig;
+  sessionId?: string;
   messages: AgentMessage[];
   tools: AgentTool[];
   hooks?: AgentHooks;
@@ -43,6 +50,7 @@ export interface RunAgentLoopOptions {
 export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentMessage[]> {
   const {
     agent,
+    sessionId,
     tools,
     hooks = {},
     signal,
@@ -63,6 +71,13 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
   }
 
   emit({ type: 'agent_start' });
+  appLogger.info(
+    'agent',
+    `에이전트 루프 시작 (모델: ${agent.model}, 활성 도구: ${tools.length}개)`,
+    { model: agent.model, tools: tools.map((t) => t.name), options: agent.options },
+    sessionId,
+    agent.id,
+  );
 
   let turnIndex = 0;
   let hasFollowUp = true;
@@ -75,15 +90,37 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       let activeMessages = messages;
       if (hooks.transformContext) {
         activeMessages = await hooks.transformContext(messages, signal);
+        if (activeMessages && activeMessages.length > 0 && activeMessages !== messages) {
+          if (activeMessages.length < messages.length) {
+            messages.length = 0;
+            messages.push(...activeMessages);
+            emit({ type: 'compaction_end', entry: { compactedCount: activeMessages.length } });
+          }
+        }
       }
 
       emit({ type: 'turn_start' });
+      appLogger.debug(
+        'agent',
+        `[Turn #${turnIndex}] 턴 시작 (컨텍스트 메시지: ${activeMessages.length}개)`,
+        { turnIndex, messageCount: activeMessages.length },
+        sessionId,
+        agent.id,
+      );
 
       // 2. Prepare Ollama request
       const ollamaMessages = mapAgentMessagesToOllama(activeMessages);
       const ollamaTools = mapAgentToolsToOllama(tools);
+      appLogger.debug(
+        'ollama',
+        `[Turn #${turnIndex}] Ollama 스트리밍 요청 전송`,
+        { model: agent.model, messagesCount: ollamaMessages.length, toolsCount: ollamaTools.length },
+        sessionId,
+        agent.id,
+      );
 
       let assistantContent = '';
+      let assistantThinking = '';
       let assistantToolCalls: AgentToolCall[] = [];
       let finalUsage: TokenUsage | undefined;
       let stopReason: 'stop' | 'toolUse' | 'length' | 'aborted' | 'error' = 'stop';
@@ -93,12 +130,14 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       let overflowRetried = false;
 
       const executeStreamAttempt = async (): Promise<void> => {
+        const streamStartTime = performance.now();
         while (true) {
           try {
             await withRetry(
               async (attempt) => {
                 if (attempt > 0) {
                   assistantContent = '';
+                  assistantThinking = '';
                   assistantToolCalls = [];
                 }
 
@@ -122,6 +161,10 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
 
                   if (chunk.content) {
                     assistantContent += chunk.content;
+                  }
+
+                  if (chunk.thinking) {
+                    assistantThinking += chunk.thinking;
                   }
 
                   if (chunk.toolCalls && chunk.toolCalls.length > 0) {
@@ -148,6 +191,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                   const partialAssistant: AgentMessage = {
                     role: 'assistant',
                     content: assistantContent,
+                    thinking: assistantThinking || undefined,
                     toolCalls:
                       assistantToolCalls.length > 0
                         ? [...assistantToolCalls]
@@ -168,7 +212,33 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
               onRetry,
             );
 
-            // Successfully finished streaming
+            // Successfully finished streaming - record metrics
+            const durationMs = Math.round(performance.now() - streamStartTime);
+            if (agent.id) {
+              recordLlmCall({
+                agentId: agent.id,
+                sessionId,
+                contextTokens: finalUsage?.input ?? 0,
+                outputTokens: finalUsage?.output ?? 0,
+                durationMs,
+                toolCallsCount: assistantToolCalls.length,
+              });
+            }
+
+            appLogger.info(
+              'ollama',
+              `[Turn #${turnIndex}] Ollama 스트리밍 응답 완료 (${durationMs}ms, 토큰: 입력 ${finalUsage?.input ?? 0} / 출력 ${finalUsage?.output ?? 0}, 도구 호출: ${assistantToolCalls.length}건)`,
+              {
+                durationMs,
+                usage: finalUsage,
+                toolCalls: assistantToolCalls.length > 0 ? assistantToolCalls : undefined,
+                contentPreview: assistantContent ? assistantContent.slice(0, 300) : undefined,
+                thinkingPreview: assistantThinking ? assistantThinking.slice(0, 300) : undefined,
+              },
+              sessionId,
+              agent.id,
+            );
+
             break;
           } catch (err: unknown) {
             if (signal.aborted) {
@@ -183,15 +253,25 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
               hooks.onContextOverflow
             ) {
               overflowRetried = true;
+              emit({ type: 'compaction_start' });
+              appLogger.warn(
+                'context',
+                `[Turn #${turnIndex}] Ollama 컨텍스트 초과 오류 발생. 컨텍스트 압축 후 재시도합니다.`,
+                { error: err.message },
+                sessionId,
+                agent.id,
+              );
               const compacted = await hooks.onContextOverflow(messages, signal);
               if (compacted && compacted.length > 0) {
                 // Replace messages and retry turn
                 messages.length = 0;
                 messages.push(...compacted);
+                emit({ type: 'compaction_end', entry: { compactedCount: compacted.length } });
                 const newOllamaMsgs = mapAgentMessagesToOllama(messages);
                 ollamaMessages.length = 0;
                 ollamaMessages.push(...newOllamaMsgs);
                 assistantContent = '';
+                assistantThinking = '';
                 assistantToolCalls = [];
                 continue;
               }
@@ -225,9 +305,16 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         stopReason = 'toolUse';
       }
 
+      // Fallback: If model finished turn with no text content and no tool calls,
+      // but produced thinking text, use thinking as content so the user receives a response
+      if (!assistantContent.trim() && !assistantToolCalls.length && assistantThinking.trim()) {
+        assistantContent = assistantThinking.trim();
+      }
+
       const completedAssistantMessage: AgentMessage = {
         role: 'assistant',
         content: assistantContent,
+        thinking: assistantThinking || undefined,
         toolCalls:
           assistantToolCalls.length > 0 ? assistantToolCalls : undefined,
         usage: finalUsage,
@@ -267,12 +354,21 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       const executeSingleTool = async (
         tc: AgentToolCall,
       ): Promise<{ toolResultMsg: AgentMessage; rawResult: AgentToolResult }> => {
+        const toolStartTime = performance.now();
         emit({
           type: 'tool_execution_start',
           toolCallId: tc.id,
           toolName: tc.name,
           args: tc.arguments,
         });
+
+        appLogger.info(
+          'tools',
+          `[Turn #${turnIndex}] 도구 호출 시작: '${tc.name}'`,
+          { toolCallId: tc.id, arguments: tc.arguments },
+          options.sessionId,
+          agent.id,
+        );
 
         const tool = toolMap.get(tc.name);
         let result: AgentToolResult;
@@ -282,6 +378,14 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
             content: `Tool '${tc.name}' not found or not enabled`,
             isError: true,
           };
+          appLogger.error('tools', `Tool '${tc.name}' not found`, tc.arguments, options.sessionId, agent.id);
+          recordAgentError({
+            agentId: agent.id || 'default',
+            sessionId: options.sessionId,
+            source: 'tool',
+            message: `Tool '${tc.name}' not found or not enabled`,
+            details: tc.arguments,
+          });
         } else {
           // Validate parameters schema
           const parseResult = tool.parameters.safeParse(tc.arguments);
@@ -290,6 +394,14 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
               content: `Invalid parameters for tool '${tc.name}': ${parseResult.error.message}`,
               isError: true,
             };
+            appLogger.error('tools', `Tool '${tc.name}' invalid parameters: ${parseResult.error.message}`, tc.arguments, options.sessionId, agent.id);
+            recordAgentError({
+              agentId: agent.id || 'default',
+              sessionId: options.sessionId,
+              source: 'tool',
+              message: `Invalid parameters for tool '${tc.name}': ${parseResult.error.message}`,
+              details: tc.arguments,
+            });
           } else {
             // Check beforeToolCall hook
             let blockDecision: { block?: boolean; reason?: string; terminate?: boolean } | undefined;
@@ -313,6 +425,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                 isError: true,
                 terminate: blockDecision.terminate,
               };
+              appLogger.warn('approval', `Tool '${tc.name}' blocked by user or policy: ${result.content}`, tc.arguments, options.sessionId, agent.id);
             } else {
               try {
                 result = await tool.execute(
@@ -327,14 +440,21 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                     });
                   },
                 );
+                appLogger.info('tools', `Tool '${tc.name}' executed successfully: ${result.content?.slice(0, 100)}`, result.details, options.sessionId, agent.id);
               } catch (execErr: unknown) {
+                const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
                 result = {
-                  content:
-                    execErr instanceof Error
-                      ? execErr.message
-                      : String(execErr),
+                  content: errMsg,
                   isError: true,
                 };
+                appLogger.error('tools', `Tool '${tc.name}' execution failed: ${errMsg}`, execErr, options.sessionId, agent.id);
+                recordAgentError({
+                  agentId: agent.id || 'default',
+                  sessionId: options.sessionId,
+                  source: 'tool',
+                  message: `Tool '${tc.name}' execution error: ${errMsg}`,
+                  details: execErr,
+                });
               }
             }
           }
@@ -357,12 +477,36 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         }
 
         const isError = Boolean(result.isError);
+        const toolDurationMs = Math.round(performance.now() - toolStartTime);
         emit({
           type: 'tool_execution_end',
           toolCallId: tc.id,
+          toolName: tc.name,
           result,
           isError,
         });
+
+        if (isError) {
+          appLogger.error(
+            'tools',
+            `[Turn #${turnIndex}] 도구 '${tc.name}' 실행 실패 (${toolDurationMs}ms): ${result.content?.slice(0, 300)}`,
+            { toolCallId: tc.id, error: result.content, details: result.details },
+            options.sessionId,
+            agent.id,
+          );
+        } else {
+          appLogger.info(
+            'tools',
+            `[Turn #${turnIndex}] 도구 '${tc.name}' 실행 완료 (${toolDurationMs}ms)`,
+            {
+              toolCallId: tc.id,
+              outputSnippet: result.content?.slice(0, 300),
+              details: result.details,
+            },
+            options.sessionId,
+            agent.id,
+          );
+        }
 
         const toolResultMsg: AgentMessage = {
           role: 'toolResult',
@@ -435,6 +579,24 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       }
     }
     hasFollowUp = false;
+  }
+
+  if (signal.aborted) {
+    appLogger.warn(
+      'agent',
+      '에이전트 실행이 사용자에 의해 중단되었습니다.',
+      undefined,
+      sessionId,
+      agent.id,
+    );
+  } else {
+    appLogger.info(
+      'agent',
+      `에이전트 실행 루프 완료 (총 ${turnIndex}턴 완료, 최종 메시지: ${messages.length}개)`,
+      { totalTurns: turnIndex, totalMessages: messages.length },
+      sessionId,
+      agent.id,
+    );
   }
 
   emit({ type: 'agent_end', messages });

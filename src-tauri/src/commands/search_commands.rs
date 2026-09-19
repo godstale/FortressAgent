@@ -1,6 +1,5 @@
-use std::path::Path;
 use serde::{Deserialize, Serialize};
-use crate::commands::fs_commands::verify_path_in_workspace;
+use crate::commands::fs_commands::resolve_and_verify_workspace_path;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GrepMatch {
@@ -23,8 +22,7 @@ pub fn grep_files(
     max_results: Option<usize>,
     workspace_root: Option<String>,
 ) -> Result<Vec<GrepMatch>, String> {
-    let target = Path::new(&path);
-    let verified = verify_path_in_workspace(target, workspace_root.as_deref())?;
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), true)?;
 
     let max_limit = max_results.unwrap_or(100);
     let re = regex::Regex::new(&pattern).map_err(|e| format!("Invalid regex pattern '{}': {}", pattern, e))?;
@@ -96,8 +94,7 @@ pub fn find_files(
     max_results: Option<usize>,
     workspace_root: Option<String>,
 ) -> Result<Vec<FindMatch>, String> {
-    let target = Path::new(&path);
-    let verified = verify_path_in_workspace(target, workspace_root.as_deref())?;
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), true)?;
 
     let max_limit = max_results.unwrap_or(100);
 

@@ -54,6 +54,18 @@ export const MIGRATION_STATEMENTS: string[] = [
     trusted_workspaces TEXT NOT NULL DEFAULT '[]',
     last_workspace_root TEXT
   )`,
+  `CREATE TABLE IF NOT EXISTS execution_logs (
+    id TEXT PRIMARY KEY,
+    timestamp TEXT NOT NULL,
+    level TEXT NOT NULL,
+    category TEXT NOT NULL,
+    message TEXT NOT NULL,
+    details TEXT,
+    session_id TEXT,
+    agent_id TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_logs_session ON execution_logs(session_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_logs_timestamp ON execution_logs(timestamp)`,
 ];
 
 export class MemorySqlFallback implements SqlDatabase {
@@ -64,6 +76,7 @@ export class MemorySqlFallback implements SqlDatabase {
     this.tables.set('sessions', new Map());
     this.tables.set('entries', new Map());
     this.tables.set('app_settings', new Map());
+    this.tables.set('execution_logs', new Map());
   }
 
   async execute(
@@ -294,6 +307,40 @@ export class MemorySqlFallback implements SqlDatabase {
       return { rowsAffected: 1 };
     }
 
+    if (q.startsWith('INSERT INTO execution_logs')) {
+      const [id, timestamp, level, category, message, details, session_id, agent_id] =
+        bindValues;
+      this.tables.get('execution_logs')?.set(id as string, {
+        id,
+        timestamp,
+        level,
+        category,
+        message,
+        details,
+        session_id,
+        agent_id,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM execution_logs WHERE session_id = ?')) {
+      const [sessionId] = bindValues;
+      const logsMap = this.tables.get('execution_logs');
+      if (logsMap) {
+        for (const [k, v] of logsMap) {
+          if (v.session_id === sessionId) {
+            logsMap.delete(k);
+          }
+        }
+      }
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM execution_logs')) {
+      this.tables.get('execution_logs')?.clear();
+      return { rowsAffected: 1 };
+    }
+
     return { rowsAffected: 0 };
   }
 
@@ -412,6 +459,20 @@ export class MemorySqlFallback implements SqlDatabase {
     if (q.startsWith("SELECT * FROM app_settings WHERE id = 'singleton'")) {
       const settings = this.tables.get('app_settings')?.get('singleton');
       return (settings ? [settings] : []) as unknown as T;
+    }
+
+    if (q.includes('FROM execution_logs WHERE session_id = ?')) {
+      const [sessionId] = bindValues;
+      const logs = Array.from(this.tables.get('execution_logs')?.values() ?? [])
+        .filter((l) => l.session_id === sessionId)
+        .sort((a, b) => (a.timestamp as string).localeCompare(b.timestamp as string));
+      return logs as unknown as T;
+    }
+
+    if (q.includes('FROM execution_logs ORDER BY timestamp ASC')) {
+      const logs = Array.from(this.tables.get('execution_logs')?.values() ?? [])
+        .sort((a, b) => (a.timestamp as string).localeCompare(b.timestamp as string));
+      return logs as unknown as T;
     }
 
     return [] as unknown as T;

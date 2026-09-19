@@ -36,6 +36,24 @@ export function AgentListPanel() {
     }
   };
 
+  const handleShowStats = (agent: Agent) => {
+    openTab({
+      id: `agent-stats:${agent.id}`,
+      type: 'agent-stats',
+      title: `${agent.name} 통계`,
+      meta: { agentId: agent.id, view: 'stats' },
+    });
+  };
+
+  const handleShowLogs = (agent: Agent) => {
+    openTab({
+      id: `agent-logs:${agent.id}`,
+      type: 'agent-stats',
+      title: `${agent.name} 로그`,
+      meta: { agentId: agent.id, view: 'logs' },
+    });
+  };
+
   const handleEditAgent = (agent: Agent) => {
     openTab({
       id: `agent-editor:${agent.id}`,
@@ -113,6 +131,8 @@ export function AgentListPanel() {
               agent={agent}
               isOnlyAgent={agents.length <= 1}
               onStartChat={handleStartChat}
+              onShowStats={handleShowStats}
+              onShowLogs={handleShowLogs}
               onEdit={handleEditAgent}
               onSetDefault={handleSetDefault}
               onDelete={handleDelete}

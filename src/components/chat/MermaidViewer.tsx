@@ -32,6 +32,7 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
 
         mermaid.initialize({
           startOnLoad: false,
+          suppressErrorRendering: true,
           theme: isDark ? 'dark' : 'default',
           securityLevel: 'loose',
           fontFamily: 'inherit',
@@ -48,6 +49,14 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
           setSvg(renderResult.svg);
         }
       } catch (err) {
+        // Clean up any stray error elements injected by mermaid into document.body
+        const stray = document.querySelectorAll(`[id^="d${elementId}"], #${elementId}, .error-icon`);
+        stray.forEach((el) => {
+          if (el.parentElement === document.body) {
+            el.remove();
+          }
+        });
+
         if (active) {
           const message = err instanceof Error ? err.message : String(err);
           setError(message);
@@ -59,6 +68,12 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
 
     return () => {
       active = false;
+      const stray = document.querySelectorAll(`[id^="d${elementId}"], #${elementId}`);
+      stray.forEach((el) => {
+        if (el.parentElement === document.body) {
+          el.remove();
+        }
+      });
     };
   }, [code, theme, elementId]);
 

@@ -10,18 +10,29 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("fortress".into()),
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                ])
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
+            use tauri::Manager;
+            for window in app.webview_windows().values() {
+                let _ = window.set_theme(Some(tauri::Theme::Dark));
             }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             pick_project_folder,
+            set_active_workspace,
+            get_app_paths,
             read_project_folder_tree,
             read_text_file,
             write_text_file,
@@ -34,6 +45,8 @@ pub fn run() {
             find_files,
             run_shell,
             web_search,
+            web_fetch,
+            open_in_browser,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

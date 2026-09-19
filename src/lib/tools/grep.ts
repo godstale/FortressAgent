@@ -23,42 +23,48 @@ const GrepParametersSchema = z.object({
     .describe('Maximum number of matching lines to return (default 100)'),
 });
 
-export const grepTool: AgentTool<typeof GrepParametersSchema> = {
-  name: 'grep',
-  label: 'Grep Search',
-  description:
-    'Searches for regex patterns in files while respecting .gitignore. Returns matching file paths, line numbers, and contents.',
-  parameters: GrepParametersSchema,
-  risk: 'low',
-  executionMode: 'parallel',
-  async execute(
-    _toolCallId: string,
-    params: z.infer<typeof GrepParametersSchema>,
-  ): Promise<AgentToolResult> {
-    const matches = await invoke<GrepMatch[]>('grep_files', {
-      pattern: params.pattern,
-      path: params.path,
-      glob: params.glob,
-      maxResults: params.maxResults,
-    });
+export function createGrepTool(ctx: { workspaceRoot?: string } = {}): AgentTool<typeof GrepParametersSchema> {
+  return {
+    name: 'grep',
+    label: 'Grep Search',
+    description:
+      'Searches for regex patterns in files while respecting .gitignore. Returns matching file paths, line numbers, and contents.',
+    parameters: GrepParametersSchema,
+    risk: 'low',
+    executionMode: 'parallel',
+    async execute(
+      _toolCallId: string,
+      params: z.infer<typeof GrepParametersSchema>,
+    ): Promise<AgentToolResult> {
+      const matches = await invoke<GrepMatch[]>('grep_files', {
+        pattern: params.pattern,
+        path: params.path,
+        glob: params.glob,
+        maxResults: params.maxResults,
+        workspaceRoot: ctx.workspaceRoot,
+      });
 
-    if (matches.length === 0) {
+      if (matches.length === 0) {
+        return {
+          content: 'No matches found.',
+          details: { matches: [], workspaceRoot: ctx.workspaceRoot },
+        };
+      }
+
+      const lines = matches.map(
+        (m) => `${m.file_path}:${m.line_number}: ${m.line_content}`,
+      );
+
       return {
-        content: 'No matches found.',
-        details: { matches: [] },
+        content: lines.join('\n'),
+        details: {
+          totalMatches: matches.length,
+          matches,
+          workspaceRoot: ctx.workspaceRoot,
+        },
       };
-    }
+    },
+  };
+}
 
-    const lines = matches.map(
-      (m) => `${m.file_path}:${m.line_number}: ${m.line_content}`,
-    );
-
-    return {
-      content: lines.join('\n'),
-      details: {
-        totalMatches: matches.length,
-        matches,
-      },
-    };
-  },
-};
+export const grepTool = createGrepTool();
