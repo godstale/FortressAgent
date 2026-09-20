@@ -1,4 +1,4 @@
-import { getDatabase, type SqlDatabase } from '@/lib/db/client';
+import { getGlobalDatabase, type SqlDatabase } from '@/lib/db/client';
 import type { Agent, ApprovalMode, BuiltinToolId } from '@/lib/types/agent';
 
 interface AgentRow {
@@ -42,7 +42,7 @@ function parseAgentRow(row: AgentRow): Agent {
 }
 
 export async function listAgents(dbOverride?: SqlDatabase): Promise<Agent[]> {
-  const db = dbOverride ?? (await getDatabase());
+  const db = dbOverride ?? (await getGlobalDatabase());
   const rows = await db.select<AgentRow[]>(
     'SELECT * FROM agents ORDER BY created_at ASC',
   );
@@ -53,7 +53,7 @@ export async function getAgent(
   id: string,
   dbOverride?: SqlDatabase,
 ): Promise<Agent | null> {
-  const db = dbOverride ?? (await getDatabase());
+  const db = dbOverride ?? (await getGlobalDatabase());
   const rows = await db.select<AgentRow[]>(
     'SELECT * FROM agents WHERE id = ?',
     [id],
@@ -65,7 +65,7 @@ export async function getAgent(
 export async function getDefaultAgent(
   dbOverride?: SqlDatabase,
 ): Promise<Agent | null> {
-  const db = dbOverride ?? (await getDatabase());
+  const db = dbOverride ?? (await getGlobalDatabase());
   const rows = await db.select<AgentRow[]>(
     'SELECT * FROM agents WHERE is_default = 1 LIMIT 1',
   );
@@ -80,7 +80,7 @@ export async function createAgent(
   },
   dbOverride?: SqlDatabase,
 ): Promise<Agent> {
-  const db = dbOverride ?? (await getDatabase());
+  const db = dbOverride ?? (await getGlobalDatabase());
   const now = new Date().toISOString();
   const createdAt = agent.createdAt || now;
   const updatedAt = agent.updatedAt || now;
@@ -140,7 +140,7 @@ export async function updateAgent(
   updates: Partial<Omit<Agent, 'id' | 'createdAt'>>,
   dbOverride?: SqlDatabase,
 ): Promise<Agent> {
-  const db = dbOverride ?? (await getDatabase());
+  const db = dbOverride ?? (await getGlobalDatabase());
   const existing = await getAgent(id, db);
   if (!existing) {
     throw new Error(`Agent with id "${id}" not found.`);
@@ -210,7 +210,7 @@ export async function deleteAgent(
   id: string,
   dbOverride?: SqlDatabase,
 ): Promise<void> {
-  const db = dbOverride ?? (await getDatabase());
+  const db = dbOverride ?? (await getGlobalDatabase());
   const existing = await getAgent(id, db);
   if (!existing) return;
 

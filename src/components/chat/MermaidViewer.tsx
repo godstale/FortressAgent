@@ -2,12 +2,14 @@ import React, { useEffect, useId, useState } from 'react';
 import mermaid from 'mermaid';
 import { AlertCircle, Check, Copy } from 'lucide-react';
 import { useTheme } from '../../lib/context/ThemeContext';
+import { isChartDsl } from '../../lib/types/chartDsl';
+import { RechartsViewer } from './RechartsViewer';
 
 interface MermaidViewerProps {
   code: string;
 }
 
-export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
+const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
   const { theme } = useTheme();
   const rawId = useId();
   const elementId = 'mermaid-' + rawId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -32,6 +34,7 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
 
         mermaid.initialize({
           startOnLoad: false,
+          suppressErrorRendering: true,
           theme: isDark ? 'dark' : 'default',
           securityLevel: 'loose',
           fontFamily: 'inherit',
@@ -48,6 +51,14 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
           setSvg(renderResult.svg);
         }
       } catch (err) {
+        // Clean up any stray error elements injected by mermaid into document.body
+        const stray = document.querySelectorAll(`[id^="d${elementId}"], #${elementId}, .error-icon`);
+        stray.forEach((el) => {
+          if (el.parentElement === document.body) {
+            el.remove();
+          }
+        });
+
         if (active) {
           const message = err instanceof Error ? err.message : String(err);
           setError(message);
@@ -59,6 +70,12 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
 
     return () => {
       active = false;
+      const stray = document.querySelectorAll(`[id^="d${elementId}"], #${elementId}`);
+      stray.forEach((el) => {
+        if (el.parentElement === document.body) {
+          el.remove();
+        }
+      });
     };
   }, [code, theme, elementId]);
 
@@ -122,4 +139,11 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
       )}
     </div>
   );
+};
+
+export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
+  if (isChartDsl(code)) {
+    return <RechartsViewer code={code} />;
+  }
+  return <MermaidDiagramViewer code={code} />;
 };

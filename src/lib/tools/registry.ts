@@ -2,14 +2,15 @@ import type { AgentTool } from '@/lib/agent/types';
 import type { BuiltinToolId } from '@/lib/types/agent';
 import { registerHooks } from '@/lib/agent/hookRegistry';
 import { truncateOutput } from './truncate';
-import { readTool } from './read';
-import { lsTool } from './ls';
-import { grepTool } from './grep';
-import { findTool } from './find';
-import { writeTool } from './write';
-import { editTool } from './edit';
-import { shellTool } from './shell';
+import { createReadTool, readTool } from './read';
+import { createLsTool, lsTool } from './ls';
+import { createGrepTool, grepTool } from './grep';
+import { createFindTool, findTool } from './find';
+import { createWriteTool, writeTool } from './write';
+import { createEditTool, editTool } from './edit';
+import { createShellTool, shellTool } from './shell';
 import { webSearchTool } from './webSearch';
+import { webFetchTool } from './webFetch';
 
 export interface ToolContext {
   workspaceRoot?: string;
@@ -33,15 +34,16 @@ export function registerToolFactory(
   toolRegistry.set(id, factory);
 }
 
-// Register all 8 built-in tools
-registerToolFactory('read', () => readTool);
-registerToolFactory('ls', () => lsTool);
-registerToolFactory('grep', () => grepTool);
-registerToolFactory('find', () => findTool);
-registerToolFactory('write', () => writeTool);
-registerToolFactory('edit', () => editTool);
-registerToolFactory('shell', () => shellTool);
+// Register all 9 built-in tools
+registerToolFactory('read', (ctx) => createReadTool(ctx));
+registerToolFactory('ls', (ctx) => createLsTool(ctx));
+registerToolFactory('grep', (ctx) => createGrepTool(ctx));
+registerToolFactory('find', (ctx) => createFindTool(ctx));
+registerToolFactory('write', (ctx) => createWriteTool(ctx));
+registerToolFactory('edit', (ctx) => createEditTool(ctx));
+registerToolFactory('shell', (ctx) => createShellTool(ctx));
 registerToolFactory('web_search', () => webSearchTool);
+registerToolFactory('web_fetch', () => webFetchTool);
 
 export function getBuiltinTools(
   ids: BuiltinToolId[],
@@ -70,3 +72,5 @@ registerHooks('builtin:truncate', {
     return undefined;
   },
 });
+
+export { readTool, lsTool, grepTool, findTool, writeTool, editTool, shellTool, webSearchTool };

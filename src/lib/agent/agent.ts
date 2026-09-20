@@ -7,6 +7,7 @@ import { runAgentLoop, type LoopAgentConfig } from '@/lib/agent/loop';
 import type { streamChat } from '@/lib/llm/ollamaClient';
 
 export interface FortressAgentConfig {
+  sessionId?: string;
   agent: LoopAgentConfig;
   tools?: AgentTool[];
   hooks?: AgentHooks;
@@ -116,6 +117,7 @@ export class FortressAgent {
     try {
       const updatedMessages = await runAgentLoop({
         agent: this.config.agent,
+        sessionId: this.config.sessionId,
         messages: this.messages,
         tools: this.config.tools ?? [],
         hooks: this.hooks,

@@ -1,22 +1,64 @@
 import { useState, useRef, useEffect, useMemo, useContext, type KeyboardEvent } from 'react';
-import { Send, Square, CornerDownLeft, Puzzle, AlertCircle, Bot } from 'lucide-react';
+import {
+  Send,
+  Square,
+  CornerDownLeft,
+  Puzzle,
+  AlertCircle,
+  Bot,
+  Terminal,
+  Zap,
+  RotateCcw,
+  BarChart2,
+  Settings,
+  Folder,
+  Layers,
+  Info,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { SkillManifest } from '@/lib/types/skill';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
 import { AgentsContext } from '@/lib/context/AgentsContext';
 import { resolveSkillInvocation, parseSkillCommand } from '@/lib/skills/invokeSkill';
 
+import { ContextGauge } from './ContextGauge';
+
+export interface SlashCommandOption {
+  type: 'command' | 'skill';
+  name: string;
+  syntax: string;
+  description: string;
+  source?: 'workspace' | 'global';
+  icon?: typeof Terminal;
+}
+
+const BUILTIN_SLASH_COMMANDS: SlashCommandOption[] = [
+  { type: 'command', name: 'clear', syntax: '/clear', description: '대화창을 초기화 (컨텍스트 초기화)', icon: RotateCcw },
+  { type: 'command', name: 'usage', syntax: '/usage', description: 'context 사용량을 표시, 기본적인 agent 사용 통계를 표시', icon: BarChart2 },
+  { type: 'command', name: 'agent', syntax: '/agent', description: '현재 설정된 agent 설정을 표시', icon: Bot },
+  { type: 'command', name: 'yolo', syntax: '/yolo', description: '최대 허용 모드로 실행 (채팅창 상단에 현재 모드 표시)', icon: Zap },
+  { type: 'command', name: 'settings', syntax: '/settings', description: 'agent 설정 화면으로 전환', icon: Settings },
+  { type: 'command', name: 'skills', syntax: '/skills', description: '설치된 skill 들을 보여줌', icon: Puzzle },
+  { type: 'command', name: 'pwd', syntax: '/pwd', description: '현재 작업 디렉토리 경로를 출력', icon: Folder },
+  { type: 'command', name: 'compact', syntax: '/compact', description: 'context 압축 작업을 실행', icon: Layers },
+  { type: 'command', name: 'status', syntax: '/status', description: 'Fortress 앱 정보를 표시', icon: Info },
+];
+
 export interface ChatInputProps {
   onSend: (text: string) => void;
   onSteer: (text: string) => void;
   onStop: () => void;
   onCompact?: (instructions?: string) => Promise<void> | void;
+  onOpenCompactDialog?: () => void;
+  onSlashCommand?: (command: string, args?: string) => boolean | Promise<boolean>;
   isStreaming: boolean;
   placeholder?: string;
   skills?: SkillManifest[];
   selectedAgentId?: string;
   onSelectAgent?: (agentId: string) => void;
   isAgentLocked?: boolean;
+  contextUsage?: { tokens: number; limit: number };
+  yoloMode?: boolean;
 }
 
 export function ChatInput({
@@ -24,12 +66,16 @@ export function ChatInput({
   onSteer,
   onStop,
   onCompact,
+  onOpenCompactDialog,
+  onSlashCommand,
   isStreaming,
   placeholder,
   skills: skillsProp,
   selectedAgentId,
   onSelectAgent,
   isAgentLocked,
+  contextUsage,
+  yoloMode,
 }: ChatInputProps) {
   const safeSkillsCtx = useSafeSkills();
   const availableSkills = useMemo(() => {
@@ -51,28 +97,46 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Detect `/skill:<filter>` pattern before any whitespace
+  // Detect `/` slash command or `/skill:<filter>` pattern before any whitespace
   const autocompleteQuery = useMemo(() => {
     if (autocompleteDismissed) return null;
-    const match = text.match(/^\/skill:([^\s]*)$/i);
+    const match = text.match(/^\/([^\s]*)$/);
     if (!match) return null;
     return match[1].toLowerCase();
   }, [text, autocompleteDismissed]);
 
-  const filteredSkills = useMemo(() => {
+  const filteredOptions = useMemo<SlashCommandOption[]>(() => {
     if (autocompleteQuery === null) return [];
-    if (!autocompleteQuery) return availableSkills;
-    return availableSkills.filter((s) =>
-      s.name.toLowerCase().includes(autocompleteQuery),
-    );
+    let query = autocompleteQuery;
+    let isSkillQuery = false;
+    if (query.startsWith('skill:')) {
+      query = query.slice(6);
+      isSkillQuery = true;
+    }
+
+    const commandMatches = isSkillQuery
+      ? []
+      : BUILTIN_SLASH_COMMANDS.filter((cmd) => cmd.name.toLowerCase().includes(query));
+
+    const skillMatches: SlashCommandOption[] = availableSkills
+      .filter((s) => s.name.toLowerCase().includes(query))
+      .map((s) => ({
+        type: 'skill' as const,
+        name: s.name,
+        syntax: `/skill:${s.name} `,
+        description: s.description,
+        source: s.source,
+      }));
+
+    return [...commandMatches, ...skillMatches];
   }, [autocompleteQuery, availableSkills]);
 
   const isAutocompleteOpen =
-    autocompleteQuery !== null && filteredSkills.length > 0;
+    autocompleteQuery !== null && filteredOptions.length > 0;
 
   // Derive clamped selected index without setting state in effect
   const activeIndex =
-    selectedIndex < filteredSkills.length ? selectedIndex : 0;
+    selectedIndex < filteredOptions.length ? selectedIndex : 0;
 
   // Auto-resize textarea height
   useEffect(() => {
@@ -83,11 +147,24 @@ export function ChatInput({
     }
   }, [text]);
 
-  const selectSkill = (skill: SkillManifest) => {
-    setText(`/skill:${skill.name} `);
-    setAutocompleteDismissed(true);
-    setSelectedIndex(0);
-    textareaRef.current?.focus();
+  const selectOption = (opt: SlashCommandOption) => {
+    if (opt.type === 'command') {
+      if (opt.name === 'compact' && onOpenCompactDialog) {
+        onOpenCompactDialog();
+        setText('');
+        setAutocompleteDismissed(true);
+        return;
+      }
+      setText(`${opt.syntax} `);
+      setAutocompleteDismissed(true);
+      setSelectedIndex(0);
+      textareaRef.current?.focus();
+    } else {
+      setText(opt.syntax);
+      setAutocompleteDismissed(true);
+      setSelectedIndex(0);
+      textareaRef.current?.focus();
+    }
   };
 
   const handleSubmit = async () => {
@@ -96,26 +173,45 @@ export function ChatInput({
 
     setErrorMessage(null);
 
-    let messageToSend = trimmed;
-    const compactMatch = trimmed.match(/^\/compact(?:\s+([\s\S]*))?$/);
-    if (compactMatch) {
-      if (onCompact) {
-        try {
-          await onCompact(compactMatch[1]?.trim());
+    // Check built-in slash commands
+    const slashMatch = trimmed.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
+    if (slashMatch) {
+      const commandName = slashMatch[1].toLowerCase();
+      const args = slashMatch[2]?.trim();
+
+      if (commandName === 'compact') {
+        if (onCompact) {
+          try {
+            await onCompact(args);
+            setText('');
+            setAutocompleteDismissed(false);
+            if (textareaRef.current) {
+              textareaRef.current.style.height = 'auto';
+            }
+            return;
+          } catch (err) {
+            setErrorMessage(
+              err instanceof Error ? err.message : '수동 압축에 실패했습니다.',
+            );
+            return;
+          }
+        }
+      }
+
+      if (onSlashCommand) {
+        const handled = await onSlashCommand(commandName, args);
+        if (handled) {
           setText('');
           setAutocompleteDismissed(false);
           if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
           }
           return;
-        } catch (err) {
-          setErrorMessage(
-            err instanceof Error ? err.message : '수동 압축에 실패했습니다.',
-          );
-          return;
         }
       }
     }
+
+    let messageToSend = trimmed;
 
     if (parseSkillCommand(trimmed)) {
       try {
@@ -154,22 +250,22 @@ export function ChatInput({
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelectedIndex((prev) =>
-          prev < filteredSkills.length - 1 ? prev + 1 : 0,
+          prev < filteredOptions.length - 1 ? prev + 1 : 0,
         );
         return;
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSelectedIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredSkills.length - 1,
+          prev > 0 ? prev - 1 : filteredOptions.length - 1,
         );
         return;
       }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
-        const chosen = filteredSkills[activeIndex];
+        const chosen = filteredOptions[activeIndex];
         if (chosen) {
-          selectSkill(chosen);
+          selectOption(chosen);
         }
         return;
       }
@@ -196,7 +292,7 @@ export function ChatInput({
 
   const defaultPlaceholder = isStreaming
     ? '스트리밍 중입니다 (입력 후 Enter시 지시 주입 — Steering)...'
-    : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈, /skill: 스킬 호출)...';
+    : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈, /: 슬래시 명령어, /skill: 스킬)...';
 
   return (
     <div className="relative border border-border rounded-xl bg-background shadow-xs focus-within:ring-1 focus-within:ring-primary focus-within:border-primary transition-all">
@@ -205,40 +301,59 @@ export function ChatInput({
         <div
           ref={listRef}
           role="listbox"
-          aria-label="스킬 자동완성 목록"
-          className="absolute bottom-full left-0 right-0 mb-2 max-h-56 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg z-50 animate-in fade-in slide-in-from-bottom-2 duration-150"
+          aria-label="명령어 및 스킬 자동완성 목록"
+          className="absolute bottom-full left-0 right-0 mb-2 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg z-50 animate-in fade-in slide-in-from-bottom-2 duration-150"
         >
-          <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-            사용 가능한 스킬 ({filteredSkills.length})
+          <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
+            <span>사용 가능한 슬래시 명령 / 스킬 ({filteredOptions.length})</span>
+            <span className="text-[10px] text-muted-foreground/70 lowercase font-normal">
+              ↑↓ 탐색, Enter 선택
+            </span>
           </div>
-          {filteredSkills.map((skill, idx) => {
+          {filteredOptions.map((opt, idx) => {
             const isSelected = idx === activeIndex;
+            const Icon = opt.icon || (opt.type === 'skill' ? Puzzle : Terminal);
             return (
               <button
-                key={skill.filePath}
+                key={`${opt.type}-${opt.name}`}
                 type="button"
                 role="option"
                 aria-selected={isSelected}
-                onClick={() => selectSkill(skill)}
+                onClick={() => selectOption(opt)}
                 onMouseEnter={() => setSelectedIndex(idx)}
-                className={`w-full flex items-start gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${
+                className={`w-full flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors ${
                   isSelected
                     ? 'bg-accent text-accent-foreground font-medium'
                     : 'text-foreground hover:bg-muted/50'
                 }`}
               >
-                <Puzzle className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                <div
+                  className={`p-1 rounded-md shrink-0 mt-0.5 ${
+                    opt.type === 'command'
+                      ? 'bg-primary/10 text-primary'
+                      : 'bg-amber-500/10 text-amber-500'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono font-semibold text-foreground">
-                      /skill:{skill.name}
+                      {opt.syntax.trim()}
                     </span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-sm bg-muted text-muted-foreground">
-                      {skill.source === 'workspace' ? '워크스페이스' : '전역'}
-                    </span>
+                    {opt.type === 'skill' && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-sm bg-muted text-muted-foreground">
+                        {opt.source === 'workspace' ? '워크스페이스' : '전역'}
+                      </span>
+                    )}
+                    {opt.type === 'command' && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-sm bg-primary/10 text-primary font-mono">
+                        내장 명령
+                      </span>
+                    )}
                   </div>
                   <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
-                    {skill.description}
+                    {opt.description}
                   </p>
                 </div>
               </button>
@@ -258,30 +373,53 @@ export function ChatInput({
       {/* Agent Selector / Lock Bar */}
       {agentsCtx && agentsCtx.agents.length > 0 && (
         <div className="flex items-center justify-between px-3.5 pt-2 pb-1 text-[11px] text-muted-foreground border-b border-border/30">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <Bot className="h-3.5 w-3.5 text-primary shrink-0" />
-            <span className="text-[10px] uppercase font-mono tracking-wider text-muted-foreground/70 shrink-0">
-              에이전트:
-            </span>
-            {isAgentLocked ? (
-              <span className="font-semibold text-foreground truncate">
-                {currentAgent?.name} ({currentAgent?.model})
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Bot className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="text-[10px] uppercase font-mono tracking-wider text-muted-foreground/70 shrink-0">
+                에이전트:
               </span>
-            ) : (
-              <select
-                value={currentAgent?.id}
-                onChange={(e) => onSelectAgent?.(e.target.value)}
-                className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none pr-2 focus:ring-0 text-xs"
-                title="대화할 에이전트 선택"
+              {isAgentLocked ? (
+                <span className="font-semibold text-foreground truncate">
+                  {currentAgent?.name} ({currentAgent?.model})
+                </span>
+              ) : (
+                <select
+                  value={currentAgent?.id}
+                  onChange={(e) => onSelectAgent?.(e.target.value)}
+                  className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none pr-2 focus:ring-0 text-xs"
+                  title="대화할 에이전트 선택"
+                >
+                  {agentsCtx.agents.map((a) => (
+                    <option key={a.id} value={a.id} className="bg-card text-foreground">
+                      {a.name} ({a.model}) {a.isDefault ? '★' : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* YOLO Mode Badge */}
+            {yoloMode && (
+              <div
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-semibold animate-pulse"
+                title="YOLO 모드 활성화됨: 셸을 제외한 모든 도구 호출이 자동 승인됩니다."
               >
-                {agentsCtx.agents.map((a) => (
-                  <option key={a.id} value={a.id} className="bg-card text-foreground">
-                    {a.name} ({a.model}) {a.isDefault ? '★' : ''}
-                  </option>
-                ))}
-              </select>
+                <Zap className="h-3 w-3 fill-current" />
+                <span>YOLO MODE ON</span>
+              </div>
             )}
           </div>
+
+          {contextUsage && (
+            <div className="shrink-0 pl-2">
+              <ContextGauge
+                tokens={contextUsage.tokens}
+                limit={contextUsage.limit}
+                onClick={onOpenCompactDialog}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -292,7 +430,7 @@ export function ChatInput({
         onChange={(e) => handleTextChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder || defaultPlaceholder}
-        className="w-full resize-none bg-transparent px-3.5 py-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-hidden max-h-44 leading-relaxed font-sans"
+        className="w-full resize-none bg-transparent px-3.5 py-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 border-0 outline-none focus:outline-none focus:ring-0 shadow-none max-h-44 leading-relaxed font-sans"
       />
 
       <div className="absolute right-2.5 bottom-2.5 flex items-center gap-1.5">

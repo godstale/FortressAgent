@@ -2,10 +2,55 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { AgentMessage, AgentTool } from '@/lib/agent/types';
 import type { OllamaChatRequest, OllamaToolCall } from '@/lib/llm/ollamaClient';
 
+export interface MapMessageOptions {
+  /**
+   * Strip <think>...</think> blocks from assistant messages to prevent
+   * previous internal scratchpads from consuming prompt tokens in subsequent turns.
+   * Default: true.
+   */
+  stripThinking?: boolean;
+  /**
+   * Compact older tool results that exceed pastToolResultMaxChars
+   * so working memory remains focused on the latest sub-step.
+   * Default: true.
+   */
+  prunePastToolResults?: boolean;
+  /**
+   * Maximum characters to retain for older tool results (default 3000).
+   */
+  pastToolResultMaxChars?: number;
+  /**
+   * Number of recent tool results to preserve completely unpruned (default 3).
+   */
+  keepRecentToolCount?: number;
+}
+
 export function mapAgentMessagesToOllama(
   messages: AgentMessage[],
+  options: MapMessageOptions = {},
 ): OllamaChatRequest['messages'] {
-  return messages.map((msg) => {
+  const {
+    stripThinking = true,
+    prunePastToolResults = true,
+    pastToolResultMaxChars = 3000,
+    keepRecentToolCount = 3,
+  } = options;
+
+  // Find all indices of toolResult messages
+  const toolResultIndices: number[] = [];
+  messages.forEach((msg, idx) => {
+    if (msg.role === 'toolResult') {
+      toolResultIndices.push(idx);
+    }
+  });
+
+  // Retain recent tool results completely unpruned (at least keepRecentToolCount)
+  const pruneCutoffIndex =
+    toolResultIndices.length > keepRecentToolCount
+      ? toolResultIndices[toolResultIndices.length - keepRecentToolCount]
+      : -1;
+
+  return messages.map((msg, index) => {
     switch (msg.role) {
       case 'system':
         return {
@@ -27,17 +72,37 @@ export function mapAgentMessagesToOllama(
           },
         }));
 
+        let content = msg.content ?? '';
+        if (stripThinking && content.includes('<think>')) {
+          const stripped = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          content = stripped || (ollamaToolCalls && ollamaToolCalls.length > 0 ? '' : content);
+        }
+
         return {
           role: 'assistant',
-          content: msg.content,
+          content,
           tool_calls: ollamaToolCalls && ollamaToolCalls.length > 0 ? ollamaToolCalls : undefined,
         };
       }
-      case 'toolResult':
+      case 'toolResult': {
+        let content = msg.content;
+        // If this is an older tool result and exceeds the limit, compact it to preserve context
+        if (
+          prunePastToolResults &&
+          pruneCutoffIndex >= 0 &&
+          index < pruneCutoffIndex &&
+          content &&
+          content.length > pastToolResultMaxChars
+        ) {
+          const truncated = content.slice(0, pastToolResultMaxChars);
+          content = `${truncated}\n\n... [과거 단계 도구 결과 (${msg.content.length}자) - 최신 문맥 공간 확보를 위해 이전 내용 축약됨]`;
+        }
+
         return {
           role: 'tool',
-          content: msg.content,
+          content,
         };
+      }
       default: {
         const exhaustCheck: never = msg;
         throw new Error(`Unhandled message role in mapping: ${JSON.stringify(exhaustCheck)}`);
@@ -48,18 +113,23 @@ export function mapAgentMessagesToOllama(
 
 export function mapAgentToolsToOllama(tools: AgentTool[]): unknown[] {
   return tools.map((tool) => {
-    const jsonSchema = zodToJsonSchema(tool.parameters, {
-      name: tool.name,
-      target: 'jsonSchema7',
-      $refStrategy: 'none',
-    });
+    const rawSchema = zodToJsonSchema(tool.parameters, {
+      target: 'openApi3',
+    }) as Record<string, unknown>;
+
+    // If schema has definitions (e.g. from sub-schemas), ensure root parameters object is clean
+    const defs =
+      rawSchema.definitions && typeof rawSchema.definitions === 'object'
+        ? (rawSchema.definitions as Record<string, unknown>)
+        : undefined;
+    const parameters = defs?.[tool.name] || rawSchema;
 
     return {
       type: 'function',
       function: {
         name: tool.name,
         description: tool.description,
-        parameters: jsonSchema,
+        parameters,
       },
     };
   });

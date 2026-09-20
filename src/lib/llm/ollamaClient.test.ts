@@ -181,4 +181,52 @@ describe('messageMapper', () => {
     expect(mapped).toHaveLength(1);
     expect((mapped[0] as { function: { name: string } }).function.name).toBe('read_file');
   });
+
+  it('strips <think> blocks and prunes older tool results to preserve context', () => {
+    const messages: AgentMessage[] = [
+      { role: 'user', content: 'What is the weather?' },
+      {
+        role: 'assistant',
+        content: '<think>I should search for weather first.</think>I am searching now.',
+        toolCalls: [{ id: 'tc-1', name: 'web_search', arguments: { query: 'weather' } }],
+        stopReason: 'toolUse',
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'tc-1',
+        toolName: 'web_search',
+        content: 'A'.repeat(800), // long past tool result
+        isError: false,
+      },
+      {
+        role: 'assistant',
+        content: '<think>Now I will fetch the details.</think>',
+        toolCalls: [{ id: 'tc-2', name: 'web_fetch', arguments: { url: 'https://weather.com' } }],
+        stopReason: 'toolUse',
+      },
+      {
+        role: 'toolResult',
+        toolCallId: 'tc-2',
+        toolName: 'web_fetch',
+        content: 'B'.repeat(800), // latest tool result
+        isError: false,
+      },
+    ];
+
+    const mapped = mapAgentMessagesToOllama(messages, {
+      pastToolResultMaxChars: 100,
+      keepRecentToolCount: 1,
+    });
+
+    // 1. Check thinking stripped from assistant messages
+    expect(mapped[1].content).toBe('I am searching now.');
+    expect(mapped[3].content).toBe(''); // Only contained thinking and had tool_calls
+
+    // 2. Check older toolResult (index 2) was pruned
+    expect(mapped[2].content).toContain('과거 단계 도구 결과');
+    expect(mapped[2].content.length).toBeLessThan(300);
+
+    // 3. Check latest toolResult (index 4) was NOT pruned
+    expect(mapped[4].content).toBe('B'.repeat(800));
+  });
 });

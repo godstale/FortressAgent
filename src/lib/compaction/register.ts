@@ -5,6 +5,7 @@ import { resolveCompactionSettings, type CompactionSettings } from './settings';
 import { prepareCompaction, executeCompact } from './compact';
 import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
 import { buildLlmContext } from '@/lib/db/buildContext';
+import { appLogger } from '@/lib/logger/logger';
 
 let currentSessionId: string | null = null;
 let currentModel = 'qwen3.5:9b';
@@ -31,17 +32,45 @@ export function setActiveCompactionSession(opts: {
 async function performCompaction(
   reason: 'threshold' | 'overflow',
   signal?: AbortSignal,
+  messagesToSync?: AgentMessage[],
 ): Promise<AgentMessage[] | null> {
   if (!currentSessionId) return null;
 
   try {
     const entries = await entriesRepo.getEntries(currentSessionId);
-    if (entries.length === 0) return null;
 
-    const prep = prepareCompaction(currentSessionId, entries, currentSettings);
+    // Sync any messages from active memory that have not yet been persisted to entries table
+    if (messagesToSync && messagesToSync.length > 0) {
+      const existingMessageCount = entries.filter((e) => e.type === 'message').length;
+      const nonSystemMessages = messagesToSync.filter((m) => m.role !== 'system');
+      if (nonSystemMessages.length > existingMessageCount) {
+        const missing = nonSystemMessages.slice(existingMessageCount);
+        const toAppend = missing.map((msg) => ({
+          id: crypto.randomUUID(),
+          sessionId: currentSessionId!,
+          parentId: null,
+          type: 'message' as const,
+          createdAt: new Date().toISOString(),
+          message: msg,
+        }));
+        await entriesRepo.appendEntries(currentSessionId, toAppend);
+      }
+    }
+
+    const fullEntries = await entriesRepo.getEntries(currentSessionId);
+    if (fullEntries.length === 0) return null;
+
+    const prep = prepareCompaction(currentSessionId, fullEntries, currentSettings);
     if (!prep) return null;
 
-    await executeCompact(
+    appLogger.warn(
+      'context',
+      `컨텍스트 자동 압축 시작 (사유: ${reason}, 압축 전 토큰 추정치: ${prep.tokensBefore})`,
+      { reason, tokensBefore: prep.tokensBefore, messagesCount: fullEntries.length },
+      currentSessionId,
+    );
+
+    const result = await executeCompact(
       prep,
       {
         model: currentModel,
@@ -51,10 +80,23 @@ async function performCompaction(
       signal,
     );
 
+    appLogger.info(
+      'context',
+      `컨텍스트 자동 압축 완료 (요약 생성됨)`,
+      { summaryPreview: result.summary.slice(0, 200) },
+      currentSessionId,
+    );
+
     const updatedEntries = await entriesRepo.getEntries(currentSessionId);
     return buildLlmContext(updatedEntries);
   } catch (err) {
     console.error(`Compaction failed (${reason}):`, err);
+    appLogger.error(
+      'context',
+      `컨텍스트 압축 실패 (${reason}): ${err instanceof Error ? err.message : String(err)}`,
+      err,
+      currentSessionId,
+    );
     return null;
   }
 }
@@ -67,7 +109,7 @@ registerHooks('compaction', {
   ): Promise<AgentMessage[]> {
     const est = estimateContextTokens(messages);
     if (shouldCompact(est.tokens, currentSettings.contextSize, currentSettings)) {
-      const compacted = await performCompaction('threshold', signal);
+      const compacted = await performCompaction('threshold', signal, messages);
       if (compacted) {
         return compacted;
       }
@@ -76,10 +118,10 @@ registerHooks('compaction', {
   },
 
   async onContextOverflow(
-    _messages: AgentMessage[],
+    messages: AgentMessage[],
     signal?: AbortSignal,
   ): Promise<AgentMessage[] | undefined> {
-    const compacted = await performCompaction('overflow', signal);
+    const compacted = await performCompaction('overflow', signal, messages);
     return compacted ?? undefined;
   },
 });

@@ -8,7 +8,10 @@ export type BuiltinToolId =
   | 'grep'
   | 'find'
   | 'shell'
-  | 'web_search';
+  | 'web_search'
+  | 'web_fetch';
+
+export type AgentConnectionStatus = 'unknown' | 'connected' | 'disconnected';
 
 export interface Agent {
   id: string; // uuid
@@ -27,3 +30,4 @@ export interface Agent {
   createdAt: string; // ISO 8601
   updatedAt: string;
 }
+

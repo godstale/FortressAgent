@@ -18,39 +18,45 @@ const FindParametersSchema = z.object({
     .describe('Maximum number of results to return (default 100)'),
 });
 
-export const findTool: AgentTool<typeof FindParametersSchema> = {
-  name: 'find',
-  label: 'Find Files',
-  description:
-    'Finds files and directories matching a glob pattern while respecting .gitignore.',
-  parameters: FindParametersSchema,
-  risk: 'low',
-  executionMode: 'parallel',
-  async execute(
-    _toolCallId: string,
-    params: z.infer<typeof FindParametersSchema>,
-  ): Promise<AgentToolResult> {
-    const matches = await invoke<FindMatch[]>('find_files', {
-      pattern: params.pattern,
-      path: params.path,
-      maxResults: params.maxResults,
-    });
+export function createFindTool(ctx: { workspaceRoot?: string } = {}): AgentTool<typeof FindParametersSchema> {
+  return {
+    name: 'find',
+    label: 'Find Files',
+    description:
+      'Finds files and directories matching a glob pattern while respecting .gitignore.',
+    parameters: FindParametersSchema,
+    risk: 'low',
+    executionMode: 'parallel',
+    async execute(
+      _toolCallId: string,
+      params: z.infer<typeof FindParametersSchema>,
+    ): Promise<AgentToolResult> {
+      const matches = await invoke<FindMatch[]>('find_files', {
+        pattern: params.pattern,
+        path: params.path,
+        maxResults: params.maxResults,
+        workspaceRoot: ctx.workspaceRoot,
+      });
 
-    if (matches.length === 0) {
+      if (matches.length === 0) {
+        return {
+          content: 'No matching files or directories found.',
+          details: { matches: [], workspaceRoot: ctx.workspaceRoot },
+        };
+      }
+
+      const lines = matches.map((m) => `${m.path}${m.is_dir ? '/' : ''}`);
+
       return {
-        content: 'No matching files or directories found.',
-        details: { matches: [] },
+        content: lines.join('\n'),
+        details: {
+          totalMatches: matches.length,
+          matches,
+          workspaceRoot: ctx.workspaceRoot,
+        },
       };
-    }
+    },
+  };
+}
 
-    const lines = matches.map((m) => `${m.path}${m.is_dir ? '/' : ''}`);
-
-    return {
-      content: lines.join('\n'),
-      details: {
-        totalMatches: matches.length,
-        matches,
-      },
-    };
-  },
-};
+export const findTool = createFindTool();

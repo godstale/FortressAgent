@@ -6,13 +6,16 @@ export type ThemeMode = 'light' | 'dark' | 'system';
 
 export interface ThemeContextValue {
   theme: ThemeMode;
+  resolvedTheme: 'light' | 'dark';
+  isDark: boolean;
   setTheme: (theme: ThemeMode) => void;
 }
 
 const STORAGE_KEY = 'fortress-theme';
 
-function resolveTheme(theme: ThemeMode): 'light' | 'dark' {
+export function resolveTheme(theme: ThemeMode): 'light' | 'dark' {
   if (theme === 'system') {
+    if (typeof window === 'undefined') return 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   return theme;
@@ -71,8 +74,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const resolvedTheme = resolveTheme(theme);
+  const isDark = resolvedTheme === 'dark';
+
   return (
-    <ThemeContext.Provider value={{ theme, setTheme }}>
+    <ThemeContext.Provider value={{ theme, resolvedTheme, isDark, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );

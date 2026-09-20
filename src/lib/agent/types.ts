@@ -73,7 +73,7 @@ export type AgentEvent =
   | { type: 'message_end'; message: AgentMessage }
   | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: unknown }
   | { type: 'tool_execution_update'; toolCallId: string; partial: AgentToolResult }
-  | { type: 'tool_execution_end'; toolCallId: string; result: AgentToolResult; isError: boolean }
+  | { type: 'tool_execution_end'; toolCallId: string; toolName?: string; result: AgentToolResult; isError: boolean }
   | { type: 'turn_end'; message: AgentMessage; toolResults: AgentMessage[] }
   | { type: 'agent_end'; messages: AgentMessage[] }
   | { type: 'compaction_start' }

@@ -96,6 +96,26 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
             />
           );
         })}
+
+        {/* If streaming and assistant message has not arrived yet, show agent working indicator */}
+        {isStreaming &&
+          messages.length > 0 &&
+          (messages[messages.length - 1].role === 'user' ||
+            messages[messages.length - 1].role === 'toolResult') && (
+          <div className="flex items-start gap-3 my-3 w-full animate-in fade-in duration-200">
+            <div className="h-7 w-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0 mt-0.5 shadow-xs">
+              <Bot className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0 max-w-3xl">
+              <div className="p-4 rounded-xl border border-border/80 bg-card/80 shadow-xs space-y-2">
+                <div className="flex items-center gap-2 text-xs text-primary font-medium">
+                  <span className="inline-block w-2 h-2 rounded-full bg-primary animate-ping" />
+                  <span>에이전트가 작업 중입니다... (Ollama 모델 연산 중)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {showScrollBottom && (

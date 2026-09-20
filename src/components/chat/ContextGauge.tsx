@@ -1,9 +1,10 @@
 export interface ContextGaugeProps {
   tokens: number;
   limit: number;
+  onClick?: () => void;
 }
 
-export function ContextGauge({ tokens, limit }: ContextGaugeProps) {
+export function ContextGauge({ tokens, limit, onClick }: ContextGaugeProps) {
   const safeLimit = limit > 0 ? limit : 32768;
   const percentage = Math.min(100, Math.round((tokens / safeLimit) * 100));
 
@@ -19,7 +20,13 @@ export function ContextGauge({ tokens, limit }: ContextGaugeProps) {
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs select-none">
+    <div
+      onClick={onClick}
+      className={`flex items-center gap-2 text-xs select-none ${
+        onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
+      }`}
+      title={onClick ? '클릭하여 컨텍스트 수동 압축 (Compact) 실행' : undefined}
+    >
       <div className="flex items-center gap-1.5 font-mono text-[11px]">
         <span className={textColor}>
           {tokens.toLocaleString()}

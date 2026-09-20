@@ -9,6 +9,7 @@ import { buildSystemPromptSections, formatSystemPrompt } from '@/lib/prompt/buil
 import { getVisualizationPromptSection } from '@/lib/prompt/visualizationSection';
 import { diffSections } from '@/lib/prompt/diffSections';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
+import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 import type { streamChat } from '@/lib/llm/ollamaClient';
 
 import {
@@ -22,6 +23,7 @@ import { approvalBus } from '@/lib/approval/approvalBus';
 import { setActiveApprovalMode } from '@/lib/approval/register';
 import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
 import { buildLlmContext } from '@/lib/db/buildContext';
+import { appLogger } from '@/lib/logger/logger';
 
 export type { ChatPersistence };
 
@@ -44,6 +46,8 @@ export interface UseChatReturn {
   error: Error | null;
   retry: () => Promise<void>;
   compact: (customInstructions?: string) => Promise<void>;
+  clearChat: () => Promise<void>;
+  injectInfoMessage: (content: string) => void;
 }
 
 export function useChat(
@@ -53,6 +57,9 @@ export function useChat(
 ): UseChatReturn {
   const persistence = options.persistence ?? defaultSqlitePersistence;
   const skillsCtx = useSafeSkills();
+  const workspaceCtx = useSafeWorkspace();
+  const effectiveCwd = options.cwd ?? workspaceCtx?.workspaceRoot ?? undefined;
+
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
@@ -80,9 +87,9 @@ export function useChat(
   // Build tools from agent's enabledBuiltinTools
   const tools = useMemo(() => {
     return getBuiltinTools(agentConfig.enabledBuiltinTools, {
-      workspaceRoot: options.cwd,
+      workspaceRoot: effectiveCwd,
     });
-  }, [agentConfig.enabledBuiltinTools, options.cwd]);
+  }, [agentConfig.enabledBuiltinTools, effectiveCwd]);
 
   // Read skills and context files from options or context
   const rawSkills = useMemo(() => {
@@ -112,9 +119,9 @@ export function useChat(
       contextFiles: rawContextFiles,
       skills: filteredSkills,
       visualization: getVisualizationPromptSection(),
-      cwd: options.cwd,
+      cwd: effectiveCwd,
     });
-  }, [agentConfig.systemPrompt, tools, rawContextFiles, filteredSkills, options.cwd]);
+  }, [agentConfig.systemPrompt, tools, rawContextFiles, filteredSkills, effectiveCwd]);
 
   const systemPrompt = useMemo(() => {
     return formatSystemPrompt(currentSections);
@@ -133,13 +140,14 @@ export function useChat(
 
       case 'message_update': {
         setMessages((prev) => {
-          const lastIdx = prev.findLastIndex((m) => m.role === 'assistant');
-          if (lastIdx === -1) {
-            return [...prev, event.message];
+          const lastIdx = prev.length - 1;
+          const lastMsg = prev[lastIdx];
+          if (lastMsg && lastMsg.role === 'assistant') {
+            const updated = [...prev];
+            updated[lastIdx] = event.message;
+            return updated;
           }
-          const updated = [...prev];
-          updated[lastIdx] = event.message;
-          return updated;
+          return [...prev, event.message];
         });
         break;
       }
@@ -149,13 +157,14 @@ export function useChat(
           setContextTokens(event.message.usage.total);
         }
         setMessages((prev) => {
-          const lastIdx = prev.findLastIndex((m) => m.role === 'assistant');
-          if (lastIdx === -1) {
-            return [...prev, event.message];
+          const lastIdx = prev.length - 1;
+          const lastMsg = prev[lastIdx];
+          if (lastMsg && lastMsg.role === 'assistant') {
+            const updated = [...prev];
+            updated[lastIdx] = event.message;
+            return updated;
           }
-          const updated = [...prev];
-          updated[lastIdx] = event.message;
-          return updated;
+          return [...prev, event.message];
         });
         break;
       }
@@ -165,7 +174,7 @@ export function useChat(
         const toolResultMsg: AgentMessage = {
           role: 'toolResult',
           toolCallId: event.toolCallId,
-          toolName: event.toolCallId,
+          toolName: event.toolName || event.toolCallId,
           content: event.result.content,
           isError: event.isError,
         };
@@ -182,12 +191,21 @@ export function useChat(
 
       case 'agent_end': {
         setIsStreaming(false);
-        setMessages(event.messages);
-        if (event.messages.length > persistedCountRef.current) {
-          const unpersisted = event.messages.slice(persistedCountRef.current);
-          persistedCountRef.current = event.messages.length;
+        const nonSystem = event.messages.filter((m) => m.role !== 'system');
+        setMessages(nonSystem);
+        if (nonSystem.length > persistedCountRef.current) {
+          const unpersisted = nonSystem.slice(persistedCountRef.current);
+          persistedCountRef.current = nonSystem.length;
           void persistence.saveTurn?.(sessionId, unpersisted);
         }
+        break;
+      }
+
+      case 'compaction_end': {
+        void persistence.loadMessages(sessionId).then((loaded) => {
+          setMessages(loaded);
+          persistedCountRef.current = loaded.length;
+        });
         break;
       }
 
@@ -204,34 +222,53 @@ export function useChat(
     eventHandlerRef.current = handleAgentEvent;
   }, [handleAgentEvent]);
 
+  // Keep latest refs to prevent tearing down the agent on parent re-renders
+  const agentConfigRef = useRef(agentConfig);
+  const systemPromptRef = useRef(systemPrompt);
+  const toolsRef = useRef(tools);
+  const optionsRef = useRef(options);
+
+  useEffect(() => {
+    agentConfigRef.current = agentConfig;
+    systemPromptRef.current = systemPrompt;
+    toolsRef.current = tools;
+    optionsRef.current = options;
+  });
+
   const createAgentInstance = useCallback(
     (initial: AgentMessage[]) => {
+      const cfg = agentConfigRef.current;
+      const opts = optionsRef.current;
+      const effectiveNumCtx =
+        cfg.contextSize > 0 ? cfg.contextSize : (contextLimit > 0 ? contextLimit : 8192);
+
       const newAgent = new FortressAgent({
+        sessionId,
         agent: {
-          model: agentConfig.model,
-          systemPrompt,
-          temperature: agentConfig.temperature,
+          id: cfg.id,
+          model: cfg.model,
+          systemPrompt: systemPromptRef.current,
+          temperature: cfg.temperature,
+          options: {
+            num_ctx: effectiveNumCtx,
+          },
+          contextSize: effectiveNumCtx,
+          reserveTokens: cfg.reserveTokens,
+          keepRecentTokens: cfg.keepRecentTokens,
         },
-        tools,
-        baseUrl: options.baseUrl,
+        tools: toolsRef.current,
+        baseUrl: opts.baseUrl,
         initialMessages: initial,
-        streamChatFn: options.streamChatFn,
+        streamChatFn: opts.streamChatFn,
       });
 
       newAgent.subscribe((e) => eventHandlerRef.current(e));
       return newAgent;
     },
-    [
-      agentConfig.model,
-      agentConfig.temperature,
-      systemPrompt,
-      tools,
-      options.baseUrl,
-      options.streamChatFn,
-    ],
+    [sessionId, contextLimit],
   );
 
-  // Initialize or reconfigure agent when sessionId or config changes
+  // Initialize agent when sessionId changes
   useEffect(() => {
     let cancelled = false;
 
@@ -296,7 +333,15 @@ export function useChat(
       const userMsg: AgentMessage = { role: 'user', content: text };
       setMessages((prev) => [...prev, userMsg]);
       persistedCountRef.current += 1;
-      void persistence.saveUserMessage?.(sessionId, userMsg);
+      await persistence.saveUserMessage?.(sessionId, userMsg);
+
+      appLogger.info(
+        'chat',
+        `사용자 질문/요청: "${text.length > 120 ? text.slice(0, 120) + '...' : text}"`,
+        { role: 'user', prompt: text, fullPrompt: text },
+        sessionId,
+        agentConfigRef.current.id,
+      );
 
       if (!agentRef.current) {
         agentRef.current = createAgentInstance(messages);
@@ -305,7 +350,15 @@ export function useChat(
       try {
         await agentRef.current.prompt(text);
       } catch (err) {
-        setError(err instanceof Error ? err : new Error(String(err)));
+        const errObj = err instanceof Error ? err : new Error(String(err));
+        setError(errObj);
+        appLogger.error(
+          'chat',
+          `대화 처리 중 오류 발생: ${errObj.message}`,
+          { error: errObj.message, stack: errObj.stack, prompt: text },
+          sessionId,
+          agentConfigRef.current.id,
+        );
       }
     },
     [createAgentInstance, messages, persistence, sessionId],
@@ -365,6 +418,37 @@ export function useChat(
     ],
   );
 
+  const clearChat = useCallback(async (): Promise<void> => {
+    try {
+      setMessages([]);
+      if (agentRef.current) {
+        agentRef.current.setMessages([]);
+      }
+      await entriesRepo.deleteEntriesForSession(sessionId);
+      setContextTokens(0);
+      appLogger.info(
+        'chat',
+        '대화 내역이 초기화되었습니다. (실행 상세 로그는 SQLite에 안전하게 보존됩니다.)',
+        undefined,
+        sessionId,
+        agentConfig.id,
+      );
+    } catch (err) {
+      console.error('Failed to clear chat:', err);
+    }
+  }, [agentConfig.id, sessionId]);
+
+  const injectInfoMessage = useCallback((content: string): void => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'assistant',
+        content,
+        stopReason: 'stop',
+      },
+    ]);
+  }, []);
+
   return {
     messages,
     isStreaming,
@@ -375,5 +459,7 @@ export function useChat(
     error,
     retry,
     compact,
+    clearChat,
+    injectInfoMessage,
   };
 }

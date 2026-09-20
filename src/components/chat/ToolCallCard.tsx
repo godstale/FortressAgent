@@ -6,6 +6,7 @@ import {
   FileText,
   Search,
   Globe,
+  Compass,
   Edit3,
   Folder,
   AlertCircle,
@@ -39,6 +40,8 @@ function getToolIcon(name: string) {
       return <Terminal className="h-3.5 w-3.5 text-red-400" />;
     case 'web_search':
       return <Globe className="h-3.5 w-3.5 text-cyan-400" />;
+    case 'web_fetch':
+      return <Compass className="h-3.5 w-3.5 text-sky-400" />;
     default:
       return <Terminal className="h-3.5 w-3.5 text-muted-foreground" />;
   }

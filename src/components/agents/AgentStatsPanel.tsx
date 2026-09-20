@@ -26,7 +26,13 @@ export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
         const chartItems: { name: string; messages: number }[] = [];
 
         for (const s of agentSessions) {
-          const entries = await entriesRepo.getEntries(s.id);
+          let entries = await entriesRepo.getEntries(s.id);
+          if (entries.length === 0 && !s.id.startsWith('chat:')) {
+            const fallback = await entriesRepo.getEntries(`chat:${s.id}`);
+            if (fallback.length > 0) {
+              entries = fallback;
+            }
+          }
           const msgCount = entries.filter((e) => e.type === 'message').length;
           totalMessages += msgCount;
           chartItems.push({

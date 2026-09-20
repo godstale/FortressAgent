@@ -61,4 +61,19 @@ describe('ApprovalDialog', () => {
       rememberForSession: true,
     });
   });
+
+  it('renders target file path for write tool request', () => {
+    const writeRequest = {
+      id: 'req-write-1',
+      toolCallId: 'tc-write-1',
+      toolName: 'write',
+      arguments: { path: './ThreeLEDToggle.ino', content: 'void setup() {}' },
+      risk: 'high' as const,
+    };
+
+    render(<ApprovalDialog request={writeRequest} onDecision={vi.fn()} />);
+
+    expect(screen.getByText('대상 파일:')).toBeInTheDocument();
+    expect(screen.getByText('./ThreeLEDToggle.ino')).toBeInTheDocument();
+  });
 });

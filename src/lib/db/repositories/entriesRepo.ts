@@ -104,3 +104,14 @@ export async function getLastCompaction(
   if (rows.length === 0) return null;
   return parseEntryRow(rows[0]) as CompactionEntry;
 }
+
+/**
+ * Deletes all entries for a session when clearing chat or removing session.
+ */
+export async function deleteEntriesForSession(
+  sessionId: string,
+  dbOverride?: SqlDatabase,
+): Promise<void> {
+  const db = dbOverride ?? (await getDatabase());
+  await db.execute('DELETE FROM entries WHERE session_id = ?', [sessionId]);
+}

@@ -17,7 +17,7 @@ import {
   Legend,
 } from 'recharts';
 import { AlertCircle, Check, Copy } from 'lucide-react';
-import { ChartDslSchema, type ChartDsl } from '../../lib/types/chartDsl';
+import { parseAndNormalizeChartDsl, type ChartDsl } from '../../lib/types/chartDsl';
 
 interface RechartsViewerProps {
   code: string;
@@ -39,11 +39,8 @@ export const RechartsViewer: React.FC<RechartsViewerProps> = ({ code, initialPar
 
   const { chartData, error } = useMemo<{ chartData: ChartDsl | null; error: string | null }>(() => {
     try {
-      let rawObj = initialParsed;
-      if (rawObj === undefined) {
-        rawObj = JSON.parse(code.trim());
-      }
-      const validated = ChartDslSchema.parse(rawObj);
+      const target = initialParsed !== undefined ? initialParsed : code;
+      const validated = parseAndNormalizeChartDsl(target);
       return { chartData: validated, error: null };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

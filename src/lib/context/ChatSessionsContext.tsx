@@ -40,13 +40,21 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       const list = await sessionsRepo.listSessions();
-      setSessions(list);
+      if (workspaceRoot) {
+        // Show sessions matching this workspace root, or global sessions
+        const workspaceSessions = list.filter(
+          (s) => s.workspaceRoot === workspaceRoot || !s.workspaceRoot,
+        );
+        setSessions(workspaceSessions);
+      } else {
+        setSessions(list);
+      }
     } catch (err) {
       console.error('Failed to load chat sessions:', err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [workspaceRoot]);
 
   useEffect(() => {
     let active = true;

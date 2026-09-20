@@ -15,7 +15,7 @@ export interface ApprovalRequestItem {
   description?: string;
 }
 
-export type ApprovalListener = (request: ApprovalRequestItem) => void;
+export type ApprovalListener = (request: ApprovalRequestItem | null) => void;
 
 export class ApprovalBus {
   private pending = new Map<
@@ -43,6 +43,17 @@ export class ApprovalBus {
     return () => {
       this.subscribers.delete(fn);
     };
+  }
+
+  private notifyListeners(): void {
+    const nextItem = this.getPendingRequests()[0] ?? null;
+    for (const listener of this.subscribers) {
+      try {
+        listener(nextItem);
+      } catch (err) {
+        console.error('ApprovalBus subscriber error:', err);
+      }
+    }
   }
 
   public getSessionOverrides(): Set<string> {
@@ -75,6 +86,7 @@ export class ApprovalBus {
 
       const onAbort = () => {
         cleanup();
+        this.notifyListeners();
         resolve({
           approved: false,
           reason: 'Operation was aborted by user.',
@@ -91,22 +103,18 @@ export class ApprovalBus {
           if (decision.approved && decision.rememberForSession) {
             this.sessionOverrides.add(item.toolName);
           }
+          this.notifyListeners();
           resolve(decision);
         },
         reject: (err) => {
           cleanup();
+          this.notifyListeners();
           reject(err);
         },
         request: item,
       });
 
-      for (const listener of this.subscribers) {
-        try {
-          listener(item);
-        } catch (err) {
-          console.error('ApprovalBus subscriber error:', err);
-        }
-      }
+      this.notifyListeners();
     });
   }
 
@@ -123,6 +131,7 @@ export class ApprovalBus {
     for (const p of list) {
       p.resolve({ approved: false, reason });
     }
+    this.notifyListeners();
   }
 
   public abortAll(): void {
@@ -131,6 +140,7 @@ export class ApprovalBus {
     for (const p of list) {
       p.resolve({ approved: false, reason: 'Aborted' });
     }
+    this.notifyListeners();
   }
 
   public getPendingRequests(): ApprovalRequestItem[] {

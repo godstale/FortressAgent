@@ -7,7 +7,9 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import * as settingsRepo from '@/lib/db/repositories/settingsRepo';
+import { setActiveWorkspaceRoot } from '@/lib/db/client';
 
 const TRUST_STORAGE_KEY = 'fortress_trusted_workspaces';
 
@@ -28,9 +30,29 @@ function saveTrustMap(map: Record<string, boolean>): void {
   }
 }
 
+const RECENT_WORKSPACES_KEY = 'fortress_recent_workspaces';
+
+function getStoredRecentWorkspaces(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_WORKSPACES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentWorkspaces(list: string[]): void {
+  try {
+    localStorage.setItem(RECENT_WORKSPACES_KEY, JSON.stringify(list.slice(0, 10)));
+  } catch {
+    // ignore
+  }
+}
+
 export interface WorkspaceContextValue {
   workspaceRoot: string | null;
   setWorkspaceRoot: (root: string | null) => void;
+  recentWorkspaces: string[];
   isTrusted: boolean;
   trustModalOpen: boolean;
   setTrustModalOpen: (open: boolean) => void;
@@ -44,6 +66,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [workspaceRoot, setWorkspaceRootState] = useState<string | null>(() => {
     return localStorage.getItem('fortress_current_workspace_root');
   });
+
+  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(getStoredRecentWorkspaces);
 
   const [trustModalOpen, setTrustModalOpen] = useState<boolean>(() => {
     const initialRoot = localStorage.getItem('fortress_current_workspace_root');
@@ -65,7 +89,28 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const settings = await settingsRepo.getSettings();
-        if (active && settings.trustedWorkspaces) {
+        if (!active) return;
+
+        // If no workspaceRoot is currently selected, restore last used workspace
+        if (!workspaceRoot && settings.lastWorkspaceRoot) {
+          setActiveWorkspaceRoot(settings.lastWorkspaceRoot);
+          setWorkspaceRootState(settings.lastWorkspaceRoot);
+          localStorage.setItem('fortress_current_workspace_root', settings.lastWorkspaceRoot);
+          try {
+            await invoke('set_active_workspace', { path: settings.lastWorkspaceRoot });
+          } catch {
+            // ignore in non-Tauri
+          }
+        } else if (workspaceRoot) {
+          setActiveWorkspaceRoot(workspaceRoot);
+          try {
+            await invoke('set_active_workspace', { path: workspaceRoot });
+          } catch {
+            // ignore in non-Tauri
+          }
+        }
+
+        if (settings.trustedWorkspaces) {
           const map = getStoredTrustMap();
           let changed = false;
           for (const ws of settings.trustedWorkspaces) {
@@ -77,7 +122,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           if (changed) {
             saveTrustMap(map);
           }
-          if (workspaceRoot && settings.trustedWorkspaces.includes(workspaceRoot)) {
+          const targetRoot = workspaceRoot || settings.lastWorkspaceRoot;
+          if (targetRoot && settings.trustedWorkspaces.includes(targetRoot)) {
             setIsTrusted(true);
             setTrustModalOpen(false);
           }
@@ -92,9 +138,21 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [workspaceRoot]);
 
   const setWorkspaceRoot = useCallback((root: string | null) => {
+    setActiveWorkspaceRoot(root);
     setWorkspaceRootState(root);
+    try {
+      void invoke('set_active_workspace', { path: root });
+    } catch {
+      // ignore in non-Tauri
+    }
     if (root) {
       localStorage.setItem('fortress_current_workspace_root', root);
+      setRecentWorkspaces((prev) => {
+        const next = [root, ...prev.filter((p) => p !== root)].slice(0, 10);
+        saveRecentWorkspaces(next);
+        return next;
+      });
+
       const map = getStoredTrustMap();
       if (map[root] !== undefined) {
         setIsTrusted(map[root]);
@@ -156,6 +214,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     () => ({
       workspaceRoot,
       setWorkspaceRoot,
+      recentWorkspaces,
       isTrusted,
       trustModalOpen,
       setTrustModalOpen,
@@ -165,6 +224,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [
       workspaceRoot,
       setWorkspaceRoot,
+      recentWorkspaces,
       isTrusted,
       trustModalOpen,
       trustCurrentWorkspace,
@@ -185,4 +245,8 @@ export function useWorkspace(): WorkspaceContextValue {
     throw new Error('useWorkspace must be used within a WorkspaceProvider');
   }
   return ctx;
+}
+
+export function useSafeWorkspace(): WorkspaceContextValue | null {
+  return useContext(WorkspaceContext);
 }

@@ -13,7 +13,7 @@ export function SettingsModel() {
   const [reserveTokens, setReserveTokens] = useState('2048');
 
   return (
-    <div className="space-y-6 select-none">
+    <div className="space-y-6">
       <div>
         <h2 className="text-lg font-bold">모델 및 LLM 설정</h2>
         <p className="text-xs text-muted-foreground mt-1">

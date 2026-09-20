@@ -44,6 +44,22 @@ export function AgentsProvider({ children }: { children: React.ReactNode }) {
           isDefault: true,
         });
         list = await agentsRepo.listAgents();
+      } else {
+        // Auto-migrate: ensure agents with web_search also have web_fetch enabled
+        for (const ag of list) {
+          if (
+            ag.enabledBuiltinTools?.includes('web_search') &&
+            !ag.enabledBuiltinTools.includes('web_fetch')
+          ) {
+            const updated = [...ag.enabledBuiltinTools, 'web_fetch' as const];
+            try {
+              await agentsRepo.updateAgent(ag.id, { enabledBuiltinTools: updated });
+              ag.enabledBuiltinTools = updated;
+            } catch {
+              // ignore transient error
+            }
+          }
+        }
       }
 
       setAgents(list);

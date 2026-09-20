@@ -8,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 
 export interface ActivityBarProps {
   activeView: SidePanelView;
@@ -21,13 +22,16 @@ interface ActivityBarItem {
 }
 
 const ITEMS: ActivityBarItem[] = [
+  { view: 'explorer', icon: Files, title: '파일 탐색기' },
   { view: 'chat-sessions', icon: MessageSquare, title: '대화 목록' },
   { view: 'agents', icon: Bot, title: '에이전트 관리' },
-  { view: 'explorer', icon: Files, title: '파일 탐색기' },
   { view: 'skills', icon: Puzzle, title: '스킬 관리' },
 ];
 
 export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
+  const workspace = useSafeWorkspace();
+  const hasWorkspace = workspace === null || Boolean(workspace.workspaceRoot);
+
   return (
     <TooltipProvider delayDuration={300}>
       <aside
@@ -37,15 +41,24 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
         <div className="flex flex-col items-center gap-1 w-full">
           {ITEMS.map(({ view, icon: Icon, title }) => {
             const isActive = activeView === view;
+            const isItemDisabled = !hasWorkspace && view !== 'explorer';
             return (
               <Tooltip key={view}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => onSelect(view)}
-                    aria-label={title}
+                    disabled={isItemDisabled}
+                    onClick={() => {
+                      if (!isItemDisabled) {
+                        onSelect(view);
+                      }
+                    }}
+                    aria-label={isItemDisabled ? `${title} (폴더 선택 필요)` : title}
                     className={cn(
-                      'w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors relative',
+                      'w-10 h-10 flex items-center justify-center rounded-md transition-colors relative',
+                      isItemDisabled
+                        ? 'text-muted-foreground/30 cursor-not-allowed hover:bg-transparent'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-sidebar-accent cursor-pointer',
                       isActive && 'text-primary bg-sidebar-accent font-medium',
                     )}
                   >
@@ -56,7 +69,7 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  <p>{title}</p>
+                  <p>{isItemDisabled ? `${title} (폴더 선택 필요)` : title}</p>
                 </TooltipContent>
               </Tooltip>
             );
@@ -65,16 +78,27 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Link
-              to="/settings"
-              aria-label="설정"
-              className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
-            >
-              <Settings className="h-5 w-5" />
-            </Link>
+            {!hasWorkspace ? (
+              <button
+                type="button"
+                disabled
+                aria-label="설정 (파일 메뉴 이용)"
+                className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground/30 cursor-not-allowed"
+              >
+                <Settings className="h-5 w-5" />
+              </button>
+            ) : (
+              <Link
+                to="/settings"
+                aria-label="설정"
+                className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors cursor-pointer"
+              >
+                <Settings className="h-5 w-5" />
+              </Link>
+            )}
           </TooltipTrigger>
           <TooltipContent side="right">
-            <p>설정</p>
+            <p>{!hasWorkspace ? '설정 (파일 메뉴에서 사용 가능)' : '설정'}</p>
           </TooltipContent>
         </Tooltip>
       </aside>

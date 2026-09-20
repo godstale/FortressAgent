@@ -15,9 +15,11 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
   const { getAgent } = useAgents();
   const { updateTab, closeTab } = useWorkspaceTabs();
 
-  const agentId = tab.meta?.agentId as string | undefined;
-  const existingAgent = agentId ? getAgent(agentId) : undefined;
-  const mode: 'create' | 'edit' = existingAgent ? 'edit' : 'create';
+  const rawId = (tab.meta?.agentId as string | undefined) ||
+    (tab.id.startsWith('agent-editor:') ? tab.id.slice('agent-editor:'.length) : undefined);
+  const isNew = !rawId || rawId.startsWith('new-');
+  const existingAgent = isNew ? undefined : getAgent(rawId);
+  const mode: 'create' | 'edit' = existingAgent ? 'edit' : (isNew ? 'create' : 'edit');
 
   const [activeTab, setActiveTab] = useState<'config' | 'stats'>('config');
   const [saveFeedback, setSaveFeedback] = useState(false);

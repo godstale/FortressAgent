@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { approvalBus } from '@/lib/approval/approvalBus';
+import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 
 export interface KeyboardShortcutHandlers {
   onNewChat?: () => void;
@@ -22,6 +23,8 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
   const navigate = useNavigate();
   const { tabs, activeTabId, closeTab, openTab } = useWorkspaceTabs();
   const { createSession } = useChatSessions();
+  const workspace = useSafeWorkspace();
+  const hasWorkspace = workspace === null || Boolean(workspace.workspaceRoot);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -32,7 +35,7 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
         e.preventDefault();
         if (customHandlers?.onNewChat) {
           customHandlers.onNewChat();
-        } else {
+        } else if (hasWorkspace) {
           void (async () => {
             try {
               const session = await createSession({ title: '새 채팅' });
@@ -104,5 +107,6 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
     closeTab,
     openTab,
     createSession,
+    hasWorkspace,
   ]);
 }

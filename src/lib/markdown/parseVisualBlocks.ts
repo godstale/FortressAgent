@@ -1,3 +1,5 @@
+import { isChartDsl, parseAndNormalizeChartDsl } from '../types/chartDsl';
+
 export interface VisualBlock {
   type: 'mermaid' | 'recharts';
   content: string;
@@ -33,7 +35,7 @@ export function parseVisualBlocks(markdown: string): VisualBlock[] {
 
   while ((match = regex.exec(markdown)) !== null) {
     const raw = match[0];
-    const type = match[1].toLowerCase() as 'mermaid' | 'recharts';
+    let type = match[1].toLowerCase() as 'mermaid' | 'recharts';
     const content = match[2];
     const startIndex = match.index;
     const endIndex = startIndex + raw.length;
@@ -41,11 +43,19 @@ export function parseVisualBlocks(markdown: string): VisualBlock[] {
     let parsedJson: unknown | undefined;
     let parseError: string | undefined;
 
+    if (type === 'mermaid' && isChartDsl(content)) {
+      type = 'recharts';
+    }
+
     if (type === 'recharts') {
       try {
         parsedJson = JSON.parse(content.trim());
-      } catch (err) {
-        parseError = err instanceof Error ? err.message : String(err);
+      } catch {
+        try {
+          parsedJson = parseAndNormalizeChartDsl(content.trim());
+        } catch (err) {
+          parseError = err instanceof Error ? err.message : String(err);
+        }
       }
     }
 

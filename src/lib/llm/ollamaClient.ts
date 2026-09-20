@@ -37,6 +37,7 @@ export interface OllamaToolCall {
 
 export interface OllamaChunk {
   content?: string;
+  thinking?: string;
   toolCalls?: OllamaToolCall[];
   done: boolean;
   usage?: TokenUsage;
@@ -151,6 +152,7 @@ export async function* streamChat(
           error?: string;
           message?: {
             content?: string;
+            thinking?: string;
             tool_calls?: OllamaToolCall[];
           };
           done?: boolean;
@@ -183,6 +185,7 @@ export async function* streamChat(
 
         yield {
           content: parsed.message?.content,
+          thinking: parsed.message?.thinking,
           toolCalls: parsed.message?.tool_calls,
           done: !!parsed.done,
           usage: chunkUsage,

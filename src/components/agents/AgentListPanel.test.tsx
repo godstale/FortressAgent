@@ -38,6 +38,7 @@ describe('AgentListPanel', () => {
       // Default agent should appear
       expect(screen.getByText('기본')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /대화 시작/i })).toBeInTheDocument();
+      expect(screen.getByTitle('모든 에이전트 연결 상태 확인')).toBeInTheDocument();
     });
   });
 
@@ -59,4 +60,23 @@ describe('AgentListPanel', () => {
       expect(screen.queryByText(/에이전트 목록 불러오는 중/)).toBeNull();
     });
   });
+
+  it('allows clicking the check connection refresh button in the header', async () => {
+    render(
+      <PanelWrapper>
+        <AgentListPanel />
+      </PanelWrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTitle('모든 에이전트 연결 상태 확인')).toBeInTheDocument();
+    });
+
+    const refreshBtn = screen.getByTitle('모든 에이전트 연결 상태 확인');
+    fireEvent.click(refreshBtn);
+
+    // Should execute without throwing error
+    expect(refreshBtn).toBeInTheDocument();
+  });
 });
+
