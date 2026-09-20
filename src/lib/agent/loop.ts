@@ -100,7 +100,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       }
 
       emit({ type: 'turn_start' });
-      appLogger.debug(
+      appLogger.info(
         'agent',
         `[Turn #${turnIndex}] 턴 시작 (컨텍스트 메시지: ${activeMessages.length}개)`,
         { turnIndex, messageCount: activeMessages.length },
@@ -111,10 +111,19 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       // 2. Prepare Ollama request
       const ollamaMessages = mapAgentMessagesToOllama(activeMessages);
       const ollamaTools = mapAgentToolsToOllama(tools);
-      appLogger.debug(
+      appLogger.info(
         'ollama',
-        `[Turn #${turnIndex}] Ollama 스트리밍 요청 전송`,
-        { model: agent.model, messagesCount: ollamaMessages.length, toolsCount: ollamaTools.length },
+        `[Turn #${turnIndex}] LLM 추론 요청 전송 (모델: ${agent.model}, 입력 메시지: ${ollamaMessages.length}개, 도구: ${ollamaTools.length}개)`,
+        {
+          turnIndex,
+          model: agent.model,
+          messages: ollamaMessages,
+          tools: tools.map((t) => ({
+            name: t.name,
+            description: t.description,
+          })),
+          options: agent.options,
+        },
         sessionId,
         agent.id,
       );
@@ -225,15 +234,29 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
               });
             }
 
+            if (assistantThinking.trim()) {
+              appLogger.info(
+                'ollama',
+                `[Turn #${turnIndex}] LLM 사고 과정(Thinking) 완료 (${assistantThinking.length}자)`,
+                {
+                  turnIndex,
+                  thinking: assistantThinking,
+                },
+                sessionId,
+                agent.id,
+              );
+            }
+
             appLogger.info(
               'ollama',
-              `[Turn #${turnIndex}] Ollama 스트리밍 응답 완료 (${durationMs}ms, 토큰: 입력 ${finalUsage?.input ?? 0} / 출력 ${finalUsage?.output ?? 0}, 도구 호출: ${assistantToolCalls.length}건)`,
+              `[Turn #${turnIndex}] LLM 응답 생성 완료 (${durationMs}ms, 토큰: 입력 ${finalUsage?.input ?? 0} / 출력 ${finalUsage?.output ?? 0}${assistantToolCalls.length > 0 ? `, 도구 호출: ${assistantToolCalls.length}건` : ''})`,
               {
+                turnIndex,
                 durationMs,
                 usage: finalUsage,
                 toolCalls: assistantToolCalls.length > 0 ? assistantToolCalls : undefined,
-                contentPreview: assistantContent ? assistantContent.slice(0, 300) : undefined,
-                thinkingPreview: assistantThinking ? assistantThinking.slice(0, 300) : undefined,
+                content: assistantContent || undefined,
+                thinking: assistantThinking || undefined,
               },
               sessionId,
               agent.id,
@@ -362,10 +385,21 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
           args: tc.arguments,
         });
 
+        const argSummary =
+          tc.arguments && typeof tc.arguments === 'object'
+            ? 'query' in tc.arguments
+              ? ` (검색어: "${String(tc.arguments.query)}")`
+              : 'path' in tc.arguments
+              ? ` (경로: "${String(tc.arguments.path)}")`
+              : 'command' in tc.arguments
+              ? ` (명령: "${String(tc.arguments.command)}")`
+              : ''
+            : '';
+
         appLogger.info(
           'tools',
-          `[Turn #${turnIndex}] 도구 호출 시작: '${tc.name}'`,
-          { toolCallId: tc.id, arguments: tc.arguments },
+          `[Turn #${turnIndex}] 도구 호출 시작: '${tc.name}'${argSummary}`,
+          { turnIndex, toolCallId: tc.id, toolName: tc.name, arguments: tc.arguments },
           options.sessionId,
           agent.id,
         );
@@ -440,7 +474,6 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                     });
                   },
                 );
-                appLogger.info('tools', `Tool '${tc.name}' executed successfully: ${result.content?.slice(0, 100)}`, result.details, options.sessionId, agent.id);
               } catch (execErr: unknown) {
                 const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
                 result = {
@@ -489,8 +522,15 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         if (isError) {
           appLogger.error(
             'tools',
-            `[Turn #${turnIndex}] 도구 '${tc.name}' 실행 실패 (${toolDurationMs}ms): ${result.content?.slice(0, 300)}`,
-            { toolCallId: tc.id, error: result.content, details: result.details },
+            `[Turn #${turnIndex}] 도구 '${tc.name}' 실행 실패 (${toolDurationMs}ms): ${result.content?.slice(0, 200)}`,
+            {
+              turnIndex,
+              toolCallId: tc.id,
+              toolName: tc.name,
+              arguments: tc.arguments,
+              error: result.content,
+              details: result.details,
+            },
             options.sessionId,
             agent.id,
           );
@@ -499,8 +539,11 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
             'tools',
             `[Turn #${turnIndex}] 도구 '${tc.name}' 실행 완료 (${toolDurationMs}ms)`,
             {
+              turnIndex,
               toolCallId: tc.id,
-              outputSnippet: result.content?.slice(0, 300),
+              toolName: tc.name,
+              arguments: tc.arguments,
+              result: result.content,
               details: result.details,
             },
             options.sessionId,
@@ -544,6 +587,24 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         message: completedAssistantMessage,
         toolResults,
       });
+
+      if (toolResults.length > 0) {
+        appLogger.info(
+          'agent',
+          `[Turn #${turnIndex}] 도구 실행 결과 ${toolResults.length}건 수집 완료 (다음 추론 턴으로 전달)`,
+          {
+            turnIndex,
+            toolResultsCount: toolResults.length,
+            results: toolResults.map((tr) => ({
+              toolName: tr.role === 'toolResult' ? tr.toolName : undefined,
+              content: tr.content,
+              isError: tr.role === 'toolResult' ? tr.isError : false,
+            })),
+          },
+          sessionId,
+          agent.id,
+        );
+      }
 
       // Check terminate conditions
       const allTerminated =

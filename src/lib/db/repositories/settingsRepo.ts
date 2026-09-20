@@ -1,4 +1,9 @@
-import { getDatabase, type SqlDatabase } from '@/lib/db/client';
+import {
+  getGlobalDatabase,
+  getProjectDatabase,
+  getActiveWorkspaceRoot,
+  type SqlDatabase,
+} from '@/lib/db/client';
 import type { AppSettings } from '@/lib/types/chat';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import type { ApprovalMode } from '@/lib/types/agent';
@@ -44,62 +49,137 @@ function parseSettingsRow(row: SettingsRow): AppSettings {
   };
 }
 
-export async function getSettings(
-  dbOverride?: SqlDatabase,
-): Promise<AppSettings> {
-  const db = dbOverride ?? (await getDatabase());
+async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
   const rows = await db.select<SettingsRow[]>(
     "SELECT * FROM app_settings WHERE id = 'singleton'",
   );
-
-  if (rows.length === 0) {
-    // Insert default settings
-    await db.execute(
-      `INSERT INTO app_settings (
-        id, open_tabs, active_tab_id, theme, language,
-        ollama_base_url, default_context_size, default_approval_mode,
-        trusted_workspaces, last_workspace_root
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        DEFAULT_APP_SETTINGS.id,
-        JSON.stringify(DEFAULT_APP_SETTINGS.openTabs),
-        DEFAULT_APP_SETTINGS.activeTabId,
-        DEFAULT_APP_SETTINGS.theme,
-        DEFAULT_APP_SETTINGS.language,
-        DEFAULT_APP_SETTINGS.ollamaBaseUrl,
-        DEFAULT_APP_SETTINGS.defaultContextSize,
-        DEFAULT_APP_SETTINGS.defaultApprovalMode,
-        JSON.stringify(DEFAULT_APP_SETTINGS.trustedWorkspaces),
-        DEFAULT_APP_SETTINGS.lastWorkspaceRoot,
-      ],
-    );
-    return DEFAULT_APP_SETTINGS;
+  if (rows.length > 0) {
+    return rows[0];
   }
 
-  return parseSettingsRow(rows[0]);
+  await db.execute(
+    `INSERT INTO app_settings (
+      id, open_tabs, active_tab_id, theme, language,
+      ollama_base_url, default_context_size, default_approval_mode,
+      trusted_workspaces, last_workspace_root
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      DEFAULT_APP_SETTINGS.id,
+      JSON.stringify(DEFAULT_APP_SETTINGS.openTabs),
+      DEFAULT_APP_SETTINGS.activeTabId,
+      DEFAULT_APP_SETTINGS.theme,
+      DEFAULT_APP_SETTINGS.language,
+      DEFAULT_APP_SETTINGS.ollamaBaseUrl,
+      DEFAULT_APP_SETTINGS.defaultContextSize,
+      DEFAULT_APP_SETTINGS.defaultApprovalMode,
+      JSON.stringify(DEFAULT_APP_SETTINGS.trustedWorkspaces),
+      DEFAULT_APP_SETTINGS.lastWorkspaceRoot,
+    ],
+  );
+
+  return {
+    id: DEFAULT_APP_SETTINGS.id,
+    open_tabs: JSON.stringify(DEFAULT_APP_SETTINGS.openTabs),
+    active_tab_id: DEFAULT_APP_SETTINGS.activeTabId,
+    theme: DEFAULT_APP_SETTINGS.theme,
+    language: DEFAULT_APP_SETTINGS.language,
+    ollama_base_url: DEFAULT_APP_SETTINGS.ollamaBaseUrl,
+    default_context_size: DEFAULT_APP_SETTINGS.defaultContextSize,
+    default_approval_mode: DEFAULT_APP_SETTINGS.defaultApprovalMode,
+    trusted_workspaces: JSON.stringify(DEFAULT_APP_SETTINGS.trustedWorkspaces),
+    last_workspace_root: DEFAULT_APP_SETTINGS.lastWorkspaceRoot,
+  };
+}
+
+export async function getSettings(
+  dbOverride?: SqlDatabase,
+): Promise<AppSettings> {
+  if (dbOverride) {
+    const row = await fetchOrInitRow(dbOverride);
+    return parseSettingsRow(row);
+  }
+
+  const globalDb = await getGlobalDatabase();
+  const globalRow = await fetchOrInitRow(globalDb);
+  const globalSettings = parseSettingsRow(globalRow);
+
+  const activeWs = getActiveWorkspaceRoot();
+  if (activeWs) {
+    try {
+      const projectDb = await getProjectDatabase(activeWs);
+      const projectRow = await fetchOrInitRow(projectDb);
+      const projectSettings = parseSettingsRow(projectRow);
+      return {
+        ...globalSettings,
+        openTabs: projectSettings.openTabs,
+        activeTabId: projectSettings.activeTabId,
+      };
+    } catch (err) {
+      console.warn('Failed to load project-specific settings, fallback to global:', err);
+    }
+  }
+
+  return globalSettings;
 }
 
 export async function updateSettings(
   updates: Partial<Omit<AppSettings, 'id'>>,
   dbOverride?: SqlDatabase,
 ): Promise<AppSettings> {
-  const db = dbOverride ?? (await getDatabase());
-  const current = await getSettings(db);
+  if (dbOverride) {
+    const current = await getSettings(dbOverride);
+    const merged: AppSettings = { ...current, ...updates };
+    await dbOverride.execute(
+      `UPDATE app_settings SET
+        open_tabs = ?, active_tab_id = ?, theme = ?, language = ?,
+        ollama_base_url = ?, default_context_size = ?, default_approval_mode = ?,
+        trusted_workspaces = ?, last_workspace_root = ?
+      WHERE id = 'singleton'`,
+      [
+        JSON.stringify(merged.openTabs),
+        merged.activeTabId,
+        merged.theme,
+        merged.language,
+        merged.ollamaBaseUrl,
+        merged.defaultContextSize,
+        merged.defaultApprovalMode,
+        JSON.stringify(merged.trustedWorkspaces),
+        merged.lastWorkspaceRoot,
+      ],
+    );
+    return merged;
+  }
 
-  const merged: AppSettings = {
-    ...current,
-    ...updates,
-  };
+  const current = await getSettings();
+  const merged: AppSettings = { ...current, ...updates };
 
-  await db.execute(
+  // 1. Update project DB if active workspace exists and tabs/project settings are modified
+  const activeWs = getActiveWorkspaceRoot();
+  if (activeWs && (updates.openTabs !== undefined || updates.activeTabId !== undefined)) {
+    try {
+      const projectDb = await getProjectDatabase(activeWs);
+      await fetchOrInitRow(projectDb);
+      await projectDb.execute(
+        `UPDATE app_settings SET open_tabs = ?, active_tab_id = ? WHERE id = 'singleton'`,
+        [JSON.stringify(merged.openTabs), merged.activeTabId],
+      );
+    } catch (err) {
+      console.warn('Failed to update project settings in project DB:', err);
+    }
+  }
+
+  // 2. Update global DB for global settings (or all settings if no active workspace)
+  const globalDb = await getGlobalDatabase();
+  await fetchOrInitRow(globalDb);
+  await globalDb.execute(
     `UPDATE app_settings SET
       open_tabs = ?, active_tab_id = ?, theme = ?, language = ?,
       ollama_base_url = ?, default_context_size = ?, default_approval_mode = ?,
       trusted_workspaces = ?, last_workspace_root = ?
     WHERE id = 'singleton'`,
     [
-      JSON.stringify(merged.openTabs),
-      merged.activeTabId,
+      JSON.stringify(activeWs ? [] : merged.openTabs),
+      activeWs ? null : merged.activeTabId,
       merged.theme,
       merged.language,
       merged.ollamaBaseUrl,

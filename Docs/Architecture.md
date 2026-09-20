@@ -436,6 +436,29 @@ export interface SkillDiagnostic {
 
 §6에서 스캔 절차와 프롬프트 노출 형식을 정의합니다.
 
+### 4.5 저장소 분리 원칙: 전역 데이터 vs 프로젝트 데이터 (`.fortress`)
+
+Fortress는 프로젝트 종속 데이터와 앱 전역 데이터를 명확히 분리하여 저장합니다:
+
+1. **프로젝트 종속 데이터 (`{workspaceRoot}/.fortress/`)**:
+   - **위치**: 워크스페이스 루트 내 `.fortress/` 폴더
+   - **프로젝트 DB (`.fortress/fortress.db`)**:
+     - `sessions`: 해당 프로젝트에서 생성된 대화 세션 목록
+     - `entries`: 세션 대화 메시지, 도구 호출, compaction 엔트리
+     - `execution_logs`: 해당 프로젝트 세션 및 에이전트 실행 로그
+     - `app_settings` (프로젝트 스코프): 프로젝트별 열려있던 탭 목록(`open_tabs`), 활성 탭(`active_tab_id`)
+   - **로그 및 관리 파일**:
+     - `.fortress/logs/`: 프로젝트 런타임 로그
+     - `.fortress/.gitignore`: SQLite DB/WAL 파일 및 로그 무시 규칙 자동 생성 (`*.db`, `*.db-*`, `logs/`)
+2. **전역 데이터 (앱 데이터 디렉터리, `%APPDATA%/com.fortress.app/`)**:
+   - **위치**: 운영체제 표준 AppData 디렉터리
+   - **전역 DB (`fortress.db`)**:
+     - `agents`: 전역 등록 에이전트 목록 (프로젝트와 무관하게 공통 사용)
+     - `app_settings` (전역 스코프): 전역 UI 테마(`theme`), 언어(`language`), Ollama 서버 URL(`ollama_base_url`), 기본 컨텍스트 크기(`default_context_size`), 도구 승인 모드 기본값(`default_approval_mode`), 신뢰 워크스페이스 목록(`trusted_workspaces`), 마지막 작업 워크스페이스(`last_workspace_root`)
+3. **런타임 동작**:
+   - 워크스페이스가 열려있을 때 세션/대화/로그/탭 상태는 해당 프로젝트의 `.fortress/fortress.db`에만 저장/복원됩니다.
+   - 워크스페이스가 없는 상태에서는 전역 DB가 fallback으로 동작합니다.
+
 ---
 
 ## 5. 에이전트 런타임 설계

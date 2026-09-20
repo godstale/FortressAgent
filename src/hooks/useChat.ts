@@ -191,10 +191,11 @@ export function useChat(
 
       case 'agent_end': {
         setIsStreaming(false);
-        setMessages(event.messages);
-        if (event.messages.length > persistedCountRef.current) {
-          const unpersisted = event.messages.slice(persistedCountRef.current);
-          persistedCountRef.current = event.messages.length;
+        const nonSystem = event.messages.filter((m) => m.role !== 'system');
+        setMessages(nonSystem);
+        if (nonSystem.length > persistedCountRef.current) {
+          const unpersisted = nonSystem.slice(persistedCountRef.current);
+          persistedCountRef.current = nonSystem.length;
           void persistence.saveTurn?.(sessionId, unpersisted);
         }
         break;
@@ -336,8 +337,8 @@ export function useChat(
 
       appLogger.info(
         'chat',
-        `사용자 프롬프트 수신: "${text.length > 80 ? text.slice(0, 80) + '...' : text}"`,
-        { fullPrompt: text },
+        `사용자 질문/요청: "${text.length > 120 ? text.slice(0, 120) + '...' : text}"`,
+        { role: 'user', prompt: text, fullPrompt: text },
         sessionId,
         agentConfigRef.current.id,
       );
@@ -349,7 +350,15 @@ export function useChat(
       try {
         await agentRef.current.prompt(text);
       } catch (err) {
-        setError(err instanceof Error ? err : new Error(String(err)));
+        const errObj = err instanceof Error ? err : new Error(String(err));
+        setError(errObj);
+        appLogger.error(
+          'chat',
+          `대화 처리 중 오류 발생: ${errObj.message}`,
+          { error: errObj.message, stack: errObj.stack, prompt: text },
+          sessionId,
+          agentConfigRef.current.id,
+        );
       }
     },
     [createAgentInstance, messages, persistence, sessionId],

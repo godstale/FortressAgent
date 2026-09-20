@@ -144,6 +144,36 @@ class AppLogger {
     return this.entries.filter((e) => e.sessionId === sessionId);
   }
 
+  public getAgentLogs(agentId: string): LogEntry[] {
+    return this.entries.filter((e) => e.agentId === agentId);
+  }
+
+  /**
+   * Loads persisted logs from SQLite for the given agent, merges with in-memory logs,
+   * and updates cache.
+   */
+  public async loadAgentLogs(agentId: string, limit?: number): Promise<LogEntry[]> {
+    try {
+      const persisted = await getLogs({ agentId, limit });
+      const mergedMap = new Map<string, LogEntry>();
+      for (const p of persisted) {
+        mergedMap.set(p.id, p);
+      }
+      for (const m of this.entries) {
+        if (m.agentId === agentId) {
+          mergedMap.set(m.id, m);
+        }
+      }
+      const combined = Array.from(mergedMap.values()).sort((a, b) =>
+        a.timestamp.localeCompare(b.timestamp),
+      );
+      return limit && combined.length > limit ? combined.slice(-limit) : combined;
+    } catch (err) {
+      console.warn('Failed to load agent logs from SQLite:', err);
+      return this.getAgentLogs(agentId);
+    }
+  }
+
   /**
    * Loads persisted logs from SQLite for the given session, merges with in-memory logs,
    * and updates cache.
@@ -207,6 +237,18 @@ class AppLogger {
     } else {
       this.entries = [];
     }
+  }
+
+  /**
+   * Clears persistent and in-memory logs for a specific agent.
+   */
+  public async clearAgentLogs(agentId: string): Promise<void> {
+    try {
+      await clearLogs(undefined, undefined, agentId);
+    } catch (err) {
+      console.warn('Failed to clear agent logs in SQLite:', err);
+    }
+    this.entries = this.entries.filter((e) => e.agentId !== agentId);
   }
 
   public clear(): void {

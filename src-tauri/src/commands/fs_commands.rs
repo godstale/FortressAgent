@@ -21,8 +21,32 @@ pub fn get_active_workspace_internal() -> Option<String> {
 
 #[tauri::command]
 pub fn set_active_workspace(path: Option<String>) -> Result<(), String> {
-    set_active_workspace_internal(path);
+    set_active_workspace_internal(path.clone());
+    if let Some(ref p) = path {
+        let _ = ensure_fortress_dir(p.clone());
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub fn ensure_fortress_dir(workspace_root: String) -> Result<String, String> {
+    let ws_path = Path::new(&workspace_root);
+    if !ws_path.is_dir() {
+        return Err(format!("Workspace root is not a valid directory: {}", workspace_root));
+    }
+    let fortress_dir = ws_path.join(".fortress");
+    if !fortress_dir.exists() {
+        std::fs::create_dir_all(&fortress_dir).map_err(|e| format!("Failed to create .fortress dir: {}", e))?;
+    }
+    let gitignore_path = fortress_dir.join(".gitignore");
+    if !gitignore_path.exists() {
+        let _ = std::fs::write(&gitignore_path, "*.db\n*.db-*\nlogs/\n");
+    }
+    let logs_dir = fortress_dir.join("logs");
+    if !logs_dir.exists() {
+        let _ = std::fs::create_dir_all(&logs_dir);
+    }
+    Ok(fortress_dir.to_string_lossy().to_string())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -365,3 +389,77 @@ pub fn list_dir(path: String, workspace_root: Option<String>) -> Result<Vec<DirE
     });
     Ok(entries)
 }
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_child = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dest_child)?;
+        } else {
+            std::fs::copy(entry.path(), dest_child)?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn copy_path(from: String, to: String, workspace_root: Option<String>) -> Result<(), String> {
+    let verified_from = resolve_and_verify_workspace_path(&from, workspace_root.as_deref(), true)?;
+    let verified_to = resolve_and_verify_workspace_path(&to, workspace_root.as_deref(), false)?;
+
+    if verified_to.exists() {
+        return Err(format!("이미 대상 경로가 존재합니다: {}", verified_to.display()));
+    }
+
+    if verified_from.is_dir() {
+        copy_dir_all(&verified_from, &verified_to)
+            .map_err(|e| format!("Failed to copy directory: {}", e))?;
+    } else {
+        if let Some(parent) = verified_to.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::copy(&verified_from, &verified_to)
+            .map_err(|e| format!("Failed to copy file: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reveal_in_explorer(path: String, workspace_root: Option<String>) -> Result<(), String> {
+    let verified = resolve_and_verify_workspace_path(&path, workspace_root.as_deref(), true)?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", verified.display()))
+            .spawn()
+            .map_err(|e| format!("Failed to launch explorer: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &verified.to_string_lossy()])
+            .spawn()
+            .map_err(|e| format!("Failed to launch Finder: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let target = if verified.is_dir() {
+            verified.clone()
+        } else {
+            verified.parent().unwrap_or(&verified).to_path_buf()
+        };
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| format!("Failed to launch file manager: {}", e))?;
+    }
+
+    Ok(())
+}
+

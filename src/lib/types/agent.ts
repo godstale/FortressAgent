@@ -11,6 +11,8 @@ export type BuiltinToolId =
   | 'web_search'
   | 'web_fetch';
 
+export type AgentConnectionStatus = 'unknown' | 'connected' | 'disconnected';
+
 export interface Agent {
   id: string; // uuid
   name: string;
@@ -28,3 +30,4 @@ export interface Agent {
   createdAt: string; // ISO 8601
   updatedAt: string;
 }
+

@@ -31,6 +31,7 @@ import { useSidePanel } from '@/lib/context/SidePanelContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { useNavigate } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 
 export function TopMenuBar() {
   const { workspaceRoot, setWorkspaceRoot, recentWorkspaces = [] } = useWorkspace();
@@ -38,6 +39,7 @@ export function TopMenuBar() {
   const { openTab } = useWorkspaceTabs();
   const { createSession } = useChatSessions();
   const navigate = useNavigate();
+  const hasWorkspace = Boolean(workspaceRoot);
 
   const handlePickFolder = async () => {
     try {
@@ -55,6 +57,7 @@ export function TopMenuBar() {
   };
 
   const handleNewChat = async () => {
+    if (!hasWorkspace) return;
     try {
       const session = await createSession({ title: '새로운 대화' });
       openTab({
@@ -205,7 +208,20 @@ export function TopMenuBar() {
 
             <DropdownMenuSeparator />
 
-            <DropdownMenuItem onClick={handleNewChat} className="gap-2 cursor-pointer">
+            <DropdownMenuItem
+              disabled={!hasWorkspace}
+              onClick={() => {
+                if (hasWorkspace) {
+                  void handleNewChat();
+                }
+              }}
+              className={cn(
+                'gap-2',
+                !hasWorkspace
+                  ? 'opacity-40 cursor-not-allowed pointer-events-none'
+                  : 'cursor-pointer',
+              )}
+            >
               <FilePlus className="h-3.5 w-3.5 text-primary" />
               <span>새 대화 시작</span>
             </DropdownMenuItem>
@@ -219,62 +235,80 @@ export function TopMenuBar() {
 
         {/* Agent Menu */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+          <DropdownMenuTrigger asChild disabled={!hasWorkspace}>
             <button
               type="button"
-              className="px-2 py-0.5 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+              disabled={!hasWorkspace}
+              title={!hasWorkspace ? '폴더를 먼저 선택해주세요' : undefined}
+              className={cn(
+                'px-2 py-0.5 rounded text-[11px] transition-colors',
+                !hasWorkspace
+                  ? 'opacity-40 cursor-not-allowed hover:bg-transparent pointer-events-none'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/70 cursor-pointer',
+              )}
             >
               에이전트
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48 text-xs">
-            <DropdownMenuItem onClick={handleCreateAgent} className="gap-2 cursor-pointer">
-              <Bot className="h-3.5 w-3.5 text-primary" />
-              <span>새 에이전트 생성</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setActiveView('agents')}
-              className="gap-2 cursor-pointer"
-            >
-              <Bot className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>에이전트 관리 패널</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
+          {hasWorkspace && (
+            <DropdownMenuContent align="start" className="w-48 text-xs">
+              <DropdownMenuItem onClick={handleCreateAgent} className="gap-2 cursor-pointer">
+                <Bot className="h-3.5 w-3.5 text-primary" />
+                <span>새 에이전트 생성</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setActiveView('agents')}
+                className="gap-2 cursor-pointer"
+              >
+                <Bot className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>에이전트 관리 패널</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          )}
         </DropdownMenu>
 
         {/* View Menu */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+          <DropdownMenuTrigger asChild disabled={!hasWorkspace}>
             <button
               type="button"
-              className="px-2 py-0.5 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+              disabled={!hasWorkspace}
+              title={!hasWorkspace ? '폴더를 먼저 선택해주세요' : undefined}
+              className={cn(
+                'px-2 py-0.5 rounded text-[11px] transition-colors',
+                !hasWorkspace
+                  ? 'opacity-40 cursor-not-allowed hover:bg-transparent pointer-events-none'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/70 cursor-pointer',
+              )}
             >
               보기 (View)
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48 text-xs">
-            <DropdownMenuItem
-              onClick={() => setActiveView('explorer')}
-              className="gap-2 cursor-pointer"
-            >
-              <Files className="h-3.5 w-3.5 text-sky-400" />
-              <span>파일 탐색기</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setActiveView('chat-sessions')}
-              className="gap-2 cursor-pointer"
-            >
-              <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
-              <span>대화 목록</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setActiveView('skills')}
-              className="gap-2 cursor-pointer"
-            >
-              <Puzzle className="h-3.5 w-3.5 text-amber-400" />
-              <span>스킬 관리</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
+          {hasWorkspace && (
+            <DropdownMenuContent align="start" className="w-48 text-xs">
+              <DropdownMenuItem
+                onClick={() => setActiveView('explorer')}
+                className="gap-2 cursor-pointer"
+              >
+                <Files className="h-3.5 w-3.5 text-sky-400" />
+                <span>파일 탐색기</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setActiveView('chat-sessions')}
+                className="gap-2 cursor-pointer"
+              >
+                <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
+                <span>대화 목록</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setActiveView('skills')}
+                className="gap-2 cursor-pointer"
+              >
+                <Puzzle className="h-3.5 w-3.5 text-amber-400" />
+                <span>스킬 관리</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          )}
         </DropdownMenu>
       </div>
 

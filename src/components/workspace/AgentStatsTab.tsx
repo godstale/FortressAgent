@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   BarChart,
   Bar,
@@ -25,10 +25,22 @@ import {
   Copy,
   Check,
   Zap,
+  Trash2,
+  Sparkles,
+  Bot,
+  Code,
 } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { computeAgentStats, type DetailedAgentStats } from '@/lib/metrics/agentMetrics';
 import { appLogger, type LogEntry } from '@/lib/logger/logger';
 
@@ -45,8 +57,10 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
   // Agent Logs State
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logLevelFilter, setLogLevelFilter] = useState<string>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [logSearchQuery, setLogSearchQuery] = useState<string>('');
   const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!agentId) return;
@@ -54,6 +68,8 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
     try {
       const data = await computeAgentStats(agentId);
       setStats(data);
+      const loadedLogs = await appLogger.loadAgentLogs(agentId);
+      setLogs(loadedLogs);
     } catch (err) {
       console.error('Failed to compute agent stats:', err);
     } finally {
@@ -64,19 +80,34 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
   // Load and subscribe to agent logs
   useEffect(() => {
     if (!agentId) return;
+    let active = true;
 
-    const refreshLogs = () => {
-      const all = appLogger.getEntries();
-      const agentLogs = all.filter((e) => e.agentId === agentId);
-      setLogs(agentLogs);
+    const refreshLogs = async () => {
+      try {
+        const loadedLogs = await appLogger.loadAgentLogs(agentId);
+        if (active) {
+          setLogs(loadedLogs);
+        }
+      } catch (err) {
+        console.warn('Failed to load agent logs from SQLite:', err);
+        if (active) {
+          setLogs(appLogger.getAgentLogs(agentId));
+        }
+      }
     };
 
-    refreshLogs();
-    const unsubscribe = appLogger.subscribe(() => {
-      refreshLogs();
+    void refreshLogs();
+    const unsubscribe = appLogger.subscribe((entry) => {
+      if (entry.agentId === agentId) {
+        setLogs((prev) => {
+          if (prev.some((e) => e.id === entry.id)) return prev;
+          return [...prev, entry];
+        });
+      }
     });
 
     return () => {
+      active = false;
       unsubscribe();
     };
   }, [agentId]);
@@ -106,7 +137,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
     const exportPayload = {
       agent,
       stats,
-      logs: logs.slice(0, 300),
+      logs,
     };
     const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -115,6 +146,36 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
     a.download = `agent-analysis-${agent?.name || agentId}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportLogsText = () => {
+    const text = filteredLogs
+      .map((l) => {
+        const detailsStr =
+          l.details !== undefined && l.details !== null
+            ? `\n  Details: ${
+                typeof l.details === 'object'
+                  ? JSON.stringify(l.details, null, 2)
+                  : String(l.details)
+              }`
+            : '';
+        return `[${l.timestamp}] [${l.level.toUpperCase()}] [${l.category.toUpperCase()}] ${l.message}${detailsStr}`;
+      })
+      .join('\n\n');
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `agent-logs-${agent?.name || agentId}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleClearAgentLogs = async () => {
+    if (!agentId) return;
+    await appLogger.clearAgentLogs(agentId);
+    setLogs([]);
+    setClearConfirmOpen(false);
   };
 
   const handleCopyText = async (text: string, id: string) => {
@@ -127,22 +188,34 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
     }
   };
 
-  const filteredLogs = useMemo(() => {
-    return logs.filter((l) => {
-      if (logLevelFilter !== 'all' && l.level !== logLevelFilter) {
-        return false;
+  const filteredLogs = logs.filter((l) => {
+    if (logLevelFilter !== 'all' && l.level !== logLevelFilter) {
+      return false;
+    }
+    if (categoryFilter !== 'all' && l.category !== categoryFilter) {
+      return false;
+    }
+    if (logSearchQuery.trim()) {
+      const q = logSearchQuery.toLowerCase();
+      let detailsStr = '';
+      if (l.details !== undefined && l.details !== null) {
+        try {
+          detailsStr =
+            typeof l.details === 'object'
+              ? JSON.stringify(l.details).toLowerCase()
+              : String(l.details).toLowerCase();
+        } catch {
+          detailsStr = String(l.details).toLowerCase();
+        }
       }
-      if (logSearchQuery.trim()) {
-        const q = logSearchQuery.toLowerCase();
-        return (
-          l.message.toLowerCase().includes(q) ||
-          l.category.toLowerCase().includes(q) ||
-          (typeof l.details === 'string' && l.details.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
-  }, [logs, logLevelFilter, logSearchQuery]);
+      return (
+        l.message.toLowerCase().includes(q) ||
+        l.category.toLowerCase().includes(q) ||
+        detailsStr.includes(q)
+      );
+    }
+    return true;
+  });
 
   if (!agentId || !agent) {
     return (
@@ -515,19 +588,33 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
       ) : (
         /* Agent Full Execution Logs Tab */
         <div className="space-y-4">
-          {/* Filter Bar */}
-          <div className="p-3 rounded-xl border border-border bg-card flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <div className="relative flex-1 sm:w-64">
+          {/* Filter & Action Bar */}
+          <div className="p-3 rounded-xl border border-border bg-card flex flex-col md:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <div className="relative flex-1 sm:w-64 min-w-[200px]">
                 <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-2.5" />
                 <input
                   type="text"
                   value={logSearchQuery}
                   onChange={(e) => setLogSearchQuery(e.target.value)}
-                  placeholder="로그 내용, 카테고리 검색..."
+                  placeholder="로그 내용, 프롬프트, 도구 결과 검색..."
                   className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
+
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none cursor-pointer"
+              >
+                <option value="all">전체 카테고리 (ALL)</option>
+                <option value="chat">CHAT (질문/대화)</option>
+                <option value="ollama">OLLAMA (추론/응답/Thinking)</option>
+                <option value="tools">TOOLS (도구 실행)</option>
+                <option value="agent">AGENT (루프 제어)</option>
+                <option value="approval">APPROVAL (승인/권한)</option>
+                <option value="context">CONTEXT (컨텍스트 관리)</option>
+              </select>
 
               <select
                 value={logLevelFilter}
@@ -542,31 +629,88 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
               </select>
             </div>
 
-            <div className="flex items-center gap-2 text-xs text-muted-foreground self-end sm:self-auto font-mono">
-              <span>표시: {filteredLogs.length} / 총 {logs.length}건</span>
+            <div className="flex items-center gap-2 self-end md:self-auto">
+              <span className="text-xs text-muted-foreground font-mono mr-2">
+                표시: {filteredLogs.length} / 총 {logs.length}건
+              </span>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportLogsText}
+                disabled={filteredLogs.length === 0}
+                className="h-7 text-xs gap-1 cursor-pointer"
+                title="텍스트 파일로 저장"
+              >
+                <FileDown className="h-3 w-3" />
+                <span>저장</span>
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setClearConfirmOpen(true)}
+                disabled={logs.length === 0}
+                className="h-7 text-xs gap-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
+                title="에이전트 로그 비우기"
+              >
+                <Trash2 className="h-3 w-3" />
+                <span>비우기</span>
+              </Button>
             </div>
           </div>
 
           {/* Logs List */}
           {filteredLogs.length === 0 ? (
-            <div className="p-16 text-center text-xs text-muted-foreground rounded-xl border border-border bg-card">
-              조건에 일치하는 에이전트 로그 기록이 없습니다.
+            <div className="p-16 text-center text-xs text-muted-foreground rounded-xl border border-border bg-card space-y-1.5">
+              <Terminal className="h-6 w-6 mx-auto text-muted-foreground/60 mb-2" />
+              <p className="font-semibold text-foreground">기록된 에이전트 로그가 없습니다.</p>
+              <p className="text-[11px] opacity-70">
+                채팅창에서 질문이나 도구 실행을 요청하면 실시간으로 모든 추론 및 실행 로그가 이곳에 기록됩니다.
+              </p>
             </div>
           ) : (
-            <div className="border border-border/80 rounded-xl bg-card overflow-hidden divide-y divide-border/40 font-mono text-xs max-h-[640px] overflow-y-auto">
+            <div className="border border-border/80 rounded-xl bg-card overflow-hidden divide-y divide-border/40 font-mono text-xs max-h-[700px] overflow-y-auto select-text">
               {filteredLogs.map((log) => {
                 const isError = log.level === 'error';
                 const isWarn = log.level === 'warn';
                 const isInfo = log.level === 'info';
+                const categoryClass =
+                  log.category === 'chat'
+                    ? 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                    : log.category === 'ollama'
+                    ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                    : log.category === 'tools'
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                    : log.category === 'agent'
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    : log.category === 'approval'
+                    ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                    : log.category === 'context'
+                    ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                    : 'bg-muted text-muted-foreground border-border';
+
+                const detailsObj =
+                  log.details && typeof log.details === 'object'
+                    ? (log.details as Record<string, unknown>)
+                    : null;
+
+                const hasPrompt = Boolean(detailsObj && (detailsObj.prompt || detailsObj.fullPrompt));
+                const hasThinking = Boolean(detailsObj && typeof detailsObj.thinking === 'string' && detailsObj.thinking.trim());
+                const hasContent = Boolean(detailsObj && typeof detailsObj.content === 'string' && detailsObj.content.trim());
+                const hasArguments = Boolean(detailsObj && detailsObj.arguments && typeof detailsObj.arguments === 'object');
+                const hasToolResult = Boolean(detailsObj && detailsObj.result !== undefined);
+                const hasMessages = Boolean(detailsObj && Array.isArray(detailsObj.messages) && detailsObj.messages.length > 0);
+
                 return (
                   <div
                     key={log.id}
-                    className={`p-3 space-y-1.5 hover:bg-muted/30 transition-colors ${
+                    className={`p-3 space-y-2 hover:bg-muted/30 transition-colors ${
                       isError ? 'bg-destructive/5' : isWarn ? 'bg-amber-500/5' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span
                           className={`px-1.5 py-0.2 rounded font-semibold text-[10px] uppercase border ${
                             isError
@@ -580,21 +724,30 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                         >
                           {log.level}
                         </span>
-                        <span className="font-semibold text-foreground/80">
-                          [{log.category.toUpperCase()}]
+
+                        <span className={`px-1.5 py-0.2 rounded font-semibold text-[10px] uppercase border ${categoryClass}`}>
+                          {log.category.toUpperCase()}
                         </span>
+
                         <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
+                        {log.sessionId && (
+                          <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">
+                            세션: {log.sessionId.length > 12 ? log.sessionId.slice(0, 12) + '...' : log.sessionId}
+                          </span>
+                        )}
                       </div>
 
                       <button
                         type="button"
                         onClick={() =>
                           handleCopyText(
-                            `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.category}] ${log.message}`,
+                            `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.category}] ${log.message}\n${
+                              log.details ? JSON.stringify(log.details, null, 2) : ''
+                            }`,
                             log.id,
                           )
                         }
-                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+                        className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
                         title="로그 복사"
                       >
                         {copiedLogId === log.id ? (
@@ -605,12 +758,102 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                       </button>
                     </div>
 
-                    <div className="text-foreground leading-relaxed break-all select-text font-sans">
+                    {/* Log Message Headline */}
+                    <div className="text-foreground leading-relaxed font-sans font-medium text-xs">
                       {log.message}
                     </div>
 
-                    {log.details !== undefined && log.details !== null && (
-                      <pre className="p-2 rounded bg-background/80 border border-border/50 text-[11px] text-muted-foreground overflow-x-auto select-text font-mono">
+                    {/* Rich Details Renderers */}
+                    {hasPrompt && (
+                      <div className="p-2.5 rounded-lg bg-sky-950/20 border border-sky-500/20 text-xs">
+                        <div className="text-[11px] font-semibold text-sky-400 mb-1 flex items-center gap-1.5">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          <span>사용자 프롬프트 전문</span>
+                        </div>
+                        <div className="whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed">
+                          {String(detailsObj!.fullPrompt || detailsObj!.prompt)}
+                        </div>
+                      </div>
+                    )}
+
+                    {hasThinking && (
+                      <details className="group rounded-lg bg-purple-950/20 border border-purple-500/20 text-xs overflow-hidden" open>
+                        <summary className="px-2.5 py-1.5 font-semibold text-purple-400 cursor-pointer select-none flex items-center justify-between hover:bg-purple-500/10 transition-colors">
+                          <div className="flex items-center gap-1.5">
+                            <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+                            <span>LLM 사고 과정 (Thinking / CoT) — {String(detailsObj!.thinking).length}자</span>
+                          </div>
+                        </summary>
+                        <div className="p-2.5 border-t border-purple-500/20 whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed max-h-72 overflow-y-auto">
+                          {String(detailsObj!.thinking)}
+                        </div>
+                      </details>
+                    )}
+
+                    {hasContent && (
+                      <details className="group rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-xs overflow-hidden" open>
+                        <summary className="px-2.5 py-1.5 font-semibold text-emerald-400 cursor-pointer select-none flex items-center justify-between hover:bg-emerald-500/10 transition-colors">
+                          <div className="flex items-center gap-1.5">
+                            <Bot className="h-3.5 w-3.5 text-emerald-400" />
+                            <span>LLM 응답 전문 — {String(detailsObj!.content).length}자</span>
+                          </div>
+                        </summary>
+                        <div className="p-2.5 border-t border-emerald-500/20 whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed max-h-72 overflow-y-auto">
+                          {String(detailsObj!.content)}
+                        </div>
+                      </details>
+                    )}
+
+                    {hasArguments && (
+                      <div className="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/20 text-xs">
+                        <div className="text-[11px] font-semibold text-amber-400 mb-1 flex items-center gap-1.5">
+                          <Wrench className="h-3.5 w-3.5" />
+                          <span>도구 호출 인자 (Arguments)</span>
+                        </div>
+                        <pre className="text-foreground/90 font-mono text-[11px] whitespace-pre-wrap break-all">
+                          {JSON.stringify(detailsObj!.arguments, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+
+                    {hasToolResult && (
+                      <details className="group rounded-lg bg-muted/40 border border-border/80 text-xs overflow-hidden" open>
+                        <summary className="px-2.5 py-1.5 font-semibold text-foreground/80 cursor-pointer select-none flex items-center justify-between hover:bg-muted/60 transition-colors">
+                          <div className="flex items-center gap-1.5">
+                            <Terminal className="h-3.5 w-3.5 text-primary" />
+                            <span>도구 실행 결과 전문 (Tool Result)</span>
+                          </div>
+                        </summary>
+                        <div className="p-2.5 border-t border-border/60 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground max-h-72 overflow-y-auto">
+                          {typeof detailsObj!.result === 'object'
+                            ? JSON.stringify(detailsObj!.result, null, 2)
+                            : String(detailsObj!.result)}
+                        </div>
+                      </details>
+                    )}
+
+                    {hasMessages && (
+                      <details className="group rounded-lg bg-zinc-950/40 border border-zinc-700/40 text-xs overflow-hidden">
+                        <summary className="px-2.5 py-1.5 font-semibold text-zinc-400 cursor-pointer select-none flex items-center justify-between hover:bg-zinc-800/40 transition-colors">
+                          <div className="flex items-center gap-1.5">
+                            <Code className="h-3.5 w-3.5" />
+                            <span>LLM 입력 프롬프트 및 컨텍스트 메시지 ({(detailsObj!.messages as unknown[]).length}개)</span>
+                          </div>
+                        </summary>
+                        <div className="p-2.5 border-t border-zinc-700/40 space-y-2 max-h-80 overflow-y-auto">
+                          {(detailsObj!.messages as Array<{ role: string; content?: string }>).map((m, idx) => (
+                            <div key={idx} className="p-2 rounded bg-background border border-border/50 font-mono text-[11px]">
+                              <div className="font-bold text-primary uppercase text-[10px] mb-1">[{m.role}]</div>
+                              <div className="whitespace-pre-wrap font-sans text-foreground/90">{m.content}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Raw JSON Details Viewer (if other details exist or fallback) */}
+                    {log.details !== undefined && log.details !== null && !hasPrompt && !hasThinking && !hasContent && !hasArguments && !hasToolResult && !hasMessages && (
+                      <pre className="p-2 rounded bg-background/80 border border-border/50 text-[11px] text-muted-foreground overflow-x-auto font-mono">
                         {typeof log.details === 'object'
                           ? JSON.stringify(log.details, null, 2)
                           : String(log.details)}
@@ -621,6 +864,41 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
               })}
             </div>
           )}
+
+          {/* Clear Logs Confirmation Dialog */}
+          <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="text-sm font-semibold">에이전트 실행 로그 비우기</DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-2">
+                  <strong className="text-foreground font-medium">"{agent.name}"</strong> 에이전트의 모든 실행 로그 기록을 완전히 삭제하시겠습니까?
+                  <span className="block mt-2 text-rose-400 font-medium">
+                    * 이 작업은 되돌릴 수 없으며, SQLite에 저장된 과거 기록도 모두 삭제됩니다.
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setClearConfirmOpen(false)}
+                  className="text-xs"
+                >
+                  취소
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleClearAgentLogs}
+                  className="text-xs"
+                >
+                  로그 비우기
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       )}
     </div>

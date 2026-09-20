@@ -97,15 +97,63 @@ describe('logsRepo and execution_logs persistence', () => {
     expect(allRemaining).toHaveLength(0);
   });
 
-  it('appLogger records entries in-memory and can filter by session', () => {
+  it('appLogger records entries in-memory and can filter by session and agent', async () => {
     appLogger.clear();
-    appLogger.info('agent', '에이전트 시작', { test: true }, 'test-session-123');
-    appLogger.error('tools', '도구 실패', { err: 'fail' }, 'test-session-123');
-    appLogger.info('chat', '다른 세션', undefined, 'other-session');
+    appLogger.info('agent', '에이전트 시작', { test: true }, 'test-session-123', 'agent-alpha');
+    appLogger.error('tools', '도구 실패', { err: 'fail' }, 'test-session-123', 'agent-alpha');
+    appLogger.info('chat', '다른 세션 다른 에이전트', undefined, 'other-session', 'agent-beta');
 
     const sessionLogs = appLogger.getSessionLogs('test-session-123');
     expect(sessionLogs).toHaveLength(2);
     expect(sessionLogs[0].category).toBe('agent');
     expect(sessionLogs[1].level).toBe('error');
+
+    const agentAlphaLogs = appLogger.getAgentLogs('agent-alpha');
+    expect(agentAlphaLogs).toHaveLength(2);
+    expect(agentAlphaLogs[0].agentId).toBe('agent-alpha');
+
+    const agentBetaLogs = appLogger.getAgentLogs('agent-beta');
+    expect(agentBetaLogs).toHaveLength(1);
+    expect(agentBetaLogs[0].agentId).toBe('agent-beta');
+
+    await appLogger.clearAgentLogs('agent-alpha');
+    expect(appLogger.getAgentLogs('agent-alpha')).toHaveLength(0);
+    expect(appLogger.getAgentLogs('agent-beta')).toHaveLength(1);
+  });
+
+  it('filters logs by agentId in repository', async () => {
+    await logsRepo.insertLogEntry(
+      {
+        id: 'log-a1',
+        timestamp: '2026-09-19T11:00:00.000Z',
+        level: 'info',
+        category: 'chat',
+        message: '에이전트 A 질문',
+        sessionId: 's-1',
+        agentId: 'agent-A',
+      },
+      db,
+    );
+    await logsRepo.insertLogEntry(
+      {
+        id: 'log-b1',
+        timestamp: '2026-09-19T11:00:01.000Z',
+        level: 'info',
+        category: 'ollama',
+        message: '에이전트 B 응답',
+        sessionId: 's-2',
+        agentId: 'agent-B',
+      },
+      db,
+    );
+
+    const aLogs = await logsRepo.getLogs({ agentId: 'agent-A' }, db);
+    expect(aLogs).toHaveLength(1);
+    expect(aLogs[0].agentId).toBe('agent-A');
+    expect(aLogs[0].message).toBe('에이전트 A 질문');
+
+    const bLogs = await logsRepo.getLogs({ agentId: 'agent-B' }, db);
+    expect(bLogs).toHaveLength(1);
+    expect(bLogs[0].agentId).toBe('agent-B');
   });
 });

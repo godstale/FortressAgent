@@ -35,20 +35,30 @@ export async function insertLogEntry(
 }
 
 export async function getLogs(
-  options: { sessionId?: string; limit?: number } = {},
+  options: { sessionId?: string; agentId?: string; limit?: number } = {},
   dbOverride?: SqlDatabase,
 ): Promise<LogEntry[]> {
   const db = dbOverride ?? (await getDatabase());
   let rows: LogRow[];
 
-  if (options.sessionId) {
-    const limitClause = options.limit ? ` LIMIT ${options.limit}` : '';
+  const limitClause = options.limit ? ` LIMIT ${options.limit}` : '';
+
+  if (options.sessionId && options.agentId) {
+    rows = await db.select<LogRow[]>(
+      `SELECT id, timestamp, level, category, message, details, session_id, agent_id FROM execution_logs WHERE session_id = ? AND agent_id = ? ORDER BY timestamp ASC${limitClause}`,
+      [options.sessionId, options.agentId],
+    );
+  } else if (options.sessionId) {
     rows = await db.select<LogRow[]>(
       `SELECT id, timestamp, level, category, message, details, session_id, agent_id FROM execution_logs WHERE session_id = ? ORDER BY timestamp ASC${limitClause}`,
       [options.sessionId],
     );
+  } else if (options.agentId) {
+    rows = await db.select<LogRow[]>(
+      `SELECT id, timestamp, level, category, message, details, session_id, agent_id FROM execution_logs WHERE agent_id = ? ORDER BY timestamp ASC${limitClause}`,
+      [options.agentId],
+    );
   } else {
-    const limitClause = options.limit ? ` LIMIT ${options.limit}` : '';
     rows = await db.select<LogRow[]>(
       `SELECT id, timestamp, level, category, message, details, session_id, agent_id FROM execution_logs ORDER BY timestamp ASC${limitClause}`,
     );
@@ -79,12 +89,20 @@ export async function getLogs(
 export async function clearLogs(
   sessionId?: string,
   dbOverride?: SqlDatabase,
+  agentId?: string,
 ): Promise<void> {
   const db = dbOverride ?? (await getDatabase());
-  if (sessionId) {
+  if (sessionId && agentId) {
+    await db.execute(
+      'DELETE FROM execution_logs WHERE session_id = ? AND agent_id = ?',
+      [sessionId, agentId],
+    );
+  } else if (sessionId) {
     await db.execute('DELETE FROM execution_logs WHERE session_id = ?', [
       sessionId,
     ]);
+  } else if (agentId) {
+    await db.execute('DELETE FROM execution_logs WHERE agent_id = ?', [agentId]);
   } else {
     await db.execute('DELETE FROM execution_logs');
   }

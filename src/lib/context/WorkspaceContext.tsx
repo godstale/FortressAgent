@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import * as settingsRepo from '@/lib/db/repositories/settingsRepo';
+import { setActiveWorkspaceRoot } from '@/lib/db/client';
 
 const TRUST_STORAGE_KEY = 'fortress_trusted_workspaces';
 
@@ -92,6 +93,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
         // If no workspaceRoot is currently selected, restore last used workspace
         if (!workspaceRoot && settings.lastWorkspaceRoot) {
+          setActiveWorkspaceRoot(settings.lastWorkspaceRoot);
           setWorkspaceRootState(settings.lastWorkspaceRoot);
           localStorage.setItem('fortress_current_workspace_root', settings.lastWorkspaceRoot);
           try {
@@ -100,6 +102,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             // ignore in non-Tauri
           }
         } else if (workspaceRoot) {
+          setActiveWorkspaceRoot(workspaceRoot);
           try {
             await invoke('set_active_workspace', { path: workspaceRoot });
           } catch {
@@ -135,6 +138,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [workspaceRoot]);
 
   const setWorkspaceRoot = useCallback((root: string | null) => {
+    setActiveWorkspaceRoot(root);
     setWorkspaceRootState(root);
     try {
       void invoke('set_active_workspace', { path: root });

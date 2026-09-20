@@ -32,6 +32,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             pick_project_folder,
             set_active_workspace,
+            ensure_fortress_dir,
             get_app_paths,
             read_project_folder_tree,
             read_text_file,
@@ -41,6 +42,8 @@ pub fn run() {
             rename_path,
             delete_path,
             list_dir,
+            copy_path,
+            reveal_in_explorer,
             grep_files,
             find_files,
             run_shell,

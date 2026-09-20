@@ -74,4 +74,25 @@ describe('RechartsViewer', () => {
     expect(screen.getByText('Invalid Recharts JSON DSL')).toBeInTheDocument();
     expect(screen.getByText(invalidJson)).toBeInTheDocument();
   });
+
+  it('renders pseudo-DSL chart with title and nested series data without crashing', () => {
+    const pseudoDsl = `line chart title="2026 년 9 월 셋째주 KOSPI & KOSDAQ 동향"
+xKey: "날짜"
+series: [
+  { 
+    "key": "KOSPI", 
+    "label": "코스피 (p)", 
+    "color": "#3b82f6",
+    "data": [
+      {"category": "9/14(월)", "val1": 7050, "val2": null},
+      {"category": "9/15(화)", "val1": 7080, "val2": null}
+    ] 
+  }
+]`;
+
+    render(<RechartsViewer code={pseudoDsl} />);
+
+    expect(screen.getByText('2026 년 9 월 셋째주 KOSPI & KOSDAQ 동향')).toBeInTheDocument();
+    expect(screen.getByTestId('responsive-container')).toBeInTheDocument();
+  });
 });

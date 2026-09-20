@@ -34,7 +34,26 @@ function WorkspaceContent() {
     }
   }, [openTab, tabs.length, workspaceRoot]);
 
+  // When no workspaceRoot, make sure side panel is on explorer and expanded
+  useEffect(() => {
+    if (!workspaceRoot) {
+      setActiveView('explorer');
+      if (sidePanelRef.current?.isCollapsed()) {
+        sidePanelRef.current.expand();
+      }
+    }
+  }, [workspaceRoot, setActiveView]);
+
   const handleActivityBarSelect = (view: Exclude<SidePanelView, null>) => {
+    if (!workspaceRoot) {
+      // Cannot select other menus when no folder is selected
+      if (view !== 'explorer') return;
+      if (sidePanelRef.current?.isCollapsed()) {
+        sidePanelRef.current.expand();
+      }
+      setActiveView('explorer');
+      return;
+    }
     const panel = sidePanelRef.current;
     if (!panel) return;
     if (activeView === view && !panel.isCollapsed()) {

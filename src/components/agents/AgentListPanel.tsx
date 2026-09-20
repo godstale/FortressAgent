@@ -1,17 +1,78 @@
-import { Bot, Plus, Sparkles } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Bot, Plus, Sparkles, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
+import { useSettings } from '@/lib/context/SettingsContext';
 import { AgentCard } from './AgentCard';
-import type { Agent } from '@/lib/types/agent';
+import type { Agent, AgentConnectionStatus } from '@/lib/types/agent';
+import { checkAllAgentsConnection, checkAgentConnection } from '@/lib/llm/agentStatus';
 
 export function AgentListPanel() {
   const { agents, loading, setDefaultAgent, deleteAgent } = useAgents();
   const { openTab } = useWorkspaceTabs();
   const { createSession } = useChatSessions();
+  const { settings } = useSettings();
+
+  const [statuses, setStatuses] = useState<Record<string, AgentConnectionStatus>>({});
+  const [checkingMap, setCheckingMap] = useState<Record<string, boolean>>({});
+  const [isCheckingAll, setIsCheckingAll] = useState(false);
+
+  // Check connection for all agents
+  const handleCheckAll = useCallback(async () => {
+    if (agents.length === 0) return;
+    setIsCheckingAll(true);
+    try {
+      const results = await checkAllAgentsConnection(agents, settings.ollamaBaseUrl);
+      setStatuses((prev) => ({ ...prev, ...results }));
+    } catch (err) {
+      console.error('Failed to check all agents connection:', err);
+    } finally {
+      setIsCheckingAll(false);
+    }
+  }, [agents, settings.ollamaBaseUrl]);
+
+  // Check connection for single agent
+  const handleCheckSingle = useCallback(
+    async (agent: Agent) => {
+      setCheckingMap((prev) => ({ ...prev, [agent.id]: true }));
+      try {
+        const result = await checkAgentConnection(agent, settings.ollamaBaseUrl);
+        setStatuses((prev) => ({ ...prev, [agent.id]: result }));
+      } catch (err) {
+        console.error(`Failed to check connection for agent ${agent.name}:`, err);
+        setStatuses((prev) => ({ ...prev, [agent.id]: 'disconnected' }));
+      } finally {
+        setCheckingMap((prev) => ({ ...prev, [agent.id]: false }));
+      }
+    },
+    [settings.ollamaBaseUrl],
+  );
+
+  // Automatically check connection when agents are loaded or changed
+  useEffect(() => {
+    if (loading || agents.length === 0) return;
+
+    let cancelled = false;
+
+    checkAllAgentsConnection(agents, settings.ollamaBaseUrl)
+      .then((results) => {
+        if (!cancelled) {
+          setStatuses((prev) => ({ ...prev, ...results }));
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to check all agents connection:', err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, agents, settings.ollamaBaseUrl]);
 
   const handleCreateAgent = () => {
+
     openTab({
       id: `agent-editor:new-${Date.now()}`,
       type: 'agent-editor',
@@ -87,15 +148,29 @@ export function AgentListPanel() {
           <Bot className="h-3.5 w-3.5" />
           에이전트 관리
         </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 text-muted-foreground hover:text-foreground hover:bg-accent"
-          onClick={handleCreateAgent}
-          title="새 에이전트 추가"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-50"
+            onClick={handleCheckAll}
+            disabled={isCheckingAll || loading}
+            title="모든 에이전트 연결 상태 확인"
+            aria-label="모든 에이전트 연결 상태 확인"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isCheckingAll ? 'animate-spin' : ''}`} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground hover:text-foreground hover:bg-accent"
+            onClick={handleCreateAgent}
+            title="새 에이전트 추가"
+            aria-label="새 에이전트 추가"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       {/* Content */}
@@ -129,6 +204,9 @@ export function AgentListPanel() {
             <AgentCard
               key={agent.id}
               agent={agent}
+              status={statuses[agent.id] ?? 'unknown'}
+              isChecking={!!checkingMap[agent.id] || isCheckingAll}
+              onCheckConnection={handleCheckSingle}
               isOnlyAgent={agents.length <= 1}
               onStartChat={handleStartChat}
               onShowStats={handleShowStats}

@@ -215,6 +215,7 @@ describe('messageMapper', () => {
 
     const mapped = mapAgentMessagesToOllama(messages, {
       pastToolResultMaxChars: 100,
+      keepRecentToolCount: 1,
     });
 
     // 1. Check thinking stripped from assistant messages

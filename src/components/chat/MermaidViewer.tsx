@@ -2,12 +2,14 @@ import React, { useEffect, useId, useState } from 'react';
 import mermaid from 'mermaid';
 import { AlertCircle, Check, Copy } from 'lucide-react';
 import { useTheme } from '../../lib/context/ThemeContext';
+import { isChartDsl } from '../../lib/types/chartDsl';
+import { RechartsViewer } from './RechartsViewer';
 
 interface MermaidViewerProps {
   code: string;
 }
 
-export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
+const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
   const { theme } = useTheme();
   const rawId = useId();
   const elementId = 'mermaid-' + rawId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -137,4 +139,11 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
       )}
     </div>
   );
+};
+
+export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
+  if (isChartDsl(code)) {
+    return <RechartsViewer code={code} />;
+  }
+  return <MermaidDiagramViewer code={code} />;
 };

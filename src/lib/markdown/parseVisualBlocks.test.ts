@@ -104,4 +104,16 @@ Footer`;
     expect(segments[2].type).toBe('text');
     expect(segments[2].content).toBe('\nFooter');
   });
+
+  it('converts mermaid block containing chart DSL to recharts type and parses it', () => {
+    const text = `\`\`\`mermaid
+line chart title="Trend"
+xKey: "date"
+series: []
+\`\`\``;
+    const blocks = parseVisualBlocks(text);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe('recharts');
+    expect(blocks[0].parsedJson).toBeDefined();
+  });
 });

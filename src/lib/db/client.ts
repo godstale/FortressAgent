@@ -1,4 +1,5 @@
 import Database, { type QueryResult } from '@tauri-apps/plugin-sql';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface SqlDatabase {
   execute(query: string, bindValues?: unknown[]): Promise<QueryResult>;
@@ -65,6 +66,7 @@ export const MIGRATION_STATEMENTS: string[] = [
     agent_id TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_execution_logs_session ON execution_logs(session_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_execution_logs_agent ON execution_logs(agent_id)`,
   `CREATE INDEX IF NOT EXISTS idx_execution_logs_timestamp ON execution_logs(timestamp)`,
 ];
 
@@ -278,6 +280,15 @@ export class MemorySqlFallback implements SqlDatabase {
       return { rowsAffected: 1 };
     }
 
+    if (q.startsWith('UPDATE app_settings SET open_tabs = ?, active_tab_id = ?')) {
+      const [open_tabs, active_tab_id] = bindValues;
+      const settings = this.tables.get('app_settings')?.get('singleton');
+      if (settings) {
+        Object.assign(settings, { open_tabs, active_tab_id });
+      }
+      return { rowsAffected: 1 };
+    }
+
     if (q.startsWith('UPDATE app_settings SET')) {
       const [
         open_tabs,
@@ -461,6 +472,22 @@ export class MemorySqlFallback implements SqlDatabase {
       return (settings ? [settings] : []) as unknown as T;
     }
 
+    if (q.includes('FROM execution_logs WHERE session_id = ? AND agent_id = ?')) {
+      const [sessionId, agentId] = bindValues;
+      const logs = Array.from(this.tables.get('execution_logs')?.values() ?? [])
+        .filter((l) => l.session_id === sessionId && l.agent_id === agentId)
+        .sort((a, b) => (a.timestamp as string).localeCompare(b.timestamp as string));
+      return logs as unknown as T;
+    }
+
+    if (q.includes('FROM execution_logs WHERE agent_id = ?')) {
+      const [agentId] = bindValues;
+      const logs = Array.from(this.tables.get('execution_logs')?.values() ?? [])
+        .filter((l) => l.agent_id === agentId)
+        .sort((a, b) => (a.timestamp as string).localeCompare(b.timestamp as string));
+      return logs as unknown as T;
+    }
+
     if (q.includes('FROM execution_logs WHERE session_id = ?')) {
       const [sessionId] = bindValues;
       const logs = Array.from(this.tables.get('execution_logs')?.values() ?? [])
@@ -479,12 +506,31 @@ export class MemorySqlFallback implements SqlDatabase {
   }
 }
 
+let mockDb: SqlDatabase | null = null;
 let globalDb: SqlDatabase | null = null;
-let migrationDone = false;
+let globalMigrationDone = false;
+const projectDbs = new Map<string, SqlDatabase>();
+
+let activeWorkspaceRoot: string | null =
+  typeof window !== 'undefined'
+    ? localStorage.getItem('fortress_current_workspace_root')
+    : null;
+
+export function setActiveWorkspaceRoot(root: string | null): void {
+  activeWorkspaceRoot = root;
+}
+
+export function getActiveWorkspaceRoot(): string | null {
+  return activeWorkspaceRoot;
+}
 
 export function setDatabase(db: SqlDatabase | null): void {
+  mockDb = db;
   globalDb = db;
-  migrationDone = false;
+  globalMigrationDone = false;
+  if (!db) {
+    projectDbs.clear();
+  }
 }
 
 export async function runMigrations(db: SqlDatabase): Promise<void> {
@@ -493,33 +539,121 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
   }
 }
 
-export async function getDatabase(): Promise<SqlDatabase> {
-  if (globalDb) {
-    if (!migrationDone) {
-      await runMigrations(globalDb);
-      migrationDone = true;
-    }
-    return globalDb;
-  }
-
-  // Check if running in Tauri environment
-  const isTauri =
+function isTauriEnvironment(): boolean {
+  return (
     typeof window !== 'undefined' &&
     Boolean(
       (window as unknown as { __TAURI_INTERNALS__?: unknown })
         .__TAURI_INTERNALS__,
-    );
+    )
+  );
+}
 
-  if (!isTauri) {
+export async function getGlobalDatabase(): Promise<SqlDatabase> {
+  if (mockDb) {
+    if (!globalMigrationDone) {
+      await runMigrations(mockDb);
+      globalMigrationDone = true;
+    }
+    return mockDb;
+  }
+
+  if (globalDb) {
+    if (!globalMigrationDone) {
+      await runMigrations(globalDb);
+      globalMigrationDone = true;
+    }
+    return globalDb;
+  }
+
+  if (!isTauriEnvironment()) {
     globalDb = new MemorySqlFallback();
     await runMigrations(globalDb);
-    migrationDone = true;
+    globalMigrationDone = true;
     return globalDb;
   }
 
   const db = await Database.load('sqlite:fortress.db');
   globalDb = db;
   await runMigrations(db);
-  migrationDone = true;
+  globalMigrationDone = true;
   return db;
 }
+
+export async function getProjectDatabase(
+  workspaceRoot?: string | null,
+): Promise<SqlDatabase> {
+  if (mockDb) {
+    if (!globalMigrationDone) {
+      await runMigrations(mockDb);
+      globalMigrationDone = true;
+    }
+    return mockDb;
+  }
+
+  const root =
+    workspaceRoot ??
+    activeWorkspaceRoot ??
+    (typeof window !== 'undefined'
+      ? localStorage.getItem('fortress_current_workspace_root')
+      : null);
+
+  if (!root) {
+    return getGlobalDatabase();
+  }
+
+  const cached = projectDbs.get(root);
+  if (cached) {
+    return cached;
+  }
+
+  if (!isTauriEnvironment()) {
+    const memDb = new MemorySqlFallback();
+    await runMigrations(memDb);
+    projectDbs.set(root, memDb);
+    return memDb;
+  }
+
+  // Ensure .fortress directory exists before attempting Database.load
+  try {
+    await invoke('ensure_fortress_dir', { workspaceRoot: root });
+  } catch (err) {
+    console.warn(
+      'ensure_fortress_dir invoke failed, proceeding with Database.load:',
+      err,
+    );
+  }
+
+  const normalized = root.replace(/\\/g, '/');
+  const connUrl = `sqlite:${normalized}/.fortress/fortress.db`;
+  const db = await Database.load(connUrl);
+  await runMigrations(db);
+  projectDbs.set(root, db);
+  return db;
+}
+
+export async function getDatabase(
+  workspaceRoot?: string | null,
+): Promise<SqlDatabase> {
+  if (mockDb) {
+    if (!globalMigrationDone) {
+      await runMigrations(mockDb);
+      globalMigrationDone = true;
+    }
+    return mockDb;
+  }
+
+  const root =
+    workspaceRoot ??
+    activeWorkspaceRoot ??
+    (typeof window !== 'undefined'
+      ? localStorage.getItem('fortress_current_workspace_root')
+      : null);
+
+  if (root) {
+    return getProjectDatabase(root);
+  }
+
+  return getGlobalDatabase();
+}
+

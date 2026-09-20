@@ -53,6 +53,7 @@ export function CenterWorkspace() {
   };
 
   const handleNewChat = () => {
+    if (!workspaceRoot) return;
     openTab({
       type: 'chat',
       id: `chat:${Date.now()}`,
@@ -119,9 +120,15 @@ export function CenterWorkspace() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              disabled={!workspaceRoot}
+              className={cn(
+                'h-7 w-7 transition-colors',
+                !workspaceRoot
+                  ? 'text-muted-foreground/30 cursor-not-allowed hover:bg-transparent'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
               onClick={handleNewChat}
-              title="새 채팅 탭 열기"
+              title={workspaceRoot ? '새 채팅 탭 열기' : '폴더를 먼저 선택해주세요'}
             >
               <Plus className="h-4 w-4" />
             </Button>

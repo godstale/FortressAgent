@@ -10,8 +10,12 @@ import {
   Wrench,
   BookOpen,
   Layers,
+  Activity,
+  Terminal,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
-import type { Agent } from '@/lib/types/agent';
+import type { Agent, AgentConnectionStatus } from '@/lib/types/agent';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -21,11 +25,13 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Activity, Terminal } from 'lucide-react';
 
 export interface AgentCardProps {
   agent: Agent;
   isOnlyAgent?: boolean;
+  status?: AgentConnectionStatus;
+  isChecking?: boolean;
+  onCheckConnection?: (agent: Agent) => void;
   onStartChat: (agent: Agent) => void;
   onShowStats?: (agent: Agent) => void;
   onShowLogs?: (agent: Agent) => void;
@@ -37,6 +43,9 @@ export interface AgentCardProps {
 export const AgentCard: React.FC<AgentCardProps> = ({
   agent,
   isOnlyAgent,
+  status = 'unknown',
+  isChecking = false,
+  onCheckConnection,
   onStartChat,
   onShowStats,
   onShowLogs,
@@ -46,10 +55,40 @@ export const AgentCard: React.FC<AgentCardProps> = ({
 }) => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
+
   const handleDelete = () => {
     setDeleteConfirmOpen(false);
     onDelete(agent);
   };
+
+  const getStatusConfig = () => {
+    switch (status) {
+      case 'connected':
+        return {
+          containerClass: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500',
+          iconClass: 'text-emerald-500',
+          dotClass: 'bg-emerald-500',
+          label: '연결됨 (서비스 정상)',
+        };
+      case 'disconnected':
+        return {
+          containerClass: 'bg-rose-500/10 border-rose-500/30 text-rose-500',
+          iconClass: 'text-rose-500',
+          dotClass: 'bg-rose-500',
+          label: '미연결 (서비스 미연결 또는 모델 미설치)',
+        };
+      case 'unknown':
+      default:
+        return {
+          containerClass: 'bg-zinc-700/30 border-zinc-500/40 text-white',
+          iconClass: 'text-white',
+          dotClass: 'bg-white',
+          label: '상태체크 전',
+        };
+    }
+  };
+
+  const statusConfig = getStatusConfig();
 
   return (
     <>
@@ -57,9 +96,23 @@ export const AgentCard: React.FC<AgentCardProps> = ({
         {/* Header: Name + Badges */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="h-8 w-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-              <Bot className="h-4 w-4" />
-            </div>
+            <button
+              type="button"
+              onClick={() => onCheckConnection?.(agent)}
+              disabled={isChecking}
+              className={`relative h-8 w-8 rounded-lg border flex items-center justify-center shrink-0 transition-all cursor-pointer hover:opacity-85 focus:outline-none focus:ring-1 focus:ring-ring ${statusConfig.containerClass}`}
+              title={`연결 상태: ${statusConfig.label}${isChecking ? ' (확인 중...)' : ' - 클릭하여 상태 확인'}`}
+              aria-label={`에이전트 연결 상태: ${statusConfig.label}`}
+            >
+              {isChecking ? (
+                <Loader2 className={`h-4 w-4 animate-spin ${statusConfig.iconClass}`} />
+              ) : (
+                <Bot className={`h-4 w-4 ${statusConfig.iconClass}`} />
+              )}
+              <span
+                className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-card shadow-xs ${statusConfig.dotClass}`}
+              />
+            </button>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <h4 className="text-xs font-semibold text-foreground truncate">{agent.name}</h4>
@@ -77,6 +130,16 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           </div>
 
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <button
+              type="button"
+              onClick={() => onCheckConnection?.(agent)}
+              disabled={isChecking}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              title="연결 상태 확인"
+              aria-label="연결 상태 확인"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? 'animate-spin' : ''}`} />
+            </button>
             {!agent.isDefault && (
               <button
                 type="button"

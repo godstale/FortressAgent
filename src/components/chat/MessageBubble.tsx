@@ -8,6 +8,7 @@ import { ToolCallCard } from './ToolCallCard';
 import { MermaidViewer } from './MermaidViewer';
 import { RechartsViewer } from './RechartsViewer';
 import { CodeViewer } from './CodeViewer';
+import { isChartDsl } from '@/lib/types/chartDsl';
 
 export interface MessageBubbleProps {
   message: AgentMessage;
@@ -189,11 +190,16 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                         const codeString = String(children).replace(/\n$/, '');
                         const isInline = !match && !codeString.includes('\n');
 
+                        if (
+                          language === 'recharts' ||
+                          language === 'chart' ||
+                          (language === 'mermaid' && isChartDsl(codeString))
+                        ) {
+                          return <RechartsViewer code={codeString} />;
+                        }
+
                         if (language === 'mermaid') {
                           return <MermaidViewer code={codeString} />;
-                        }
-                        if (language === 'recharts') {
-                          return <RechartsViewer code={codeString} />;
                         }
 
                         if (isInline) {

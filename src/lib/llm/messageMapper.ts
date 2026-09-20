@@ -16,9 +16,13 @@ export interface MapMessageOptions {
    */
   prunePastToolResults?: boolean;
   /**
-   * Maximum characters to retain for older tool results (default 500).
+   * Maximum characters to retain for older tool results (default 3000).
    */
   pastToolResultMaxChars?: number;
+  /**
+   * Number of recent tool results to preserve completely unpruned (default 3).
+   */
+  keepRecentToolCount?: number;
 }
 
 export function mapAgentMessagesToOllama(
@@ -28,17 +32,23 @@ export function mapAgentMessagesToOllama(
   const {
     stripThinking = true,
     prunePastToolResults = true,
-    pastToolResultMaxChars = 500,
+    pastToolResultMaxChars = 3000,
+    keepRecentToolCount = 3,
   } = options;
 
-  // Find the index of the most recent toolResult message
-  let lastToolResultIndex = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'toolResult') {
-      lastToolResultIndex = i;
-      break;
+  // Find all indices of toolResult messages
+  const toolResultIndices: number[] = [];
+  messages.forEach((msg, idx) => {
+    if (msg.role === 'toolResult') {
+      toolResultIndices.push(idx);
     }
-  }
+  });
+
+  // Retain recent tool results completely unpruned (at least keepRecentToolCount)
+  const pruneCutoffIndex =
+    toolResultIndices.length > keepRecentToolCount
+      ? toolResultIndices[toolResultIndices.length - keepRecentToolCount]
+      : -1;
 
   return messages.map((msg, index) => {
     switch (msg.role) {
@@ -79,8 +89,8 @@ export function mapAgentMessagesToOllama(
         // If this is an older tool result and exceeds the limit, compact it to preserve context
         if (
           prunePastToolResults &&
-          lastToolResultIndex >= 0 &&
-          index < lastToolResultIndex &&
+          pruneCutoffIndex >= 0 &&
+          index < pruneCutoffIndex &&
           content &&
           content.length > pastToolResultMaxChars
         ) {
