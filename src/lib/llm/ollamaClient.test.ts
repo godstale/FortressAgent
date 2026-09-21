@@ -5,7 +5,11 @@ import {
   OllamaConnectionError,
   OllamaContextOverflowError,
 } from './ollamaClient';
-import { mapAgentMessagesToOllama, mapAgentToolsToOllama } from './messageMapper';
+import {
+  cleanThinkingText,
+  mapAgentMessagesToOllama,
+  mapAgentToolsToOllama,
+} from './messageMapper';
 import { z } from 'zod';
 import type { AgentMessage, AgentTool } from '@/lib/agent/types';
 
@@ -228,5 +232,16 @@ describe('messageMapper', () => {
 
     // 3. Check latest toolResult (index 4) was NOT pruned
     expect(mapped[4].content).toBe('B'.repeat(800));
+  });
+
+  it('cleanThinkingText removes all variants of thinking tags and standalone tags', () => {
+    const raw1 = '<think>some internal thoughts</think>Actual response';
+    expect(cleanThinkingText(raw1)).toBe('Actual response');
+
+    const raw2 = '<thinking>\nPlanning next steps...\n</thinking>\n\nHere is the answer';
+    expect(cleanThinkingText(raw2)).toBe('Here is the answer');
+
+    const raw3 = 'I will now read the file.\n</thinking>';
+    expect(cleanThinkingText(raw3)).toBe('I will now read the file.');
   });
 });

@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Bot, BarChart3, Settings2, CheckCircle2 } from 'lucide-react';
+import { Bot, CheckCircle2 } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import type { Agent } from '@/lib/types/agent';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { AgentEditorForm } from '@/components/agents/AgentEditorForm';
-import { AgentStatsPanel } from '@/components/agents/AgentStatsPanel';
 
 export interface AgentEditorTabProps {
   tab: WorkspaceTab;
@@ -21,7 +20,6 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
   const existingAgent = isNew ? undefined : getAgent(rawId);
   const mode: 'create' | 'edit' = existingAgent ? 'edit' : (isNew ? 'create' : 'edit');
 
-  const [activeTab, setActiveTab] = useState<'config' | 'stats'>('config');
   const [saveFeedback, setSaveFeedback] = useState(false);
 
   const handleSave = (saved: Agent) => {
@@ -66,50 +64,17 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
               <span>저장되었습니다</span>
             </span>
           )}
-
-          {mode === 'edit' && existingAgent && (
-            <div className="flex items-center rounded-lg border border-border bg-muted/30 p-0.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setActiveTab('config')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors ${
-                  activeTab === 'config'
-                    ? 'bg-background text-foreground shadow-xs font-medium'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <Settings2 className="h-3.5 w-3.5" />
-                <span>설정</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('stats')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors ${
-                  activeTab === 'stats'
-                    ? 'bg-background text-foreground shadow-xs font-medium'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                <BarChart3 className="h-3.5 w-3.5" />
-                <span>사용 통계</span>
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
       {/* Main Content Body */}
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'config' ? (
-          <AgentEditorForm
-            mode={mode}
-            initialAgent={existingAgent}
-            onSave={handleSave}
-            onCancel={handleCancel}
-          />
-        ) : (
-          existingAgent && <AgentStatsPanel agentId={existingAgent.id} />
-        )}
+        <AgentEditorForm
+          mode={mode}
+          initialAgent={existingAgent}
+          onSave={handleSave}
+          onCancel={handleCancel}
+        />
       </div>
     </div>
   );

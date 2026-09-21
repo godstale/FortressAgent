@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
+import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { AgentCard } from './AgentCard';
 import type { Agent, AgentConnectionStatus } from '@/lib/types/agent';
@@ -13,6 +14,7 @@ export function AgentListPanel() {
   const { agents, loading, setDefaultAgent, deleteAgent } = useAgents();
   const { openTab } = useWorkspaceTabs();
   const { createSession } = useChatSessions();
+  const { workspaceRoot } = useWorkspace();
   const { settings } = useSettings();
 
   const [statuses, setStatuses] = useState<Record<string, AgentConnectionStatus>>({});
@@ -85,12 +87,13 @@ export function AgentListPanel() {
       const session = await createSession({
         title: `${agent.name} 대화`,
         agentId: agent.id,
+        workspaceRoot: workspaceRoot ?? undefined,
       });
       openTab({
-        id: session.id,
+        id: `chat:${session.id}`,
         type: 'chat',
         title: session.title,
-        meta: { agentId: agent.id },
+        meta: { sessionId: session.id, agentId: agent.id },
       });
     } catch (err) {
       console.error('Failed to start chat with agent:', err);

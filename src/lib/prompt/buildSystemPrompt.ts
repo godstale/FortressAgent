@@ -67,7 +67,12 @@ export function buildSystemPromptSections(
 2. [스킬(Skills) 활용 및 프로그레시브 디스클로저 (Mandatory Skill Loading)]:
    - <skills>에 등록된 스킬은 도구(Tool)가 아니다. 모델에게는 'read', 'write', 'edit', 'ls' 등의 기본 도구만 주어지며, 스킬 이름이나 슬래시 명령어(예: /wiki-ingest 등)는 도구가 아니다.
    - 사용자의 질문이나 요청이 등록된 스킬의 설명(description), 트리거 명령어, 대상 도메인(예: 위키, 문서 분석, 특정 워크플로 등)과 관련이 있다면, 작업을 진행하기 전에 **반드시 가장 먼저 'read' 도구로 해당 스킬의 SKILL.md(location) 파일 전문을 읽어야 한다**.
-   - 스킬 파일을 읽지 않은 채 대상 폴더 위치나 처리 규칙을 임의로 추측(예: .agents/wiki/ 같은 임의 경로 생성)하지 마라. 반드시 SKILL.md에 명시된 디렉터리 구조(예: 프로젝트 루트의 wiki/ 폴더, index.md, history.json 등)와 절차를 확인한 후 그대로 준수하라.
+   - [스킬 경로 직행]: <location>에 명시된 SKILL.md 경로는 시스템이 실존을 보장하는 경로이다. 스킬 폴더가 존재하는지 확인하기 위해 'ls' 도구를 사전에 호출할 필요가 없으며, 곧바로 'read' 도구를 호출하라.
+   - [사고 후 도구 호출 필수]: 생각(thinking) 단계에서 'SKILL.md를 읽어보겠다'고 계획했다면 중간에 혼잣말만 출력하고 멈추지 말고, 반드시 같은 턴에서 실제 'read' 도구 호출(Tool Call)을 함께 실행하라.
+   - [프로젝트 데이터 경로 엄수]: 스킬 파일(SKILL.md)에 기술된 작업 대상 디렉터리(예: 'wiki/', 'src/', 'docs/' 등)는 스킬 폴더 내부(.agents/...)가 아니라 **현재 프로젝트 워크스페이스 루트(<cwd>) 바로 아래**에 위치한다.
+   - 위키나 프로젝트 파일 관련 작업 시 절대로 '.agents/skills/.../wiki'나 '.agents/wiki' 같은 임의의 하위 경로를 탐색하거나 생성하지 마라.
+   - 항상 현재 작업 디렉터리 기준 상대 경로('wiki', 'wiki/index.md' 등) 또는 절대 경로('<cwd>/wiki')를 사용하여 'ls', 'read', 'grep', 'find' 도구로 탐색하고 조작하라.
+   - 스킬 파일을 읽지 않은 채 대상 폴더 위치나 처리 규칙을 임의로 추측하지 마라. 반드시 SKILL.md에 명시된 디렉터리 구조(예: 프로젝트 루트의 wiki/ 폴더, index.md, history.json 등)와 절차를 확인한 후 그대로 준수하라.
 3. [도구의 연속 실행 및 작업 완수 (Continuous Tool Execution)]:
    - 작업을 수행할 때 중간에 사용자에게 '이제 진행하겠습니다' 또는 계획/해석만 말하고 멈추지 마라.
    - 필요한 모든 파일 읽기('read'), 쓰기('write'), 편집('edit') 도구를 끝까지 연속해서 호출하여 작업을 100% 완료하라.
@@ -124,10 +129,13 @@ export function buildSystemPromptSections(
 
   // 8. cwd
   if (options.cwd && options.cwd.trim()) {
-    const trimmed = options.cwd.trim();
+    const trimmed = options.cwd
+      .trim()
+      .replace(/\\/g, '/')
+      .replace(/^([/]{2}\?[/]|[/]{2}\.[^/]*[/]|[/]{2})/, '');
     sections['cwd'] = wrapTag(
       'cwd',
-      `${trimmed}\n(Current project workspace root. All relative file paths like "./" or subpaths resolve relative to this directory. Always operate inside this project directory.)`,
+      `Workspace Root: ${trimmed}\n(Current project workspace root. All relative file paths like "./", "wiki", "src", "docs" resolve relative to this directory. All project files, data folders, and target outputs reside under this workspace root. Always operate inside this project directory.)`,
     );
   }
 

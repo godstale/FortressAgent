@@ -1,5 +1,6 @@
 import Database, { type QueryResult } from '@tauri-apps/plugin-sql';
 import { invoke } from '@tauri-apps/api/core';
+import { DEFAULT_AGENT } from '@/lib/agent/defaultAgent';
 
 export interface SqlDatabase {
   execute(query: string, bindValues?: unknown[]): Promise<QueryResult>;
@@ -27,7 +28,7 @@ export const MIGRATION_STATEMENTS: string[] = [
   )`,
   `CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL REFERENCES agents(id),
+    agent_id TEXT NOT NULL,
     workspace_root TEXT,
     title TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -47,7 +48,7 @@ export const MIGRATION_STATEMENTS: string[] = [
     id TEXT PRIMARY KEY DEFAULT 'singleton',
     open_tabs TEXT NOT NULL DEFAULT '[]',
     active_tab_id TEXT,
-    theme TEXT NOT NULL DEFAULT 'dark',
+    theme TEXT NOT NULL DEFAULT 'light',
     language TEXT NOT NULL DEFAULT 'ko',
     ollama_base_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:11434',
     default_context_size INTEGER NOT NULL DEFAULT 8192,
@@ -120,13 +121,16 @@ export class MemorySqlFallback implements SqlDatabase {
     query: string,
     bindValues: unknown[] = [],
   ): Promise<QueryResult> {
-    const q = query.trim();
+    const q = query.trim().replace(/\s+/g, ' ');
 
     if (q.startsWith('CREATE TABLE') || q.startsWith('CREATE UNIQUE INDEX')) {
       return { rowsAffected: 0 };
     }
 
-    if (q.startsWith('INSERT INTO agents')) {
+    if (
+      q.startsWith('INSERT INTO agents') ||
+      q.startsWith('INSERT OR IGNORE INTO agents')
+    ) {
       const [
         id,
         name,
@@ -372,19 +376,55 @@ export class MemorySqlFallback implements SqlDatabase {
     if (q.startsWith('DELETE FROM execution_logs WHERE session_id = ?')) {
       const [sessionId] = bindValues;
       const logsMap = this.tables.get('execution_logs');
+      let affected = 0;
       if (logsMap) {
         for (const [k, v] of logsMap) {
           if (v.session_id === sessionId) {
             logsMap.delete(k);
+            affected++;
           }
         }
       }
-      return { rowsAffected: 1 };
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('DELETE FROM execution_logs WHERE timestamp < ?')) {
+      const [cutoff] = bindValues;
+      const logsMap = this.tables.get('execution_logs');
+      let affected = 0;
+      if (logsMap) {
+        for (const [k, v] of logsMap) {
+          if ((v.timestamp as string) < (cutoff as string)) {
+            logsMap.delete(k);
+            affected++;
+          }
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('DELETE FROM execution_logs WHERE id NOT IN')) {
+      const [maxKeep] = bindValues;
+      const logsMap = this.tables.get('execution_logs');
+      if (!logsMap) return { rowsAffected: 0 };
+      const sorted = Array.from(logsMap.values()).sort((a, b) =>
+        (b.timestamp as string).localeCompare(a.timestamp as string),
+      );
+      const keepIds = new Set(sorted.slice(0, maxKeep as number).map((r) => r.id as string));
+      let affected = 0;
+      for (const [k] of logsMap) {
+        if (!keepIds.has(k)) {
+          logsMap.delete(k);
+          affected++;
+        }
+      }
+      return { rowsAffected: affected };
     }
 
     if (q.startsWith('DELETE FROM execution_logs')) {
+      const count = this.tables.get('execution_logs')?.size ?? 0;
       this.tables.get('execution_logs')?.clear();
-      return { rowsAffected: 1 };
+      return { rowsAffected: count };
     }
 
     if (q.startsWith('INSERT INTO agent_monitoring_snapshots')) {
@@ -457,22 +497,77 @@ export class MemorySqlFallback implements SqlDatabase {
       return { rowsAffected: 1 };
     }
 
+    if (q.startsWith('DELETE FROM agent_monitoring_snapshots WHERE agent_id = ? AND timestamp < ?')) {
+      const [agentId, cutoff] = bindValues;
+      const snapMap = this.tables.get('agent_monitoring_snapshots');
+      let affected = 0;
+      if (snapMap) {
+        for (const [k, v] of snapMap) {
+          if (v.agent_id === agentId && (v.timestamp as string) < (cutoff as string)) {
+            snapMap.delete(k);
+            affected++;
+          }
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('DELETE FROM agent_monitoring_snapshots WHERE timestamp < ?')) {
+      const [cutoff] = bindValues;
+      const snapMap = this.tables.get('agent_monitoring_snapshots');
+      let affected = 0;
+      if (snapMap) {
+        for (const [k, v] of snapMap) {
+          if ((v.timestamp as string) < (cutoff as string)) {
+            snapMap.delete(k);
+            affected++;
+          }
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('DELETE FROM agent_monitoring_snapshots WHERE agent_id = ? AND id NOT IN')) {
+      const [agentId, , maxKeep] = bindValues;
+      const snapMap = this.tables.get('agent_monitoring_snapshots');
+      if (!snapMap) return { rowsAffected: 0 };
+      const agentRows = Array.from(snapMap.values())
+        .filter((r) => r.agent_id === agentId)
+        .sort((a, b) => (b.timestamp as string).localeCompare(a.timestamp as string));
+      const keepIds = new Set(agentRows.slice(0, maxKeep as number).map((r) => r.id as string));
+      let affected = 0;
+      for (const [k, v] of snapMap) {
+        if (v.agent_id === agentId && !keepIds.has(k)) {
+          snapMap.delete(k);
+          affected++;
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
     if (q.startsWith('DELETE FROM agent_monitoring_snapshots WHERE agent_id = ?')) {
       const [agentId] = bindValues;
       const snapMap = this.tables.get('agent_monitoring_snapshots');
+      let affected = 0;
       if (snapMap) {
         for (const [k, v] of snapMap) {
           if (v.agent_id === agentId) {
             snapMap.delete(k);
+            affected++;
           }
         }
       }
-      return { rowsAffected: 1 };
+      return { rowsAffected: affected };
     }
 
     if (q.startsWith('DELETE FROM agent_monitoring_snapshots')) {
+      const count = this.tables.get('agent_monitoring_snapshots')?.size ?? 0;
       this.tables.get('agent_monitoring_snapshots')?.clear();
-      return { rowsAffected: 1 };
+      return { rowsAffected: count };
+    }
+
+    if (q === 'VACUUM') {
+      return { rowsAffected: 0 };
     }
 
     return { rowsAffected: 0 };
@@ -493,7 +588,10 @@ export class MemorySqlFallback implements SqlDatabase {
       return (found ? [found] : []) as unknown as T;
     }
 
-    if (q.startsWith('SELECT * FROM agents WHERE id = ?')) {
+    if (
+      q.startsWith('SELECT * FROM agents WHERE id = ?') ||
+      q.startsWith('SELECT id FROM agents WHERE id = ?')
+    ) {
       const [id] = bindValues;
       const found = this.tables.get('agents')?.get(id as string);
       return (found ? [found] : []) as unknown as T;
@@ -692,6 +790,42 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
       // Column may already exist or table created with it; safe to ignore
     }
   }
+
+  // Ensure default agent exists if agents table is empty
+  try {
+    const countRows = await db.select<{ count: number }[]>(
+      'SELECT COUNT(*) as count FROM agents',
+    );
+    if ((countRows[0]?.count ?? 0) === 0) {
+      const now = new Date().toISOString();
+      await db.execute(
+        `INSERT OR IGNORE INTO agents (
+          id, name, description, system_prompt, model, temperature,
+          context_size, reserve_tokens, keep_recent_tokens, enabled_skills,
+          enabled_builtin_tools, approval_mode, is_default, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          DEFAULT_AGENT.id,
+          DEFAULT_AGENT.name,
+          DEFAULT_AGENT.description ?? null,
+          DEFAULT_AGENT.systemPrompt,
+          DEFAULT_AGENT.model,
+          DEFAULT_AGENT.temperature,
+          DEFAULT_AGENT.contextSize,
+          DEFAULT_AGENT.reserveTokens,
+          DEFAULT_AGENT.keepRecentTokens,
+          JSON.stringify(DEFAULT_AGENT.enabledSkills),
+          JSON.stringify(DEFAULT_AGENT.enabledBuiltinTools),
+          DEFAULT_AGENT.approvalMode,
+          1,
+          now,
+          now,
+        ],
+      );
+    }
+  } catch (err) {
+    console.warn('Failed to seed default agent during migrations:', err);
+  }
 }
 
 function isTauriEnvironment(): boolean {
@@ -810,5 +944,14 @@ export async function getDatabase(
   }
 
   return getGlobalDatabase();
+}
+
+export async function vacuumDatabase(workspaceRoot?: string | null): Promise<void> {
+  const db = await getDatabase(workspaceRoot);
+  try {
+    await db.execute('VACUUM');
+  } catch (err) {
+    console.warn('Failed to VACUUM database:', err);
+  }
 }
 

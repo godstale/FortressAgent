@@ -2,6 +2,14 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import type { AgentMessage, AgentTool } from '@/lib/agent/types';
 import type { OllamaChatRequest, OllamaToolCall } from '@/lib/llm/ollamaClient';
 
+export function cleanThinkingText(text: string): string {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<\/?(?:think|thinking)>/gi, '')
+    .trim();
+}
+
 export interface MapMessageOptions {
   /**
    * Strip <think>...</think> blocks from assistant messages to prevent
@@ -73,9 +81,9 @@ export function mapAgentMessagesToOllama(
         }));
 
         let content = msg.content ?? '';
-        if (stripThinking && content.includes('<think>')) {
-          const stripped = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-          content = stripped || (ollamaToolCalls && ollamaToolCalls.length > 0 ? '' : content);
+        if (stripThinking) {
+          content = cleanThinkingText(content);
+          content = content || (ollamaToolCalls && ollamaToolCalls.length > 0 ? '' : (msg.content ?? ''));
         }
 
         return {

@@ -25,6 +25,8 @@ class MonitoringCollectorService {
   private intervals = new Map<string, number>();
   private isCollectingMap = new Map<string, boolean>();
   private latestInferenceMetrics = new Map<string, LlmPerformanceMetrics>();
+  private lastDbSavedTime = new Map<string, number>();
+  private lastSavedStatus = new Map<string, string>();
 
   public recordInferenceMetrics(agentId: string, metrics: LlmPerformanceMetrics): void {
     this.latestInferenceMetrics.set(agentId, metrics);
@@ -292,11 +294,26 @@ class MonitoringCollectorService {
         createdAt: timestamp,
       };
 
-      // Persist snapshot to SQLite
-      try {
-        await saveMonitoringSnapshot(snapshot, workspaceRoot);
-      } catch (err) {
-        console.warn('Failed to save monitoring snapshot to SQLite:', err);
+      // Intelligent DB persistence:
+      // Always persist when active (generating, executing tool, or state changed),
+      // but throttle writes to max once per 15s when agent is completely idle with low GPU to prevent DB bloat.
+      const nowMs = Date.now();
+      const lastSaved = this.lastDbSavedTime.get(agent.id) ?? 0;
+      const prevStatus = this.lastSavedStatus.get(agent.id);
+      const isStatusChanged = prevStatus !== snapshot.agentStatus;
+      const isActivelyWorking = snapshot.agentStatus !== 'idle';
+      const hasRecentInference = (snapshot.prefillTokens ?? 0) > 0 || (snapshot.decodingTokens ?? 0) > 0;
+      const isGpuActive = snapshot.gpuUtilizationPct > 10;
+      const shouldSaveToDb = isActivelyWorking || isStatusChanged || hasRecentInference || isGpuActive || (nowMs - lastSaved >= 15_000);
+
+      if (shouldSaveToDb) {
+        try {
+          await saveMonitoringSnapshot(snapshot, workspaceRoot);
+          this.lastDbSavedTime.set(agent.id, nowMs);
+          this.lastSavedStatus.set(agent.id, snapshot.agentStatus);
+        } catch (err) {
+          console.warn('Failed to save monitoring snapshot to SQLite:', err);
+        }
       }
 
       // Notify active listeners

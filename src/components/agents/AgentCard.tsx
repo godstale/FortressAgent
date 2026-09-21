@@ -238,7 +238,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               title="세션 및 호출 지표 통계"
             >
               <Cpu className="h-3 w-3 text-amber-400" />
-              <span>통계 분석</span>
+              <span>통계</span>
             </Button>
 
             <Button
@@ -250,7 +250,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               title="에이전트 실행 로그"
             >
               <Terminal className="h-3 w-3 text-sky-400" />
-              <span>실행 로그</span>
+              <span>로그</span>
             </Button>
           </div>
         </div>

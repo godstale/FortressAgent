@@ -21,18 +21,25 @@ function WorkspaceContent() {
   useKeyboardShortcuts();
   const { workspaceRoot } = useWorkspace();
   const { activeView, setActiveView } = useSidePanel();
-  const { tabs, openTab } = useWorkspaceTabs();
+  const { tabs, openTab, isTabsLoaded } = useWorkspaceTabs();
   const sidePanelRef = useRef<ImperativePanelHandle | null>(null);
   const autoOpenedRef = useRef(false);
 
-  // Automatically open a default chat tab on startup if workspaceRoot exists and no tabs
+  // Automatically open a default chat tab on startup if workspaceRoot exists and no tabs after restoration
   useEffect(() => {
     if (autoOpenedRef.current) return;
+    if (!isTabsLoaded) return;
     if (workspaceRoot && tabs.length === 0) {
       autoOpenedRef.current = true;
-      openTab({ type: 'chat', id: 'chat:default', title: '새 채팅' });
+      const newId = `chat:${Date.now()}`;
+      openTab({
+        type: 'chat',
+        id: newId,
+        title: '새 채팅',
+        meta: { sessionId: newId.slice(5) },
+      });
     }
-  }, [openTab, tabs.length, workspaceRoot]);
+  }, [isTabsLoaded, openTab, tabs.length, workspaceRoot]);
 
   // When no workspaceRoot, make sure side panel is on explorer and expanded
   useEffect(() => {

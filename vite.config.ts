@@ -14,7 +14,14 @@ export default defineConfig({
     port: 14200,
     strictPort: true,
     watch: {
-      ignored: ['**/src-tauri/**'],
+      ignored: [
+        '**/src-tauri/**',
+        '**/.fortress/**',
+        '**/*.db',
+        '**/*.db-*',
+        '**/*.sqlite*',
+        '**/logs/**',
+      ],
     },
   },
   test: {

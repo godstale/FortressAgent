@@ -19,6 +19,8 @@ export interface WorkspaceTabsContextValue {
   closeAllTabs: () => void;
   setActiveTab: (id: string) => void;
   updateTab: (id: string, patch: Partial<Omit<WorkspaceTab, 'id'>>) => void;
+  moveTab: (fromIndex: number, toIndex: number) => void;
+  isTabsLoaded: boolean;
 }
 
 const WorkspaceTabsContext = createContext<
@@ -60,8 +62,9 @@ export function WorkspaceTabsProvider({
             setInternalTabs(settings.openTabs);
             setInternalActiveTabId(settings.activeTabId ?? settings.openTabs[0].id);
           } else {
-            setInternalTabs([]);
-            setInternalActiveTabId(null);
+            // Only clear if no tabs were opened by user during load
+            setInternalTabs((prev) => (prev.length > 0 ? prev : []));
+            setInternalActiveTabId((prev) => (prev ? prev : null));
           }
         }
       } catch (err) {
@@ -176,6 +179,24 @@ export function WorkspaceTabsProvider({
     [],
   );
 
+  const moveTab = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setInternalTabs((prev) => {
+      if (
+        fromIndex < 0 ||
+        fromIndex >= prev.length ||
+        toIndex < 0 ||
+        toIndex >= prev.length
+      ) {
+        return prev;
+      }
+      const updated = [...prev];
+      const [moved] = updated.splice(fromIndex, 1);
+      updated.splice(toIndex, 0, moved);
+      return updated;
+    });
+  }, []);
+
   return (
     <WorkspaceTabsContext.Provider
       value={{
@@ -187,6 +208,8 @@ export function WorkspaceTabsProvider({
         closeAllTabs,
         setActiveTab,
         updateTab,
+        moveTab,
+        isTabsLoaded: isLoaded,
       }}
     >
       {children}

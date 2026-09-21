@@ -156,4 +156,29 @@ describe('logsRepo and execution_logs persistence', () => {
     expect(bLogs).toHaveLength(1);
     expect(bLogs[0].agentId).toBe('agent-B');
   });
+
+  it('prunes old logs exceeding maxKeep and age limits', async () => {
+    for (let i = 1; i <= 5; i++) {
+      await logsRepo.insertLogEntry(
+        {
+          id: `log-${i}`,
+          timestamp: new Date(Date.now() - (6 - i) * 1000).toISOString(),
+          level: 'info',
+          category: 'chat',
+          message: `메시지 ${i}`,
+        },
+        db,
+      );
+    }
+
+    const before = await logsRepo.getLogs({}, db);
+    expect(before).toHaveLength(5);
+
+    const pruned = await logsRepo.pruneOldLogs({ maxKeep: 3 }, db);
+    expect(pruned).toBe(2);
+
+    const after = await logsRepo.getLogs({}, db);
+    expect(after).toHaveLength(3);
+    expect(after.map((l) => l.id)).toEqual(['log-3', 'log-4', 'log-5']);
+  });
 });

@@ -1,6 +1,11 @@
 import { getDatabase } from '@/lib/db/client';
 import type { AgentMonitoringSnapshot, MonitoringSummary } from '@/lib/types/monitoring';
 
+export const DEFAULT_MAX_SNAPSHOTS_PER_AGENT = 1000;
+export const DEFAULT_MAX_SNAPSHOT_AGE_HOURS = 48;
+const PRUNE_FREQUENCY = 50;
+let saveCounter = 0;
+
 export async function saveMonitoringSnapshot(
   snapshot: AgentMonitoringSnapshot,
   workspaceRoot?: string | null,
@@ -54,6 +59,14 @@ export async function saveMonitoringSnapshot(
       snapshot.createdAt,
     ],
   );
+
+  // Periodic automatic pruning to prevent unlimited DB bloat
+  saveCounter++;
+  if (saveCounter % PRUNE_FREQUENCY === 0) {
+    void pruneOldMonitoringSnapshots(snapshot.agentId, {}, workspaceRoot).catch((err) => {
+      console.warn('Auto-pruning monitoring snapshots failed:', err);
+    });
+  }
 }
 
 interface DbSnapshotRow {
@@ -171,6 +184,53 @@ export async function clearMonitoringSnapshots(
     'DELETE FROM agent_monitoring_snapshots WHERE agent_id = ?',
     [agentId],
   );
+}
+
+export async function pruneOldMonitoringSnapshots(
+  agentId?: string,
+  options: { maxKeep?: number; maxAgeHours?: number } = {},
+  workspaceRoot?: string | null,
+): Promise<number> {
+  const db = await getDatabase(workspaceRoot);
+  const maxKeep = options.maxKeep ?? DEFAULT_MAX_SNAPSHOTS_PER_AGENT;
+  const maxAgeHours = options.maxAgeHours ?? DEFAULT_MAX_SNAPSHOT_AGE_HOURS;
+  const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
+
+  let affected = 0;
+
+  // 1. Delete expired snapshots older than maxAgeHours
+  try {
+    const ageRes = await db.execute(
+      agentId
+        ? 'DELETE FROM agent_monitoring_snapshots WHERE agent_id = ? AND timestamp < ?'
+        : 'DELETE FROM agent_monitoring_snapshots WHERE timestamp < ?',
+      agentId ? [agentId, cutoffTime] : [cutoffTime],
+    );
+    affected += ageRes.rowsAffected ?? 0;
+  } catch (err) {
+    console.warn('Failed to prune snapshots by age:', err);
+  }
+
+  // 2. Keep at most maxKeep snapshots per agent
+  if (agentId) {
+    try {
+      const countRes = await db.execute(
+        `DELETE FROM agent_monitoring_snapshots
+         WHERE agent_id = ? AND id NOT IN (
+           SELECT id FROM agent_monitoring_snapshots
+           WHERE agent_id = ?
+           ORDER BY timestamp DESC
+           LIMIT ?
+         )`,
+        [agentId, agentId, maxKeep],
+      );
+      affected += countRes.rowsAffected ?? 0;
+    } catch (err) {
+      console.warn('Failed to prune snapshots by count limit:', err);
+    }
+  }
+
+  return affected;
 }
 
 export async function getMonitoringSummary(

@@ -58,17 +58,23 @@ export function TopMenuBar() {
 
   const handleNewChat = async () => {
     if (!hasWorkspace) return;
+    let sessionId = `chat_${Date.now()}`;
+    let title = '새로운 대화';
+    let agentId: string | undefined;
     try {
       const session = await createSession({ title: '새로운 대화' });
-      openTab({
-        id: session.id,
-        type: 'chat',
-        title: session.title,
-        meta: { sessionId: session.id, agentId: session.agentId },
-      });
+      sessionId = session.id;
+      title = session.title;
+      agentId = session.agentId;
     } catch (err) {
-      console.error('Failed to create new chat:', err);
+      console.error('Failed to create new chat session in DB, opening tab with fallback:', err);
     }
+    openTab({
+      id: `chat:${sessionId}`,
+      type: 'chat',
+      title,
+      meta: { sessionId, agentId },
+    });
   };
 
   const handleCreateAgent = () => {

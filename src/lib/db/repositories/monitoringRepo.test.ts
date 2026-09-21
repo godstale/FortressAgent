@@ -6,6 +6,7 @@ import {
   getRecentMonitoringSnapshots,
   clearMonitoringSnapshots,
   getMonitoringSummary,
+  pruneOldMonitoringSnapshots,
 } from './monitoringRepo';
 import type { AgentMonitoringSnapshot } from '@/lib/types/monitoring';
 
@@ -97,5 +98,27 @@ describe('monitoringRepo', () => {
     expect(summary.avgGpuUtilization).toBe(37.8);
     expect(summary.peakVramUsedMb).toBe(6000);
     expect(summary.latestGpuName).toBe('NVIDIA GeForce RTX 4070 SUPER');
+  });
+
+  it('prunes old snapshots exceeding maximum keep count and expired age', async () => {
+    // Save 5 snapshots with ascending timestamps
+    for (let i = 1; i <= 5; i++) {
+      await saveMonitoringSnapshot({
+        ...sampleSnapshot,
+        id: `snap-${i}`,
+        timestamp: new Date(Date.now() - (6 - i) * 1000).toISOString(),
+      });
+    }
+
+    const before = await getMonitoringSnapshots('agent-1', 10);
+    expect(before.length).toBe(5);
+
+    // Prune to keep max 3
+    const pruned = await pruneOldMonitoringSnapshots('agent-1', { maxKeep: 3 });
+    expect(pruned).toBe(2);
+
+    const after = await getMonitoringSnapshots('agent-1', 10);
+    expect(after.length).toBe(3);
+    expect(after.map((s) => s.id)).toEqual(['snap-5', 'snap-4', 'snap-3']);
   });
 });

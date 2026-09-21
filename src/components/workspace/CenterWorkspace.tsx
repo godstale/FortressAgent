@@ -42,11 +42,25 @@ const TAB_ICONS: Record<WorkspaceTabType, LucideIcon> = {
 
 export function CenterWorkspace() {
   const { workspaceRoot } = useWorkspace();
-  const { tabs, activeTabId, setActiveTab, closeTab, closeTabs, closeAllTabs, openTab } =
-    useWorkspaceTabs();
+  const {
+    tabs,
+    activeTabId,
+    setActiveTab,
+    closeTab,
+    closeTabs,
+    closeAllTabs,
+    openTab,
+    moveTab,
+  } = useWorkspaceTabs();
 
   const [contextMenuTabId, setContextMenuTabId] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{
+    id: string;
+    position: 'left' | 'right';
+  } | null>(null);
 
   const handleTabContextMenu = (e: React.MouseEvent, tabId: string) => {
     e.preventDefault();
@@ -68,6 +82,16 @@ export function CenterWorkspace() {
     closeTabs(otherIds);
   };
 
+  const handleCloseToLeft = (targetId: string) => {
+    const targetIdx = tabs.findIndex((t) => t.id === targetId);
+    if (targetIdx > 0) {
+      const leftIds = tabs.slice(0, targetIdx).map((t) => t.id);
+      if (leftIds.length > 0) {
+        closeTabs(leftIds);
+      }
+    }
+  };
+
   const handleCloseToRight = (targetId: string) => {
     const targetIdx = tabs.findIndex((t) => t.id === targetId);
     if (targetIdx !== -1) {
@@ -78,33 +102,118 @@ export function CenterWorkspace() {
     }
   };
 
+  const handleDragStart = (e: React.DragEvent, tabId: string) => {
+    e.dataTransfer.setData('text/plain', tabId);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggedTabId(tabId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, tabId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (!draggedTabId || draggedTabId === tabId) {
+      if (dragOverTarget) setDragOverTarget(null);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const position = e.clientX > rect.left + rect.width / 2 ? 'right' : 'left';
+    if (
+      !dragOverTarget ||
+      dragOverTarget.id !== tabId ||
+      dragOverTarget.position !== position
+    ) {
+      setDragOverTarget({ id: tabId, position });
+    }
+  };
+
+  const handleDragLeave = (_e: React.DragEvent, tabId: string) => {
+    if (dragOverTarget?.id === tabId) {
+      setDragOverTarget(null);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const sourceId = e.dataTransfer.getData('text/plain') || draggedTabId;
+    setDraggedTabId(null);
+    setDragOverTarget(null);
+
+    if (!sourceId || sourceId === targetId) return;
+
+    const sourceIdx = tabs.findIndex((t) => t.id === sourceId);
+    const targetIdx = tabs.findIndex((t) => t.id === targetId);
+    if (sourceIdx === -1 || targetIdx === -1) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const dropAfter = e.clientX > rect.left + rect.width / 2;
+
+    let toIdx = targetIdx;
+    if (sourceIdx < targetIdx) {
+      toIdx = dropAfter ? targetIdx : targetIdx - 1;
+    } else if (sourceIdx > targetIdx) {
+      toIdx = dropAfter ? targetIdx + 1 : targetIdx;
+    }
+
+    moveTab(sourceIdx, toIdx);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedTabId(null);
+    setDragOverTarget(null);
+  };
+
   return (
     <div className="flex flex-col h-full w-full min-h-0 bg-background overflow-hidden">
       {/* Tab Strip (Multi-line row wrap, no horizontal scrolling) */}
-      <div className="min-h-9.5 shrink-0 flex flex-wrap items-center bg-card/60 border-b border-border select-none p-0">
+      <div className="min-h-9 shrink-0 flex flex-wrap items-center bg-card/60 border-b border-border select-none p-0">
         <div className="flex flex-wrap items-center min-w-0 flex-1">
           {tabs.map((tab) => {
             const Icon = TAB_ICONS[tab.type] || FileCode;
             const isActive = tab.id === activeTabId;
+            const isBeingDragged = draggedTabId === tab.id;
+            const isLeftIndicator =
+              dragOverTarget?.id === tab.id && dragOverTarget.position === 'left';
+            const isRightIndicator =
+              dragOverTarget?.id === tab.id && dragOverTarget.position === 'right';
 
             return (
               <div
                 key={tab.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, tab.id)}
+                onDragOver={(e) => handleDragOver(e, tab.id)}
+                onDragLeave={(e) => handleDragLeave(e, tab.id)}
+                onDrop={(e) => handleDrop(e, tab.id)}
+                onDragEnd={handleDragEnd}
                 onClick={() => setActiveTab(tab.id)}
                 onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
                 className={cn(
-                  'h-9.5 flex items-center gap-2 px-3.5 text-xs border-r border-b border-border/80 text-muted-foreground hover:text-foreground cursor-pointer transition-colors max-w-[15rem] shrink-0 relative group',
+                  'h-9 box-border flex items-center gap-2 px-3.5 text-xs border-t-2 border-r border-b cursor-pointer transition-colors max-w-[15rem] shrink-0 relative group select-none',
                   isActive
-                    ? 'bg-background text-foreground font-medium border-t-2 border-t-primary border-b-transparent shadow-xs'
-                    : 'hover:bg-accent/40',
+                    ? 'border-t-primary border-r-border/80 border-b-transparent bg-background text-foreground font-medium shadow-xs'
+                    : 'border-t-transparent border-r-border/80 border-b-border/80 text-muted-foreground hover:text-foreground hover:bg-accent/40',
+                  isBeingDragged && 'opacity-40',
+                  isLeftIndicator &&
+                    'before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:bg-primary before:z-20',
+                  isRightIndicator &&
+                    'after:absolute after:right-0 after:top-0 after:bottom-0 after:w-0.5 after:bg-primary after:z-20',
                 )}
                 title={tab.title}
               >
-                <Icon className={cn('h-3.5 w-3.5 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')} />
+                <Icon
+                  className={cn(
+                    'h-3.5 w-3.5 shrink-0',
+                    isActive ? 'text-primary' : 'text-muted-foreground',
+                  )}
+                />
                 <span className="truncate py-0.5">{tab.title}</span>
                 <button
                   type="button"
                   aria-label="탭 닫기"
+                  draggable={false}
+                  onDragStart={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     closeTab(tab.id);
@@ -118,7 +227,7 @@ export function CenterWorkspace() {
           })}
 
           {/* Action button */}
-          <div className="px-2 py-1 shrink-0 flex items-center">
+          <div className="h-9 px-1.5 shrink-0 flex items-center border-t-2 border-t-transparent border-b border-b-transparent">
             <Button
               variant="ghost"
               size="icon"
@@ -158,6 +267,14 @@ export function CenterWorkspace() {
           <DropdownMenuContent className="w-36 text-xs">
             <DropdownMenuItem onClick={() => closeTab(contextMenuTabId)}>
               닫기
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={
+                tabs.findIndex((t) => t.id === contextMenuTabId) <= 0
+              }
+              onClick={() => handleCloseToLeft(contextMenuTabId)}
+            >
+              좌측 탭 닫기
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={

@@ -34,12 +34,23 @@ import {
   Check,
   Gauge,
   Timer,
+  HelpCircle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip as UiTooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -69,6 +80,79 @@ const INTERVAL_OPTIONS = [
   { label: '10초 간격', value: 10000 },
 ];
 
+function formatMemoryBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${bytes} B`;
+}
+
+function formatContextTokenSize(tokens?: number): string {
+  if (!tokens || tokens <= 0) return '0';
+  if (tokens >= 1024 * 1024) {
+    const val = tokens / (1024 * 1024);
+    return Number.isInteger(val) ? `${val}M` : `${val.toFixed(1)}M`;
+  }
+  if (tokens >= 1000) {
+    if (tokens % 1024 === 0) {
+      return `${tokens / 1024}k`;
+    }
+    const val = tokens / 1000;
+    return val >= 10 ? `${Math.round(val)}k` : `${val.toFixed(1)}k`;
+  }
+  return `${tokens}`;
+}
+
+interface KpiCardHelpProps {
+  title: string;
+  description: string;
+  guide?: string;
+  side?: 'top' | 'right' | 'bottom' | 'left';
+}
+
+function KpiCardHelp({ title, description, guide, side = 'top' }: KpiCardHelpProps) {
+  return (
+    <TooltipProvider delayDuration={150}>
+      <UiTooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors focus:outline-none focus:ring-1 focus:ring-primary inline-flex items-center justify-center cursor-help"
+            aria-label={`${title} 상세 도움말`}
+          >
+            <HelpCircle className="h-3.5 w-3.5 opacity-60 hover:opacity-100 transition-opacity" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side={side}
+          className="max-w-xs p-3 bg-popover text-popover-foreground border border-border shadow-2xl rounded-lg space-y-2 z-50 text-left"
+        >
+          <div className="font-semibold text-xs text-foreground flex items-center gap-1.5 border-b border-border/60 pb-1.5">
+            <span className="text-primary font-bold">ℹ️</span>
+            <span>{title}</span>
+          </div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground whitespace-normal">
+            {description}
+          </p>
+          {guide && (
+            <div className="text-[10px] bg-accent/40 rounded p-2 font-sans text-accent-foreground border border-border/40 space-y-1">
+              <span className="font-semibold text-foreground block">💡 보는 법 & 지표 해석:</span>
+              <span className="leading-normal block whitespace-normal text-muted-foreground">{guide}</span>
+            </div>
+          )}
+        </TooltipContent>
+      </UiTooltip>
+    </TooltipProvider>
+  );
+}
+
 export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const agentId = tab.meta?.agentId as string | undefined;
   const { getAgent } = useAgents();
@@ -84,6 +168,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [timelineOffset, setTimelineOffset] = useState(0);
 
   // Initial load of historical snapshots
   useEffect(() => {
@@ -122,9 +207,9 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     const unsubscribe = monitoringCollector.subscribe(agent.id, (newSnapshot) => {
       setCurrentSnapshot(newSnapshot);
       setSnapshots((prev) => {
-        // Keep most recent 60 snapshots for graph
+        // Keep most recent 100 snapshots for history and graphs
         const next = [newSnapshot, ...prev.filter((s) => s.id !== newSnapshot.id)];
-        return next.slice(0, 60);
+        return next.slice(0, 100);
       });
     });
 
@@ -396,14 +481,19 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         </div>
       </div>
 
-      {/* 8 Key Operational & Performance KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-3">
+      {/* 8 Key Operational & Performance KPI Cards (max 4 per row) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* 1. GPU Model & Utilization */}
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
               <HardDrive className="h-3.5 w-3.5 text-emerald-400" />
               <span>GPU 사용률</span>
+              <KpiCardHelp
+                title="GPU 사용률 & 칩셋 온도"
+                description="그래픽 카드의 연산 코어(SM) 점유율과 칩셋 온도입니다. AI 모델이 프롬프트를 평가(Prefill)하거나 답변을 생성(Decoding)할 때 GPU 연산 부하를 나타냅니다."
+                guide="추론 중 80~100%로 상승하고 대기 중 0~5%가 정상입니다. 85°C 이상 지속 시 쿨링 점검이 권장됩니다."
+              />
             </span>
             {currentSnapshot && currentSnapshot.gpuTemperatureC > 0 && (
               <span className="flex items-center text-[10px] text-amber-400">
@@ -438,6 +528,11 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             <span className="flex items-center gap-1.5">
               <Cpu className="h-3.5 w-3.5 text-violet-400" />
               <span>VRAM 메모리</span>
+              <KpiCardHelp
+                title="VRAM (비디오 메모리) 사용량"
+                description="GPU 전용 비디오 메모리(VRAM)의 총 용량 대비 현재 할당된 메모리 및 잔여 여유 공간입니다. LLM 모델 가중치와 KV 캐시가 이 메모리에 적재됩니다."
+                guide="가중치 + KV 캐시가 전용 VRAM 안에 100% 들어갈 때 최고 속도가 나옵니다. 여유 메모리가 고갈되면 시스템 RAM으로 스왑되어 속도가 급감합니다."
+              />
             </span>
             <span className="text-[10px] font-mono text-violet-400 font-semibold">{vramPercent}%</span>
           </div>
@@ -472,6 +567,11 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             <span className="flex items-center gap-1.5">
               <Gauge className="h-3.5 w-3.5 text-amber-400" />
               <span>Prefill 속도 / 시간</span>
+              <KpiCardHelp
+                title="Prefill (입력 평가) 속도 & 소요 시간"
+                description="사용자의 질문, 시스템 프롬프트, 도구 실행 결과 등 입력 토큰들을 모델이 처음에 한꺼번에 읽고 병렬 연산하는 속도(token/s)와 소요 시간입니다."
+                guide="GPU 병렬 연산으로 처리되어 디코딩보다 5~10배 빠릅니다(150~400+ token/s). 입력 문서나 대화 기록이 길어질수록 소요 시간이 비례하여 증가합니다."
+              />
             </span>
           </div>
           <div className="text-base font-bold text-foreground flex items-baseline gap-1">
@@ -499,6 +599,11 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             <span className="flex items-center gap-1.5">
               <Timer className="h-3.5 w-3.5 text-cyan-400" />
               <span>디코딩 속도 / 시간</span>
+              <KpiCardHelp
+                title="디코딩 (답변 생성) 속도 & 소요 시간"
+                description="모델이 답변 텍스트를 한 토큰씩 순차적으로 출력하는 속도(token/s)와 소요 시간입니다. 사용자가 체감하는 실시간 AI 타자 속도입니다."
+                guide="VRAM 메모리 대역폭의 영향을 직접 받습니다. RTX 4070 SUPER 기준 8B 모델은 35~50+ token/s가 정상 최적 성능입니다."
+              />
             </span>
           </div>
           <div className="text-base font-bold text-foreground flex items-baseline gap-1">
@@ -522,9 +627,16 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
         {/* 5. LLM Architecture & Parameters */}
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
-          <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-            <Server className="h-3.5 w-3.5 text-purple-400" />
-            <span>LLM 아키텍처</span>
+          <div className="text-[11px] text-muted-foreground flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Server className="h-3.5 w-3.5 text-purple-400" />
+              <span>LLM 아키텍처</span>
+              <KpiCardHelp
+                title="LLM 신경망 구조 & 파라미터"
+                description="실행 중인 모델의 신경망 패밀리(Qwen, Llama 등), 총 파라미터 수(8B, 14B), 양자화 포맷(Q4_K_M 등) 및 트랜스포머 블록(레이어) 수입니다."
+                guide="Q4_K 양자화는 FP16 대비 품질 저하는 거의 없으면서 VRAM을 약 50% 절약하여 12GB 환경에서 64k 컨텍스트 운용을 가능하게 합니다."
+              />
+            </span>
           </div>
           <div className="text-base font-bold text-foreground capitalize truncate">
             {currentSnapshot?.llmArchitecture || '감지 중...'}
@@ -543,34 +655,55 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
         {/* 6. Context Size & KV Cache */}
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
-          <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5 text-sky-400" />
-            <span>컨텍스트 & KV</span>
+          <div className="text-[11px] text-muted-foreground flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5 text-sky-400" />
+              <span>컨텍스트 & KV</span>
+              <KpiCardHelp
+                title="컨텍스트 크기 & KV 캐시 메모리"
+                description="현재 대화 세션의 토큰 사용량과 최대 한도(예: 8k / 64k), 그리고 모델이 과거 대화 문맥을 기억하기 위해 VRAM에 동적으로 할당하는 어텐션 KV 캐시 크기입니다."
+                guide="표시되는 'KV 캐시 (최대)'는 설정된 최대 컨텍스트(64k) 도달 시 필요한 VRAM 용량(약 7.6GB)입니다. 16H/16KV는 Query와 Key-Value 헤드 수가 동일한 MHA 구조를 의미합니다. 12GB 그래픽카드에서는 32k(약 3.8GB) 설정 시 VRAM 초과 없이 가장 안전하게 동작합니다."
+              />
+            </span>
           </div>
-          <div className="text-base font-bold text-foreground">
-            {currentSnapshot?.contextSize.toLocaleString() || '8,192'}
-            <span className="text-[10px] font-normal text-muted-foreground ml-1">
-              / {currentSnapshot?.contextLimit.toLocaleString() || '—'}
+          <div className="text-base font-bold text-foreground flex items-baseline gap-1.5">
+            <span className="font-mono text-sky-400">
+              {formatContextTokenSize(currentSnapshot?.contextSize)}
+            </span>
+            <span className="text-xs font-normal text-muted-foreground">
+              / {formatContextTokenSize(currentSnapshot?.contextLimit)}
+            </span>
+            <span className="text-[10px] font-mono text-muted-foreground ml-auto">
+              ({currentSnapshot?.contextSize.toLocaleString() || '0'} tokens)
             </span>
           </div>
           <div className="flex items-center justify-between text-xs pt-1">
-            <span className="text-muted-foreground text-[10px]">KV 캐시 크기</span>
-            <span className="font-mono text-[10px] text-sky-400 font-semibold">
+            <span className="text-muted-foreground text-[10px]" title="설정된 최대 컨텍스트(64k) 전체 소모 시 필요한 예상 KV 캐시 크기">
+              KV 캐시 (최대)
+            </span>
+            <span className="font-mono text-[10px] text-sky-400 font-semibold" title="최대 컨텍스트 도달 시 필요한 VRAM 메모리">
               {currentSnapshot && currentSnapshot.kvCacheBytes > 0
-                ? `${(currentSnapshot.kvCacheBytes / (1024 * 1024)).toFixed(1)} MB`
+                ? formatMemoryBytes(currentSnapshot.kvCacheBytes)
                 : '계산 중...'}
             </span>
           </div>
-          <div className="text-[10px] text-muted-foreground truncate">
+          <div className="text-[10px] text-muted-foreground truncate" title="어텐션 헤드: 16 Query Heads / 16 Key-Value Heads (MHA 구조)">
             어텐션: {rawDetails.headCount ? `${rawDetails.headCount}H / ${rawDetails.headCountKv}KV` : '—'}
           </div>
         </div>
 
         {/* 7. CPU / GPU Workload Offloading */}
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
-          <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-            <Zap className="h-3.5 w-3.5 text-amber-400" />
-            <span>GPU 오프로딩</span>
+          <div className="text-[11px] text-muted-foreground flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Zap className="h-3.5 w-3.5 text-amber-400" />
+              <span>GPU 오프로딩</span>
+              <KpiCardHelp
+                title="GPU 가중치 오프로딩 비율"
+                description="모델 가중치 레이어 중 몇 퍼센트가 GPU VRAM에 로드되어 하드웨어 가속되는지 나타냅니다."
+                guide="100% (Full GPU)일 때 최고의 속도를 냅니다. VRAM 부족으로 레이어 일부가 시스템 RAM(CPU)으로 밀려나면(GPU+CPU) 병목 현상으로 디코딩 속도가 5~10 token/s 이하로 크게 떨어집니다."
+              />
+            </span>
           </div>
           <div className="text-base font-bold text-foreground flex items-center gap-1.5">
             <span>{currentSnapshot ? `${currentSnapshot.gpuOffloadPct}%` : '0%'}</span>
@@ -600,9 +733,16 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
         {/* 8. Current Operational State */}
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
-          <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-            <Radio className="h-3.5 w-3.5 text-emerald-400" />
-            <span>현재 작업 상태</span>
+          <div className="text-[11px] text-muted-foreground flex items-center justify-between">
+            <span className="flex items-center gap-1.5">
+              <Radio className="h-3.5 w-3.5 text-emerald-400" />
+              <span>현재 작업 상태</span>
+              <KpiCardHelp
+                title="에이전트 실시간 동작 상태"
+                description="Fortress AI 에이전트의 현재 동작 주기(유휴 IDLE, 토큰 생성 GENERATING, 도구 실행 EXECUTING_TOOL, 승인 대기 WAITING_APPROVAL)와 진행 중인 작업 내용입니다."
+                guide="에이전트 루프가 '생각(Thinking) -> 도구 호출(Tool) -> 답변 생성' 과정을 정상적으로 밟고 있는지 실시간으로 모니터링할 수 있습니다."
+              />
+            </span>
           </div>
           <div className="text-sm font-bold text-foreground truncate">
             {currentSnapshot?.agentStatus === 'idle'
@@ -1026,7 +1166,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
       {/* Recent Collected Snapshots History Table (For AI Agent Analysis) */}
       <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-primary" />
             <h3 className="text-xs font-semibold text-foreground">
@@ -1034,7 +1174,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </h3>
           </div>
           <span className="text-[11px] text-muted-foreground">
-            * 일정 간격으로 자동 기록되며, 추후 AI 에이전트가 성능/리소스 병목을 정밀 분석할 수 있도록 보존됩니다.
+            * 일정 간격으로 자동 기록되며, 슬라이더 위젯으로 최근 100개 스냅샷의 특정 시점을 정밀 탐색할 수 있습니다.
           </span>
         </div>
 
@@ -1043,29 +1183,146 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             아직 수집된 스냅샷 데이터가 없습니다.
           </div>
         ) : (
-          <div className="overflow-x-auto border border-border/60 rounded-lg">
-            <table className="w-full text-left border-collapse text-xs font-mono">
-              <thead>
-                <tr className="bg-muted/40 border-b border-border/80 text-[11px] text-muted-foreground font-sans">
-                  <th className="p-2.5">수집 시각</th>
-                  <th className="p-2.5">GPU 점유율</th>
-                  <th className="p-2.5">VRAM 사용량</th>
-                  <th className="p-2.5">Prefill 속도 / 시간</th>
-                  <th className="p-2.5">디코딩 속도 / 시간</th>
-                  <th className="p-2.5">KV 캐시(추정)</th>
-                  <th className="p-2.5">오프로딩</th>
-                  <th className="p-2.5">에이전트 상태</th>
-                  <th className="p-2.5">현재 작업</th>
-                  <th className="p-2.5 text-right">상세 데이터</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshots.slice(0, 20).map((snap) => {
-                  return (
-                    <tr key={snap.id} className="border-b border-border/40 hover:bg-muted/20">
-                      <td className="p-2.5 text-muted-foreground text-[11px]">
-                        {new Date(snap.timestamp).toLocaleTimeString()}
-                      </td>
+          <>
+            {/* Timeline Slider Widget */}
+            {(() => {
+              const TIMELINE_WINDOW_SIZE = 25;
+              const maxOffset = Math.max(0, snapshots.length - TIMELINE_WINDOW_SIZE);
+              const currentOffset = Math.min(timelineOffset, maxOffset);
+              const visibleSnapshots = snapshots.slice(
+                currentOffset,
+                currentOffset + TIMELINE_WINDOW_SIZE,
+              );
+
+              return (
+                <>
+                  {snapshots.length > TIMELINE_WINDOW_SIZE && (
+                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-2 select-none">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-foreground">타임라인 탐색 슬라이더</span>
+                          <span className="text-[11px] text-muted-foreground font-mono">
+                            표시: {currentOffset + 1} ~{' '}
+                            {Math.min(currentOffset + TIMELINE_WINDOW_SIZE, snapshots.length)}번째
+                            (총 {snapshots.length}개 중)
+                          </span>
+                          {visibleSnapshots.length > 0 && (
+                            <span className="text-[10px] text-primary/90 bg-primary/10 px-2 py-0.5 rounded font-mono border border-primary/20">
+                              {new Date(
+                                visibleSnapshots[visibleSnapshots.length - 1].timestamp,
+                              ).toLocaleTimeString()}{' '}
+                              ~ {new Date(visibleSnapshots[0].timestamp).toLocaleTimeString()}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setTimelineOffset(0)}
+                            disabled={currentOffset === 0}
+                            className="h-6 px-2 text-[10px] gap-1 cursor-pointer"
+                            title="가장 최신 스냅샷 시점으로 이동"
+                          >
+                            <ChevronsLeft className="h-3 w-3" />
+                            <span>최신</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setTimelineOffset((prev) => Math.max(0, prev - 10))}
+                            disabled={currentOffset === 0}
+                            className="h-6 px-2 text-[10px] gap-0.5 cursor-pointer"
+                            title="최신 쪽으로 10개 이동"
+                          >
+                            <ChevronLeft className="h-3 w-3" />
+                            <span>-10</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              setTimelineOffset((prev) => Math.min(maxOffset, prev + 10))
+                            }
+                            disabled={currentOffset >= maxOffset}
+                            className="h-6 px-2 text-[10px] gap-0.5 cursor-pointer"
+                            title="과거 쪽으로 10개 이동"
+                          >
+                            <span>+10</span>
+                            <ChevronRight className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setTimelineOffset(maxOffset)}
+                            disabled={currentOffset >= maxOffset}
+                            className="h-6 px-2 text-[10px] gap-1 cursor-pointer"
+                            title="가장 과거 스냅샷 시점으로 이동"
+                          >
+                            <span>과거 끝</span>
+                            <ChevronsRight className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Slider Input */}
+                      <div className="flex items-center gap-2.5 pt-0.5">
+                        <span className="text-[10px] font-mono text-emerald-400 font-semibold shrink-0">
+                          [최신 #1]
+                        </span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={maxOffset}
+                          step={1}
+                          value={currentOffset}
+                          onChange={(e) => setTimelineOffset(Number(e.target.value))}
+                          className="w-full h-1.5 bg-border rounded-lg appearance-none cursor-pointer accent-primary"
+                        />
+                        <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                          [과거 #{snapshots.length}]
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto border border-border/60 rounded-lg max-h-[600px] overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-xs font-mono">
+                      <thead className="sticky top-0 z-10 bg-card">
+                        <tr className="bg-muted/40 border-b border-border/80 text-[11px] text-muted-foreground font-sans">
+                          <th className="p-2.5">수집 시각</th>
+                          <th className="p-2.5">GPU 점유율</th>
+                          <th className="p-2.5">VRAM 사용량</th>
+                          <th className="p-2.5">Prefill 속도 / 시간</th>
+                          <th className="p-2.5">디코딩 속도 / 시간</th>
+                          <th className="p-2.5">KV 캐시(추정)</th>
+                          <th className="p-2.5">오프로딩</th>
+                          <th className="p-2.5">에이전트 상태</th>
+                          <th className="p-2.5">현재 작업</th>
+                          <th className="p-2.5 text-right">상세 데이터</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {visibleSnapshots.map((snap, idx) => {
+                          const globalIdx = currentOffset + idx + 1;
+                          return (
+                            <tr
+                              key={snap.id}
+                              className="border-b border-border/40 hover:bg-muted/20"
+                            >
+                              <td className="p-2.5 text-muted-foreground text-[11px]">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-1 py-0.2 rounded bg-muted/60 text-[9px] font-mono text-muted-foreground/80 border border-border/40">
+                                    #{globalIdx}
+                                  </span>
+                                  <span>{new Date(snap.timestamp).toLocaleTimeString()}</span>
+                                </div>
+                              </td>
                       <td className="p-2.5 font-semibold text-emerald-400">
                         {snap.gpuUtilizationPct}%
                       </td>
@@ -1084,7 +1341,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                       </td>
                       <td className="p-2.5 text-sky-400 font-medium">
                         {snap.kvCacheBytes > 0
-                          ? `${(snap.kvCacheBytes / (1024 * 1024)).toFixed(1)} MB`
+                          ? formatMemoryBytes(snap.kvCacheBytes)
                           : '—'}
                       </td>
                       <td className="p-2.5 text-amber-400 font-medium">
@@ -1123,8 +1380,12 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </>
+      );
+    })()}
+  </>
+)}
+</div>
 
       {/* Snapshot JSON Detail Dialog for AI Analysis */}
       <Dialog open={!!selectedSnapshot} onOpenChange={(open) => !open && setSelectedSnapshot(null)}>

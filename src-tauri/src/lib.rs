@@ -21,12 +21,14 @@ pub fn run() {
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
                 .level(log::LevelFilter::Info)
+                .max_file_size(10_000_000) // 10 MB limit per log file
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5)) // Keep at most 5 rotated log files
                 .build(),
         )
         .setup(|app| {
             use tauri::Manager;
             for window in app.webview_windows().values() {
-                let _ = window.set_theme(Some(tauri::Theme::Dark));
+                let _ = window.set_theme(Some(tauri::Theme::Light));
             }
             Ok(())
         })
