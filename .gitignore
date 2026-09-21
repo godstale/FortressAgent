@@ -11,3 +11,5 @@ db.sqlite*
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+Docs/monitoring_*_session.json
+

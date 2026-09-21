@@ -22,6 +22,7 @@ import { AgentsContext } from '@/lib/context/AgentsContext';
 import { resolveSkillInvocation, parseSkillCommand } from '@/lib/skills/invokeSkill';
 
 import { ContextGauge } from './ContextGauge';
+import { cn } from '@/lib/utils';
 
 export interface SlashCommandOption {
   type: 'command' | 'skill';
@@ -59,6 +60,8 @@ export interface ChatInputProps {
   isAgentLocked?: boolean;
   contextUsage?: { tokens: number; limit: number };
   yoloMode?: boolean;
+  customHeight?: number | null;
+  maxHeight?: number;
 }
 
 export function ChatInput({
@@ -76,6 +79,8 @@ export function ChatInput({
   isAgentLocked,
   contextUsage,
   yoloMode,
+  customHeight,
+  maxHeight = 180,
 }: ChatInputProps) {
   const safeSkillsCtx = useSafeSkills();
   const availableSkills = useMemo(() => {
@@ -138,14 +143,17 @@ export function ChatInput({
   const activeIndex =
     selectedIndex < filteredOptions.length ? selectedIndex : 0;
 
-  // Auto-resize textarea height
+  // Auto-resize textarea height when not in fixed/custom height mode
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = `${Math.min(scrollHeight, 180)}px`;
+    if (!textareaRef.current) return;
+    if (customHeight) {
+      textareaRef.current.style.height = '100%';
+      return;
     }
-  }, [text]);
+    textareaRef.current.style.height = 'auto';
+    const scrollHeight = textareaRef.current.scrollHeight;
+    textareaRef.current.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
+  }, [text, customHeight, maxHeight]);
 
   const selectOption = (opt: SlashCommandOption) => {
     if (opt.type === 'command') {
@@ -295,7 +303,13 @@ export function ChatInput({
     : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈, /: 슬래시 명령어, /skill: 스킬)...';
 
   return (
-    <div className="relative border border-border rounded-xl bg-background shadow-xs focus-within:ring-1 focus-within:ring-primary focus-within:border-primary transition-all">
+    <div
+      style={customHeight ? { height: `${customHeight}px` } : undefined}
+      className={cn(
+        'relative border border-border rounded-xl bg-background shadow-xs focus-within:ring-1 focus-within:ring-primary focus-within:border-primary transition-all',
+        customHeight ? 'flex flex-col overflow-hidden' : '',
+      )}
+    >
       {/* Autocomplete popup */}
       {isAutocompleteOpen && (
         <div
@@ -364,7 +378,7 @@ export function ChatInput({
 
       {/* Inline error if resolution failed */}
       {errorMessage && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-destructive bg-destructive/10 border-b border-destructive/20 rounded-t-xl">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-destructive bg-destructive/10 border-b border-destructive/20 rounded-t-xl shrink-0">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>{errorMessage}</span>
         </div>
@@ -372,7 +386,7 @@ export function ChatInput({
 
       {/* Agent Selector / Lock Bar */}
       {agentsCtx && agentsCtx.agents.length > 0 && (
-        <div className="flex items-center justify-between px-3.5 pt-2 pb-1 text-[11px] text-muted-foreground border-b border-border/30">
+        <div className="flex items-center justify-between px-3.5 pt-2 pb-1 text-[11px] text-muted-foreground border-b border-border/30 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <Bot className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -423,44 +437,52 @@ export function ChatInput({
         </div>
       )}
 
-      <textarea
-        ref={textareaRef}
-        rows={1}
-        value={text}
-        onChange={(e) => handleTextChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder || defaultPlaceholder}
-        className="w-full resize-none bg-transparent px-3.5 py-3 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 border-0 outline-none focus:outline-none focus:ring-0 shadow-none max-h-44 leading-relaxed font-sans"
-      />
+      <div className={cn('relative', customHeight ? 'flex-1 min-h-0 flex flex-col' : '')}>
+        <textarea
+          ref={textareaRef}
+          rows={1}
+          value={text}
+          onChange={(e) => handleTextChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder || defaultPlaceholder}
+          style={customHeight ? undefined : { maxHeight: `${maxHeight}px` }}
+          className={cn(
+            'w-full resize-none bg-transparent px-3.5 py-2.5 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 border-0 outline-none focus:outline-none focus:ring-0 shadow-none leading-normal font-sans',
+            customHeight
+              ? 'flex-1 min-h-0 h-full overflow-y-auto'
+              : 'min-h-[38px] overflow-y-auto',
+          )}
+        />
 
-      <div className="absolute right-2.5 bottom-2.5 flex items-center gap-1.5">
-        {isStreaming && (
+        <div className="absolute right-2.5 bottom-2 flex items-center gap-1.5">
+          {isStreaming && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={onStop}
+              className="h-8 w-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
+              title="중지"
+            >
+              <Square className="h-4 w-4 fill-current" />
+            </Button>
+          )}
+
           <Button
             type="button"
             size="icon"
-            variant="ghost"
-            onClick={onStop}
-            className="h-8 w-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
-            title="중지"
+            onClick={() => void handleSubmit()}
+            disabled={!text.trim()}
+            className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+            title={isStreaming ? '지시 주입 (Steer)' : '전송'}
           >
-            <Square className="h-4 w-4 fill-current" />
+            {isStreaming ? (
+              <CornerDownLeft className="h-4 w-4" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </Button>
-        )}
-
-        <Button
-          type="button"
-          size="icon"
-          onClick={() => void handleSubmit()}
-          disabled={!text.trim()}
-          className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-          title={isStreaming ? '지시 주입 (Steer)' : '전송'}
-        >
-          {isStreaming ? (
-            <CornerDownLeft className="h-4 w-4" />
-          ) : (
-            <Send className="h-4 w-4" />
-          )}
-        </Button>
+        </div>
       </div>
     </div>
   );

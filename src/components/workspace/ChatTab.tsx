@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Bot, Cpu, Sparkles, MessageSquare, Terminal, Zap, Layers } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import { useAgents } from '@/lib/context/AgentsContext';
@@ -22,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button';
 import * as sessionsRepo from '@/lib/db/repositories/sessionsRepo';
 import { setActiveApprovalMode } from '@/lib/approval/register';
+import { cn } from '@/lib/utils';
 
 export interface ChatTabProps {
   tab: WorkspaceTab;
@@ -44,6 +45,47 @@ export function ChatTab({ tab }: ChatTabProps) {
   const [compactCustomInstruction, setCompactCustomInstruction] = useState<string>('');
   const [isCompacting, setIsCompacting] = useState<boolean>(false);
 
+  const [sessionWorkspaceRoot, setSessionWorkspaceRoot] = useState<string | null>(null);
+  const [customInputHeight, setCustomInputHeight] = useState<number | null>(null);
+  const isDraggingRef = useRef(false);
+  const startYRef = useRef(0);
+  const startHeightRef = useRef(0);
+  const inputContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    startYRef.current = e.clientY;
+    startHeightRef.current = inputContainerRef.current?.getBoundingClientRect().height ?? 110;
+
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'row-resize';
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const deltaY = startYRef.current - moveEvent.clientY;
+      const minH = 80;
+      const maxH = Math.min(window.innerHeight * 0.75, 600);
+      const nextHeight = Math.max(minH, Math.min(maxH, startHeightRef.current + deltaY));
+      setCustomInputHeight(Math.round(nextHeight));
+    };
+
+    const handleMouseUp = () => {
+      isDraggingRef.current = false;
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleResetInputHeight = () => {
+    setCustomInputHeight(null);
+  };
+
   const activeAgent = getAgent(selectedAgentId) || defaultAgent;
   const sessionId = (tab.meta?.sessionId as string) || (tab.id.startsWith('chat:') ? tab.id.slice(5) : tab.id);
 
@@ -60,12 +102,16 @@ export function ChatTab({ tab }: ChatTabProps) {
             title: tab.title || '새 대화',
           });
           await refreshSessions();
+        } else if (existing.workspaceRoot) {
+          setSessionWorkspaceRoot(existing.workspaceRoot);
         }
       } catch (err) {
         console.error('Failed to ensure session exists in DB:', err);
       }
     })();
   }, [sessionId, activeAgent.id, workspaceRoot, tab.title, refreshSessions]);
+
+  const effectiveCwd = workspaceRoot ?? sessionWorkspaceRoot ?? undefined;
 
   const {
     messages,
@@ -79,7 +125,7 @@ export function ChatTab({ tab }: ChatTabProps) {
     compact,
     clearChat,
     injectInfoMessage,
-  } = useChat(sessionId, activeAgent, { cwd: workspaceRoot ?? undefined });
+  } = useChat(sessionId, activeAgent, { cwd: effectiveCwd });
 
   const handleSelectAgent = (newAgentId: string) => {
     setSelectedAgentId(newAgentId);
@@ -319,8 +365,28 @@ export function ChatTab({ tab }: ChatTabProps) {
         )}
       </div>
 
+      {/* Resizable handle for Chat Input Area */}
+      <div
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="채팅 입력창 크기 조절"
+        onMouseDown={handleResizeStart}
+        onDoubleClick={handleResetInputHeight}
+        className="group relative h-2 -my-1 z-10 cursor-row-resize flex items-center justify-center hover:bg-primary/20 transition-colors select-none"
+        title="드래그하여 크기 조절 (더블 클릭 시 자동 크기로 초기화)"
+      >
+        <div className="w-10 h-1 rounded-full bg-border/80 group-hover:bg-primary transition-colors" />
+      </div>
+
       {/* Input area */}
-      <div className="p-3 border-t border-border bg-card/20 shrink-0">
+      <div
+        ref={inputContainerRef}
+        style={customInputHeight ? { height: `${customInputHeight}px` } : undefined}
+        className={cn(
+          'p-3 border-t border-border bg-card/20 shrink-0',
+          customInputHeight ? 'flex flex-col overflow-hidden' : '',
+        )}
+      >
         <ChatInput
           onSend={handleSendMessage}
           onSteer={steer}
@@ -334,6 +400,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           isAgentLocked={messages.length > 0}
           contextUsage={contextUsage}
           yoloMode={yoloMode}
+          customHeight={customInputHeight ? Math.max(60, customInputHeight - 24) : null}
         />
       </div>
 

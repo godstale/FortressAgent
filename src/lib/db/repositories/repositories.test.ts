@@ -72,7 +72,10 @@ class MemorySqlDatabase implements SqlDatabase {
       return { rowsAffected: 0 };
     }
 
-    if (q.startsWith('INSERT INTO agents')) {
+    if (
+      q.startsWith('INSERT INTO agents') ||
+      q.startsWith('INSERT OR IGNORE INTO agents')
+    ) {
       const [
         id,
         name,
@@ -389,6 +392,12 @@ class MemorySqlDatabase implements SqlDatabase {
       return sessionEntries as unknown as T;
     }
 
+    if (q.startsWith('SELECT id FROM agents WHERE id = ?')) {
+      const [id] = bindValues;
+      const found = this.agents.get(id as string);
+      return (found ? [{ id: found.id }] : []) as unknown as T;
+    }
+
     if (q.startsWith("SELECT * FROM app_settings WHERE id = 'singleton'")) {
       return this.app_settings as unknown as T;
     }
@@ -610,7 +619,7 @@ describe('SQLite Repositories (P4-02)', () => {
     it('creates default settings on first access and updates singleton', async () => {
       const initial = await settingsRepo.getSettings(db);
       expect(initial.id).toBe('singleton');
-      expect(initial.theme).toBe('dark');
+      expect(initial.theme).toBe('light');
       expect(initial.defaultContextSize).toBe(8192);
 
       const updated = await settingsRepo.updateSettings(

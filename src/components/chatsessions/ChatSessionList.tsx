@@ -38,17 +38,21 @@ export function ChatSessionList() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleNewChat = async () => {
+    let sessionId = `${Date.now()}`;
+    let title = '새로운 대화';
     try {
       const session = await createSession();
-      openTab({
-        type: 'chat',
-        id: `chat:${session.id}`,
-        title: session.title,
-        meta: { sessionId: session.id },
-      });
+      sessionId = session.id;
+      title = session.title;
     } catch (err) {
-      console.error('Failed to create new chat:', err);
+      console.error('Failed to create new chat session in DB, opening tab with fallback:', err);
     }
+    openTab({
+      type: 'chat',
+      id: `chat:${sessionId}`,
+      title,
+      meta: { sessionId },
+    });
   };
 
   const handleSelectSession = (session: ChatSession) => {

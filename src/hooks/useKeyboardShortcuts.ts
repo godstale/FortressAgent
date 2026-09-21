@@ -40,16 +40,18 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
             try {
               const session = await createSession({ title: '새 채팅' });
               openTab({
-                id: session.id,
+                id: `chat:${session.id}`,
                 type: 'chat',
                 title: session.title,
-                meta: { agentId: session.agentId },
+                meta: { sessionId: session.id, agentId: session.agentId },
               });
             } catch {
+              const fallbackId = `${Date.now()}`;
               openTab({
-                id: `chat:${Date.now()}`,
+                id: `chat:${fallbackId}`,
                 type: 'chat',
                 title: '새 채팅',
+                meta: { sessionId: fallbackId },
               });
             }
           })();

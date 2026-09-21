@@ -4,6 +4,7 @@ use commands::fs_commands::*;
 use commands::search_commands::*;
 use commands::shell_commands::*;
 use commands::web_commands::*;
+use commands::system_commands::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,12 +21,14 @@ pub fn run() {
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
                 ])
                 .level(log::LevelFilter::Info)
+                .max_file_size(10_000_000) // 10 MB limit per log file
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(5)) // Keep at most 5 rotated log files
                 .build(),
         )
         .setup(|app| {
             use tauri::Manager;
             for window in app.webview_windows().values() {
-                let _ = window.set_theme(Some(tauri::Theme::Dark));
+                let _ = window.set_theme(Some(tauri::Theme::Light));
             }
             Ok(())
         })
@@ -50,6 +53,7 @@ pub fn run() {
             web_search,
             web_fetch,
             open_in_browser,
+            get_system_gpu_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -57,4 +57,39 @@ describe('WorkspaceTabsContext', () => {
     expect(result.current.tabs).toHaveLength(1);
     expect(result.current.activeTabId).toBe('editor:/path/to/file.ts');
   });
+
+  it('reorders tabs using moveTab', () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <WorkspaceTabsProvider>{children}</WorkspaceTabsProvider>
+    );
+
+    const { result } = renderHook(() => useWorkspaceTabs(), { wrapper });
+
+    act(() => {
+      result.current.openTab({ id: 'tab1', type: 'chat', title: 'Tab 1' });
+      result.current.openTab({ id: 'tab2', type: 'chat', title: 'Tab 2' });
+      result.current.openTab({ id: 'tab3', type: 'chat', title: 'Tab 3' });
+    });
+
+    expect(result.current.tabs.map((t) => t.id)).toEqual(['tab1', 'tab2', 'tab3']);
+
+    // Move tab 0 (tab1) to index 2
+    act(() => {
+      result.current.moveTab(0, 2);
+    });
+    expect(result.current.tabs.map((t) => t.id)).toEqual(['tab2', 'tab3', 'tab1']);
+
+    // Move tab 2 (tab1) to index 1
+    act(() => {
+      result.current.moveTab(2, 1);
+    });
+    expect(result.current.tabs.map((t) => t.id)).toEqual(['tab2', 'tab1', 'tab3']);
+
+    // Out of bounds no-op
+    act(() => {
+      result.current.moveTab(-1, 1);
+      result.current.moveTab(0, 10);
+    });
+    expect(result.current.tabs.map((t) => t.id)).toEqual(['tab2', 'tab1', 'tab3']);
+  });
 });

@@ -23,7 +23,10 @@ const defaultFs: SkillScannerFs = {
 };
 
 function normalizePath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/\/+$/, '');
+  return p
+    .replace(/\\/g, '/')
+    .replace(/^([/]{2}\?[/]|[/]{2}\.[^/]*[/]|[/]{2})/, '')
+    .replace(/\/+$/, '');
 }
 
 /**

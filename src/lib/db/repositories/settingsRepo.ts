@@ -25,7 +25,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   id: 'singleton',
   openTabs: [],
   activeTabId: null,
-  theme: 'dark',
+  theme: 'light',
   language: 'ko',
   ollamaBaseUrl: 'http://127.0.0.1:11434',
   defaultContextSize: 8192,

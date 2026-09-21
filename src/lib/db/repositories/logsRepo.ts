@@ -12,6 +12,11 @@ interface LogRow {
   agent_id: string | null;
 }
 
+export const DEFAULT_MAX_LOGS = 3000;
+export const DEFAULT_MAX_LOG_AGE_DAYS = 14;
+const LOG_PRUNE_FREQUENCY = 50;
+let logSaveCounter = 0;
+
 export async function insertLogEntry(
   entry: LogEntry,
   dbOverride?: SqlDatabase,
@@ -32,6 +37,14 @@ export async function insertLogEntry(
       entry.agentId ?? null,
     ],
   );
+
+  // Periodic automatic pruning to prevent unlimited DB bloat
+  logSaveCounter++;
+  if (logSaveCounter % LOG_PRUNE_FREQUENCY === 0) {
+    void pruneOldLogs({}, db).catch((err) => {
+      console.warn('Auto-pruning execution logs failed:', err);
+    });
+  }
 }
 
 export async function getLogs(
@@ -106,4 +119,45 @@ export async function clearLogs(
   } else {
     await db.execute('DELETE FROM execution_logs');
   }
+}
+
+export async function pruneOldLogs(
+  options: { maxKeep?: number; maxAgeDays?: number } = {},
+  dbOverride?: SqlDatabase,
+): Promise<number> {
+  const db = dbOverride ?? (await getDatabase());
+  const maxKeep = options.maxKeep ?? DEFAULT_MAX_LOGS;
+  const maxAgeDays = options.maxAgeDays ?? DEFAULT_MAX_LOG_AGE_DAYS;
+  const cutoffTime = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString();
+
+  let affected = 0;
+
+  // 1. Delete logs older than maxAgeDays
+  try {
+    const ageRes = await db.execute(
+      'DELETE FROM execution_logs WHERE timestamp < ?',
+      [cutoffTime],
+    );
+    affected += ageRes.rowsAffected ?? 0;
+  } catch (err) {
+    console.warn('Failed to prune execution logs by age:', err);
+  }
+
+  // 2. Keep at most maxKeep total logs
+  try {
+    const countRes = await db.execute(
+      `DELETE FROM execution_logs
+       WHERE id NOT IN (
+         SELECT id FROM execution_logs
+         ORDER BY timestamp DESC
+         LIMIT ?
+       )`,
+      [maxKeep],
+    );
+    affected += countRes.rowsAffected ?? 0;
+  } catch (err) {
+    console.warn('Failed to prune execution logs by count limit:', err);
+  }
+
+  return affected;
 }

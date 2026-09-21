@@ -32,6 +32,7 @@ export interface AgentCardProps {
   status?: AgentConnectionStatus;
   isChecking?: boolean;
   onCheckConnection?: (agent: Agent) => void;
+  onOpenMonitor?: (agent: Agent) => void;
   onStartChat: (agent: Agent) => void;
   onShowStats?: (agent: Agent) => void;
   onShowLogs?: (agent: Agent) => void;
@@ -46,6 +47,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
   status = 'unknown',
   isChecking = false,
   onCheckConnection,
+  onOpenMonitor,
   onStartChat,
   onShowStats,
   onShowLogs,
@@ -98,10 +100,10 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
-              onClick={() => onCheckConnection?.(agent)}
+              onClick={() => (onOpenMonitor ? onOpenMonitor(agent) : onCheckConnection?.(agent))}
               disabled={isChecking}
-              className={`relative h-8 w-8 rounded-lg border flex items-center justify-center shrink-0 transition-all cursor-pointer hover:opacity-85 focus:outline-none focus:ring-1 focus:ring-ring ${statusConfig.containerClass}`}
-              title={`연결 상태: ${statusConfig.label}${isChecking ? ' (확인 중...)' : ' - 클릭하여 상태 확인'}`}
+              className={`relative h-8 w-8 rounded-lg border flex items-center justify-center shrink-0 transition-all cursor-pointer hover:opacity-85 hover:scale-105 active:scale-95 focus:outline-none focus:ring-1 focus:ring-ring ${statusConfig.containerClass}`}
+              title={`연결 상태: ${statusConfig.label}${isChecking ? ' (확인 중...)' : ''} - 클릭하여 실시간 모니터링 열기`}
               aria-label={`에이전트 연결 상태: ${statusConfig.label}`}
             >
               {isChecking ? (
@@ -214,16 +216,29 @@ export const AgentCard: React.FC<AgentCardProps> = ({
             <span>대화 시작</span>
           </Button>
 
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-3 gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => onOpenMonitor?.(agent)}
+              className="w-full h-7 text-[10px] px-1 flex items-center justify-center gap-1 text-primary hover:text-primary hover:bg-primary/10 transition-colors border border-primary/30 cursor-pointer"
+              title="실시간 GPU 및 LLM 리소스 모니터링 열기"
+            >
+              <Activity className="h-3 w-3 text-primary" />
+              <span>모니터링</span>
+            </Button>
+
             <Button
               type="button"
               size="sm"
               variant="ghost"
               onClick={() => onShowStats?.(agent)}
-              className="w-full h-7 text-[11px] flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
+              className="w-full h-7 text-[10px] px-1 flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
+              title="세션 및 호출 지표 통계"
             >
-              <Activity className="h-3 w-3 text-primary" />
-              <span>통계 분석</span>
+              <Cpu className="h-3 w-3 text-amber-400" />
+              <span>통계</span>
             </Button>
 
             <Button
@@ -231,10 +246,11 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               size="sm"
               variant="ghost"
               onClick={() => onShowLogs?.(agent)}
-              className="w-full h-7 text-[11px] flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
+              className="w-full h-7 text-[10px] px-1 flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
+              title="에이전트 실행 로그"
             >
               <Terminal className="h-3 w-3 text-sky-400" />
-              <span>실행 로그</span>
+              <span>로그</span>
             </Button>
           </div>
         </div>

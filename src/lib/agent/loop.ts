@@ -14,11 +14,14 @@ import {
   streamChat as defaultStreamChat,
 } from '@/lib/llm/ollamaClient';
 import {
+  cleanThinkingText,
   mapAgentMessagesToOllama,
   mapAgentToolsToOllama,
 } from '@/lib/llm/messageMapper';
 import { appLogger } from '@/lib/logger/logger';
 import { recordAgentError, recordLlmCall } from '@/lib/metrics/agentMetrics';
+import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
+import type { LlmPerformanceMetrics } from '@/lib/types/monitoring';
 
 export interface LoopAgentConfig {
   id?: string;
@@ -81,6 +84,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
 
   let turnIndex = 0;
   let hasFollowUp = true;
+  let consecutiveThinkingOnlyCount = 0;
 
   while (hasFollowUp && !signal.aborted) {
     while (!signal.aborted) {
@@ -132,6 +136,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       let assistantThinking = '';
       let assistantToolCalls: AgentToolCall[] = [];
       let finalUsage: TokenUsage | undefined;
+      let finalMetrics: LlmPerformanceMetrics | undefined;
       let stopReason: 'stop' | 'toolUse' | 'length' | 'aborted' | 'error' = 'stop';
       let errorMessage: string | undefined;
 
@@ -197,6 +202,10 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                     finalUsage = chunk.usage;
                   }
 
+                  if (chunk.metrics) {
+                    finalMetrics = chunk.metrics;
+                  }
+
                   const partialAssistant: AgentMessage = {
                     role: 'assistant',
                     content: assistantContent,
@@ -223,6 +232,11 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
 
             // Successfully finished streaming - record metrics
             const durationMs = Math.round(performance.now() - streamStartTime);
+
+            if (agent.id && finalMetrics) {
+              monitoringCollector.recordInferenceMetrics(agent.id, finalMetrics);
+            }
+
             if (agent.id) {
               recordLlmCall({
                 agentId: agent.id,
@@ -231,6 +245,12 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                 outputTokens: finalUsage?.output ?? 0,
                 durationMs,
                 toolCallsCount: assistantToolCalls.length,
+                prefillTokens: finalMetrics?.promptEvalCount,
+                prefillDurationMs: finalMetrics?.promptEvalDurationMs,
+                prefillSpeed: finalMetrics?.prefillSpeed,
+                decodingTokens: finalMetrics?.evalCount,
+                decodingDurationMs: finalMetrics?.evalDurationMs,
+                decodingSpeed: finalMetrics?.decodingSpeed,
               });
             }
 
@@ -247,13 +267,18 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
               );
             }
 
+            const perfLogSuffix = finalMetrics
+              ? `, Prefill: ${finalMetrics.prefillSpeed} t/s (${finalMetrics.promptEvalDurationMs}ms), 디코딩: ${finalMetrics.decodingSpeed} t/s (${finalMetrics.evalDurationMs}ms)`
+              : '';
+
             appLogger.info(
               'ollama',
-              `[Turn #${turnIndex}] LLM 응답 생성 완료 (${durationMs}ms, 토큰: 입력 ${finalUsage?.input ?? 0} / 출력 ${finalUsage?.output ?? 0}${assistantToolCalls.length > 0 ? `, 도구 호출: ${assistantToolCalls.length}건` : ''})`,
+              `[Turn #${turnIndex}] LLM 응답 생성 완료 (${durationMs}ms, 토큰: 입력 ${finalUsage?.input ?? 0} / 출력 ${finalUsage?.output ?? 0}${assistantToolCalls.length > 0 ? `, 도구 호출: ${assistantToolCalls.length}건` : ''}${perfLogSuffix})`,
               {
                 turnIndex,
                 durationMs,
                 usage: finalUsage,
+                metrics: finalMetrics,
                 toolCalls: assistantToolCalls.length > 0 ? assistantToolCalls : undefined,
                 content: assistantContent || undefined,
                 thinking: assistantThinking || undefined,
@@ -328,10 +353,52 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         stopReason = 'toolUse';
       }
 
+      // Check if model emitted thinking scratchpad but halted before producing tool calls or user content
+      const isThinkingOnly =
+        !assistantContent.trim() &&
+        assistantToolCalls.length === 0 &&
+        Boolean(assistantThinking.trim());
+
+      if (
+        isThinkingOnly &&
+        consecutiveThinkingOnlyCount < 2 &&
+        !signal.aborted &&
+        stopReason !== 'error'
+      ) {
+        consecutiveThinkingOnlyCount++;
+        appLogger.warn(
+          'agent',
+          `[Turn #${turnIndex}] 모델이 도구 호출이나 최종 본문 없이 사고 과정(Thinking)만 생성하고 중단되었습니다. 도구 호출/답변 작성을 위해 자동 복구 프롬프트를 전송합니다. (시도 ${consecutiveThinkingOnlyCount}/2)`,
+          { turnIndex, thinking: assistantThinking },
+          sessionId,
+          agent.id,
+        );
+
+        const partialAssistantMessage: AgentMessage = {
+          role: 'assistant',
+          content: '',
+          thinking: assistantThinking,
+          stopReason: 'stop',
+          usage: finalUsage,
+        };
+        messages.push(partialAssistantMessage);
+        emit({ type: 'message_end', message: partialAssistantMessage });
+
+        const recoveryPrompt =
+          '[시스템 자동 안내]: 사고 과정(Thinking)만 완료되었고 계획한 도구 호출(Tool Call)이나 최종 응답 본문이 생성되지 않았습니다. 지체 없이 계획한 도구(예: read, ls, write 등)를 호출하거나, 추가 도구가 필요 없다면 사용자의 질문에 대한 실질적인 최종 답변 전문을 즉시 작성해 주십시오.';
+
+        messages.push({ role: 'user', content: recoveryPrompt });
+        continue;
+      }
+
+      if (!isThinkingOnly) {
+        consecutiveThinkingOnlyCount = 0;
+      }
+
       // Fallback: If model finished turn with no text content and no tool calls,
-      // but produced thinking text, use thinking as content so the user receives a response
+      // but produced thinking text and exhausted retries, use cleaned thinking as content
       if (!assistantContent.trim() && !assistantToolCalls.length && assistantThinking.trim()) {
-        assistantContent = assistantThinking.trim();
+        assistantContent = cleanThinkingText(assistantThinking);
       }
 
       const completedAssistantMessage: AgentMessage = {

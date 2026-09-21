@@ -197,4 +197,20 @@ describe('ChatInput component', () => {
       expect(onCompact).toHaveBeenCalledWith('focus on auth flow');
     });
   });
+
+  it('applies customHeight style when customHeight prop is provided', () => {
+    const { container } = render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+        customHeight={240}
+      />,
+    );
+
+    const outerDiv = container.firstChild as HTMLElement;
+    expect(outerDiv).toHaveStyle({ height: '240px' });
+  });
 });
+

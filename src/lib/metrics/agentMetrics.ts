@@ -16,6 +16,12 @@ export interface LlmCallRecord {
   outputTokens: number;
   durationMs: number;
   toolCallsCount: number;
+  prefillTokens?: number;
+  prefillDurationMs?: number;
+  prefillSpeed?: number;
+  decodingTokens?: number;
+  decodingDurationMs?: number;
+  decodingSpeed?: number;
   timestamp: string;
 }
 

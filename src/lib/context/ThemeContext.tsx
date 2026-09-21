@@ -15,7 +15,7 @@ const STORAGE_KEY = 'fortress-theme';
 
 export function resolveTheme(theme: ThemeMode): 'light' | 'dark' {
   if (theme === 'system') {
-    if (typeof window === 'undefined') return 'dark';
+    if (typeof window === 'undefined') return 'light';
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   return theme;
@@ -29,13 +29,13 @@ function applyTheme(theme: ThemeMode) {
   root.classList.toggle('light', resolved === 'light');
 }
 
-// Module load time dark-first initialization to avoid FOUC
+// Module load time light-first initialization to avoid FOUC
 if (typeof document !== 'undefined') {
   try {
     const saved = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
-    applyTheme(saved || 'dark');
+    applyTheme(saved || 'light');
   } catch {
-    applyTheme('dark');
+    applyTheme('light');
   }
 }
 
@@ -43,11 +43,11 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>(() => {
-    if (typeof window === 'undefined') return 'dark';
+    if (typeof window === 'undefined') return 'light';
     try {
-      return (localStorage.getItem(STORAGE_KEY) as ThemeMode) || 'dark';
+      return (localStorage.getItem(STORAGE_KEY) as ThemeMode) || 'light';
     } catch {
-      return 'dark';
+      return 'light';
     }
   });
 
