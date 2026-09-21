@@ -4,6 +4,7 @@ export type WorkspaceTabType =
   | 'image-viewer'
   | 'agent-editor'
   | 'agent-stats'
+  | 'agent-monitor'
   | 'skill-viewer';
 
 export type SidePanelView =

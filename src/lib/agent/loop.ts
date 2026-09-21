@@ -19,6 +19,8 @@ import {
 } from '@/lib/llm/messageMapper';
 import { appLogger } from '@/lib/logger/logger';
 import { recordAgentError, recordLlmCall } from '@/lib/metrics/agentMetrics';
+import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
+import type { LlmPerformanceMetrics } from '@/lib/types/monitoring';
 
 export interface LoopAgentConfig {
   id?: string;
@@ -132,6 +134,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       let assistantThinking = '';
       let assistantToolCalls: AgentToolCall[] = [];
       let finalUsage: TokenUsage | undefined;
+      let finalMetrics: LlmPerformanceMetrics | undefined;
       let stopReason: 'stop' | 'toolUse' | 'length' | 'aborted' | 'error' = 'stop';
       let errorMessage: string | undefined;
 
@@ -197,6 +200,10 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                     finalUsage = chunk.usage;
                   }
 
+                  if (chunk.metrics) {
+                    finalMetrics = chunk.metrics;
+                  }
+
                   const partialAssistant: AgentMessage = {
                     role: 'assistant',
                     content: assistantContent,
@@ -223,6 +230,11 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
 
             // Successfully finished streaming - record metrics
             const durationMs = Math.round(performance.now() - streamStartTime);
+
+            if (agent.id && finalMetrics) {
+              monitoringCollector.recordInferenceMetrics(agent.id, finalMetrics);
+            }
+
             if (agent.id) {
               recordLlmCall({
                 agentId: agent.id,
@@ -231,6 +243,12 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                 outputTokens: finalUsage?.output ?? 0,
                 durationMs,
                 toolCallsCount: assistantToolCalls.length,
+                prefillTokens: finalMetrics?.promptEvalCount,
+                prefillDurationMs: finalMetrics?.promptEvalDurationMs,
+                prefillSpeed: finalMetrics?.prefillSpeed,
+                decodingTokens: finalMetrics?.evalCount,
+                decodingDurationMs: finalMetrics?.evalDurationMs,
+                decodingSpeed: finalMetrics?.decodingSpeed,
               });
             }
 
@@ -247,13 +265,18 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
               );
             }
 
+            const perfLogSuffix = finalMetrics
+              ? `, Prefill: ${finalMetrics.prefillSpeed} t/s (${finalMetrics.promptEvalDurationMs}ms), 디코딩: ${finalMetrics.decodingSpeed} t/s (${finalMetrics.evalDurationMs}ms)`
+              : '';
+
             appLogger.info(
               'ollama',
-              `[Turn #${turnIndex}] LLM 응답 생성 완료 (${durationMs}ms, 토큰: 입력 ${finalUsage?.input ?? 0} / 출력 ${finalUsage?.output ?? 0}${assistantToolCalls.length > 0 ? `, 도구 호출: ${assistantToolCalls.length}건` : ''})`,
+              `[Turn #${turnIndex}] LLM 응답 생성 완료 (${durationMs}ms, 토큰: 입력 ${finalUsage?.input ?? 0} / 출력 ${finalUsage?.output ?? 0}${assistantToolCalls.length > 0 ? `, 도구 호출: ${assistantToolCalls.length}건` : ''}${perfLogSuffix})`,
               {
                 turnIndex,
                 durationMs,
                 usage: finalUsage,
+                metrics: finalMetrics,
                 toolCalls: assistantToolCalls.length > 0 ? assistantToolCalls : undefined,
                 content: assistantContent || undefined,
                 thinking: assistantThinking || undefined,

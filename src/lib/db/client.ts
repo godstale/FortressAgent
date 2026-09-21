@@ -68,6 +68,40 @@ export const MIGRATION_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_execution_logs_session ON execution_logs(session_id)`,
   `CREATE INDEX IF NOT EXISTS idx_execution_logs_agent ON execution_logs(agent_id)`,
   `CREATE INDEX IF NOT EXISTS idx_execution_logs_timestamp ON execution_logs(timestamp)`,
+  `CREATE TABLE IF NOT EXISTS agent_monitoring_snapshots (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    timestamp TEXT NOT NULL,
+    gpu_name TEXT,
+    gpu_vram_total_mb INTEGER,
+    gpu_vram_used_mb INTEGER,
+    gpu_vram_free_mb INTEGER,
+    gpu_utilization_pct REAL,
+    gpu_temperature_c REAL,
+    system_memory_total_mb INTEGER,
+    system_memory_free_mb INTEGER,
+    llm_model TEXT,
+    llm_architecture TEXT,
+    llm_parameter_size TEXT,
+    context_size INTEGER,
+    context_limit INTEGER,
+    model_weight_bytes INTEGER,
+    vram_allocated_bytes INTEGER,
+    kv_cache_bytes INTEGER,
+    gpu_offload_pct REAL,
+    agent_status TEXT,
+    current_task TEXT,
+    prefill_tokens INTEGER,
+    prefill_duration_ms REAL,
+    prefill_speed REAL,
+    decoding_tokens INTEGER,
+    decoding_duration_ms REAL,
+    decoding_speed REAL,
+    total_duration_ms REAL,
+    details TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_monitoring_agent_timestamp ON agent_monitoring_snapshots(agent_id, timestamp)`,
 ];
 
 export class MemorySqlFallback implements SqlDatabase {
@@ -79,6 +113,7 @@ export class MemorySqlFallback implements SqlDatabase {
     this.tables.set('entries', new Map());
     this.tables.set('app_settings', new Map());
     this.tables.set('execution_logs', new Map());
+    this.tables.set('agent_monitoring_snapshots', new Map());
   }
 
   async execute(
@@ -352,6 +387,94 @@ export class MemorySqlFallback implements SqlDatabase {
       return { rowsAffected: 1 };
     }
 
+    if (q.startsWith('INSERT INTO agent_monitoring_snapshots')) {
+      const [
+        id,
+        agent_id,
+        timestamp,
+        gpu_name,
+        gpu_vram_total_mb,
+        gpu_vram_used_mb,
+        gpu_vram_free_mb,
+        gpu_utilization_pct,
+        gpu_temperature_c,
+        system_memory_total_mb,
+        system_memory_free_mb,
+        llm_model,
+        llm_architecture,
+        llm_parameter_size,
+        context_size,
+        context_limit,
+        model_weight_bytes,
+        vram_allocated_bytes,
+        kv_cache_bytes,
+        gpu_offload_pct,
+        agent_status,
+        current_task,
+        prefill_tokens,
+        prefill_duration_ms,
+        prefill_speed,
+        decoding_tokens,
+        decoding_duration_ms,
+        decoding_speed,
+        total_duration_ms,
+        details,
+        created_at,
+      ] = bindValues;
+      this.tables.get('agent_monitoring_snapshots')?.set(id as string, {
+        id,
+        agent_id,
+        timestamp,
+        gpu_name,
+        gpu_vram_total_mb,
+        gpu_vram_used_mb,
+        gpu_vram_free_mb,
+        gpu_utilization_pct,
+        gpu_temperature_c,
+        system_memory_total_mb,
+        system_memory_free_mb,
+        llm_model,
+        llm_architecture,
+        llm_parameter_size,
+        context_size,
+        context_limit,
+        model_weight_bytes,
+        vram_allocated_bytes,
+        kv_cache_bytes,
+        gpu_offload_pct,
+        agent_status,
+        current_task,
+        prefill_tokens,
+        prefill_duration_ms,
+        prefill_speed,
+        decoding_tokens,
+        decoding_duration_ms,
+        decoding_speed,
+        total_duration_ms,
+        details,
+        created_at,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM agent_monitoring_snapshots WHERE agent_id = ?')) {
+      const [agentId] = bindValues;
+      const snapMap = this.tables.get('agent_monitoring_snapshots');
+      if (snapMap) {
+        for (const [k, v] of snapMap) {
+          if (v.agent_id === agentId) {
+            snapMap.delete(k);
+          }
+        }
+      }
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM agent_monitoring_snapshots')) {
+      this.tables.get('agent_monitoring_snapshots')?.clear();
+      return { rowsAffected: 1 };
+    }
+
     return { rowsAffected: 0 };
   }
 
@@ -502,6 +625,20 @@ export class MemorySqlFallback implements SqlDatabase {
       return logs as unknown as T;
     }
 
+    if (q.includes('FROM agent_monitoring_snapshots WHERE agent_id = ?')) {
+      const [agentId] = bindValues;
+      const snaps = Array.from(this.tables.get('agent_monitoring_snapshots')?.values() ?? [])
+        .filter((s) => s.agent_id === agentId)
+        .sort((a, b) => (b.timestamp as string).localeCompare(a.timestamp as string));
+      return snaps as unknown as T;
+    }
+
+    if (q.includes('FROM agent_monitoring_snapshots')) {
+      const snaps = Array.from(this.tables.get('agent_monitoring_snapshots')?.values() ?? [])
+        .sort((a, b) => (b.timestamp as string).localeCompare(a.timestamp as string));
+      return snaps as unknown as T;
+    }
+
     return [] as unknown as T;
   }
 }
@@ -536,6 +673,24 @@ export function setDatabase(db: SqlDatabase | null): void {
 export async function runMigrations(db: SqlDatabase): Promise<void> {
   for (const stmt of MIGRATION_STATEMENTS) {
     await db.execute(stmt);
+  }
+
+  // Safe migration for existing DBs to add prefill & decoding columns
+  const alterColumns = [
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN prefill_tokens INTEGER',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN prefill_duration_ms REAL',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN prefill_speed REAL',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN decoding_tokens INTEGER',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN decoding_duration_ms REAL',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN decoding_speed REAL',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN total_duration_ms REAL',
+  ];
+  for (const alter of alterColumns) {
+    try {
+      await db.execute(alter);
+    } catch {
+      // Column may already exist or table created with it; safe to ignore
+    }
   }
 }
 

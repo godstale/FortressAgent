@@ -92,6 +92,25 @@ describe('AgentCard connection status', () => {
     expect(onCheckConnection).toHaveBeenCalledWith(mockAgent);
   });
 
+  it('triggers onOpenMonitor when clicking the status icon button if onOpenMonitor is provided', () => {
+    const onOpenMonitor = vi.fn();
+    render(
+      <AgentCard
+        agent={mockAgent}
+        onOpenMonitor={onOpenMonitor}
+        onStartChat={vi.fn()}
+        onEdit={vi.fn()}
+        onSetDefault={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    const statusButton = screen.getByRole('button', { name: /에이전트 연결 상태/i });
+    fireEvent.click(statusButton);
+
+    expect(onOpenMonitor).toHaveBeenCalledWith(mockAgent);
+  });
+
   it('triggers onCheckConnection when clicking the header refresh button', () => {
     const onCheckConnection = vi.fn();
     render(

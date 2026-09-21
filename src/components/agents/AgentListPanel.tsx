@@ -97,6 +97,15 @@ export function AgentListPanel() {
     }
   };
 
+  const handleOpenMonitor = (agent: Agent) => {
+    openTab({
+      id: `agent-monitor:${agent.id}`,
+      type: 'agent-monitor',
+      title: `${agent.name} 모니터링`,
+      meta: { agentId: agent.id },
+    });
+  };
+
   const handleShowStats = (agent: Agent) => {
     openTab({
       id: `agent-stats:${agent.id}`,
@@ -207,6 +216,7 @@ export function AgentListPanel() {
               status={statuses[agent.id] ?? 'unknown'}
               isChecking={!!checkingMap[agent.id] || isCheckingAll}
               onCheckConnection={handleCheckSingle}
+              onOpenMonitor={handleOpenMonitor}
               isOnlyAgent={agents.length <= 1}
               onStartChat={handleStartChat}
               onShowStats={handleShowStats}

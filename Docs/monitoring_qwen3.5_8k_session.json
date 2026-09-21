@@ -1,0 +1,154 @@
+{
+  "testRun": {
+    "timestamp": "2026-09-21T12:34:00Z",
+    "agentName": "Qwen3.5 8k",
+    "model": "qwen3.5:9b",
+    "parameters": {
+      "temperature": 0.7,
+      "contextSize": 8192,
+      "reserveTokens": 2048,
+      "keepRecentTokens": 2048,
+      "enabledTools": [
+        "read",
+        "write",
+        "edit",
+        "ls",
+        "grep",
+        "find",
+        "web_search",
+        "web_fetch"
+      ],
+      "enabledSkills": ["llm-wiki"]
+    }
+  },
+  "hardwareMonitoring": {
+    "gpuModel": "NVIDIA GeForce RTX 4070 SUPER",
+    "vramTotalMb": 12282,
+    "vramUsedPeakMb": 8563,
+    "vramFreeMb": 3435,
+    "modelVramAllocatedMb": 5880,
+    "gpuOffloadPct": 100,
+    "gpuTemperatureC": 43,
+    "hostSystemMemoryTotalMb": 31911,
+    "hostSystemMemoryFreeMb": 18267,
+    "throughput": {
+      "prefillSpeedTokensPerSec": 4188.1,
+      "prefillAvgDurationMs": 1182.2,
+      "decodingSpeedTokensPerSec": 70.6,
+      "decodingAvgDurationMs": 17388.5
+    }
+  },
+  "prompts": [
+    {
+      "index": 1,
+      "prompt": "안녕. 너의 이름은?",
+      "timestamp": "2026-09-21T12:30:31.874Z",
+      "turns": [
+        {
+          "turn": 1,
+          "inputTokens": 4007,
+          "outputTokens": 95,
+          "totalTokens": 4102,
+          "durationMs": 5481,
+          "thinkingLengthChars": 87,
+          "toolCalls": [],
+          "response": "안녕하세요! 제 이름은 **Fortress**입니다..."
+        }
+      ],
+      "summary": "시스템 프롬프트(도구 8개 + 스킬)로 초기 베이스라인 4,007 토큰 소모. 단일 턴 95토큰 응답 완료."
+    },
+    {
+      "index": 2,
+      "prompt": "위키에서 온톨로지 관련 내용들을 찾아줘.",
+      "timestamp": "2026-09-21T12:31:07.181Z",
+      "turns": [
+        {
+          "turn": 1,
+          "inputTokens": 4084,
+          "outputTokens": 140,
+          "totalTokens": 4224,
+          "durationMs": 2570,
+          "toolCalls": ["read .agents/skills/llm-wiki/SKILL.md"],
+          "toolResultBytes": 6595
+        },
+        {
+          "turn": 2,
+          "inputTokens": 6120,
+          "outputTokens": 93,
+          "totalTokens": 6213,
+          "durationMs": 2059,
+          "toolCalls": [
+            "read .agents/skills/llm-wiki/references/ontology-commands.md",
+            "ls wiki/ontologies"
+          ],
+          "toolResultBytes": 17712,
+          "compactionStatus": "FAILED (UNIQUE constraint failed: entries.session_id, entries.seq)"
+        },
+        {
+          "turn": 3,
+          "inputTokens": 4037,
+          "outputTokens": 181,
+          "totalTokens": 4218,
+          "durationMs": 3173,
+          "toolCalls": ["read .agents/skills/llm-wiki/SKILL.md"],
+          "toolResultBytes": 6595
+        },
+        {
+          "turn": 4,
+          "inputTokens": 6123,
+          "outputTokens": 449,
+          "totalTokens": 6572,
+          "durationMs": 7297,
+          "toolCalls": ["ls wiki"],
+          "toolResultBytes": 274,
+          "compactionStatus": "FAILED (UNIQUE constraint failed: entries.session_id, entries.seq)"
+        },
+        {
+          "turn": 5,
+          "inputTokens": 7439,
+          "outputTokens": 643,
+          "totalTokens": 8082,
+          "durationMs": 10696,
+          "thinkingLengthChars": 910,
+          "toolCalls": [],
+          "response": "현재 wiki/ontologies 폴더가 아직 존재하지 않는 것 같습니다..."
+        }
+      ],
+      "summary": "llm-wiki 스킬 파일(17.7KB) 다중 로드로 턴 5에서 8,082 토큰에 도달하여 8k 한계 직전까지 상승."
+    },
+    {
+      "index": 3,
+      "prompt": "위키에서 LLMOps 관련 내용들을 찾아줘.",
+      "timestamp": "2026-09-21T12:31:52.038Z",
+      "turns": [
+        {
+          "preEvent": "컨텍스트 자동 압축(Compaction) 성공",
+          "compactionReason": "threshold (8088 tokens >= 6144 threshold)",
+          "tokensBefore": 8088
+        },
+        {
+          "turn": 1,
+          "inputTokens": 6242,
+          "outputTokens": 184,
+          "totalTokens": 6426,
+          "durationMs": 8154,
+          "toolCalls": ["read wiki/index.md"],
+          "toolResultBytes": 20675
+        },
+        {
+          "turn": 2,
+          "inputTokens": 4098,
+          "outputTokens": 4094,
+          "totalTokens": 8192,
+          "durationMs": 59479,
+          "prefillDurationMs": 978.8,
+          "decodingDurationMs": 57973.5,
+          "thinkingLengthChars": 12984,
+          "interruptedAtLimit": true,
+          "response": "제공해주신 자료는 AI 에이전트 개발, 로보틱스(VLA)... (4094토큰 최대 출력 도달)"
+        }
+      ],
+      "summary": "컨텍스트 압축 성공 후 wiki/index.md(20.6KB)를 읽었으나, LLM이 12,984자의 극단적인 Thinking과 4,094개 출력 토큰을 59.5초 동안 생성하여 정확히 8,192 토큰 한도에 도달."
+    }
+  ]
+}

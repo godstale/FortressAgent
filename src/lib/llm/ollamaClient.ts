@@ -1,4 +1,5 @@
 import type { TokenUsage } from '@/lib/agent/types';
+import type { LlmPerformanceMetrics } from '@/lib/types/monitoring';
 
 export class OllamaConnectionError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -41,6 +42,7 @@ export interface OllamaChunk {
   toolCalls?: OllamaToolCall[];
   done: boolean;
   usage?: TokenUsage;
+  metrics?: LlmPerformanceMetrics;
 }
 
 export interface OllamaChatRequest {
@@ -156,8 +158,12 @@ export async function* streamChat(
             tool_calls?: OllamaToolCall[];
           };
           done?: boolean;
+          total_duration?: number;
+          load_duration?: number;
           prompt_eval_count?: number;
+          prompt_eval_duration?: number;
           eval_count?: number;
+          eval_duration?: number;
         };
 
         try {
@@ -183,12 +189,55 @@ export async function* streamChat(
               }
             : undefined;
 
+        let chunkMetrics: LlmPerformanceMetrics | undefined = undefined;
+        if (
+          parsed.prompt_eval_duration !== undefined ||
+          parsed.eval_duration !== undefined ||
+          parsed.total_duration !== undefined
+        ) {
+          const promptEvalCount = parsed.prompt_eval_count ?? 0;
+          const promptEvalDurationMs = parsed.prompt_eval_duration
+            ? Number((parsed.prompt_eval_duration / 1e6).toFixed(1))
+            : 0;
+          const evalCount = parsed.eval_count ?? 0;
+          const evalDurationMs = parsed.eval_duration
+            ? Number((parsed.eval_duration / 1e6).toFixed(1))
+            : 0;
+          const totalDurationMs = parsed.total_duration
+            ? Number((parsed.total_duration / 1e6).toFixed(1))
+            : 0;
+          const loadDurationMs = parsed.load_duration
+            ? Number((parsed.load_duration / 1e6).toFixed(1))
+            : 0;
+
+          const prefillSpeed =
+            promptEvalDurationMs > 0
+              ? Number(((promptEvalCount / (promptEvalDurationMs / 1000))).toFixed(1))
+              : 0;
+          const decodingSpeed =
+            evalDurationMs > 0
+              ? Number(((evalCount / (evalDurationMs / 1000))).toFixed(1))
+              : 0;
+
+          chunkMetrics = {
+            totalDurationMs,
+            loadDurationMs,
+            promptEvalCount,
+            promptEvalDurationMs,
+            evalCount,
+            evalDurationMs,
+            prefillSpeed,
+            decodingSpeed,
+          };
+        }
+
         yield {
           content: parsed.message?.content,
           thinking: parsed.message?.thinking,
           toolCalls: parsed.message?.tool_calls,
           done: !!parsed.done,
           usage: chunkUsage,
+          metrics: chunkMetrics,
         };
       }
     }
@@ -208,6 +257,41 @@ export async function listModels(baseUrl?: string): Promise<OllamaModel[]> {
       throw new OllamaRequestError(res.statusText, res.status);
     }
     const data = (await res.json()) as { models?: OllamaModel[] };
+    return data.models || [];
+  } catch (err) {
+    if (err instanceof OllamaRequestError) throw err;
+    throw new OllamaConnectionError(
+      err instanceof Error ? err.message : String(err),
+      err,
+    );
+  }
+}
+
+export async function getRunningModels(baseUrl?: string): Promise<import('@/lib/types/monitoring').OllamaRunningModel[]> {
+  const host = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  try {
+    const res = await fetch(`${host}/api/ps`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      throw new OllamaRequestError(res.statusText, res.status);
+    }
+    const data = (await res.json()) as {
+      models?: Array<{
+        name: string;
+        model: string;
+        size: number;
+        size_vram: number;
+        details?: {
+          format?: string;
+          family?: string;
+          parameter_size?: string;
+          quantization_level?: string;
+        };
+        expires_at?: string;
+      }>;
+    };
     return data.models || [];
   } catch (err) {
     if (err instanceof OllamaRequestError) throw err;
@@ -267,3 +351,164 @@ export async function showModel(
     );
   }
 }
+
+export async function getModelArchitectureInfo(
+  baseUrl: string | undefined,
+  model: string,
+): Promise<import('@/lib/types/monitoring').OllamaModelArchitectureInfo> {
+  const host = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  try {
+    const res = await fetch(`${host}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: model }),
+    });
+
+    if (!res.ok) {
+      if (res.status === 404) throw new OllamaModelNotFoundError(model);
+      throw new OllamaRequestError(res.statusText, res.status);
+    }
+
+    const data = (await res.json()) as {
+      model_info?: Record<string, unknown>;
+      details?: {
+        format?: string;
+        family?: string;
+        parameter_size?: string;
+        quantization_level?: string;
+      };
+    };
+
+    const info = data.model_info || {};
+    const arch = (info['general.architecture'] as string) || data.details?.family || 'unknown';
+    let paramSize = (data.details?.parameter_size as string) || (info['general.size_label'] as string) || '';
+    const paramCount = (info['general.parameter_count'] as number) || 0;
+    let contextLimit = 4096;
+    let blockCount = 0;
+    let embeddingLength = 0;
+    let headCount = 0;
+    let headCountKv = 0;
+    let feedForwardLength = 0;
+    const quantLevel = (data.details?.quantization_level as string) || '';
+    const format = (data.details?.format as string) || 'gguf';
+
+    for (const [key, val] of Object.entries(info)) {
+      if (typeof val === 'number') {
+        if (key.endsWith('.context_length')) contextLimit = val;
+        else if (key.endsWith('.block_count')) blockCount = val;
+        else if (key.endsWith('.embedding_length')) embeddingLength = val;
+        else if (key.endsWith('.feed_forward_length')) feedForwardLength = val;
+        else if (key.endsWith('.attention.head_count_kv')) headCountKv = val;
+        else if (key.endsWith('.attention.head_count')) headCount = val;
+      }
+    }
+
+    if (!headCountKv && headCount) {
+      headCountKv = headCount;
+    }
+
+    if (!paramSize && paramCount > 0) {
+      paramSize = `${(paramCount / 1e9).toFixed(1)}B`;
+    }
+
+    return {
+      architecture: arch,
+      parameterSize: paramSize,
+      parameterCount: paramCount,
+      contextLimit,
+      blockCount,
+      embeddingLength,
+      headCount,
+      headCountKv,
+      feedForwardLength,
+      quantizationLevel: quantLevel,
+      format,
+      rawModelInfo: info,
+    };
+  } catch (err) {
+    if (err instanceof OllamaRequestError || err instanceof OllamaModelNotFoundError) {
+      throw err;
+    }
+    throw new OllamaConnectionError(
+      err instanceof Error ? err.message : String(err),
+      err,
+    );
+  }
+}
+
+export function calculateEstimatedKvCacheBytes(
+  layers: number,
+  headCountKv: number,
+  embeddingLength: number,
+  headCount: number,
+  contextTokens: number,
+  bytesPerElement = 2,
+): number {
+  if (!layers || !contextTokens) return 0;
+  const hCount = headCount || 32;
+  const kvHeads = headCountKv || hCount;
+  const headDim = embeddingLength > 0 ? Math.round(embeddingLength / hCount) : 128;
+  // 2 (key & value) * layers * kv_heads * head_dim * context_tokens * bytesPerElement
+  return 2 * layers * kvHeads * headDim * contextTokens * bytesPerElement;
+}
+
+export async function getSystemGpuInfo(): Promise<import('@/lib/types/monitoring').SystemGpuInfo> {
+  const isTauri =
+    typeof window !== 'undefined' &&
+    Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+
+  if (!isTauri) {
+    return {
+      gpuName: 'Mock GPU / Web Emulator',
+      vramTotalMb: 12288,
+      vramUsedMb: 3500,
+      vramFreeMb: 8788,
+      gpuUtilizationPct: 15.0,
+      gpuTemperatureC: 45.0,
+      isNvidia: true,
+      systemMemoryTotalMb: 32768,
+      systemMemoryFreeMb: 16384,
+    };
+  }
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    interface RawGpuResult {
+      gpu_name: string;
+      vram_total_mb: number;
+      vram_used_mb: number;
+      vram_free_mb: number;
+      gpu_utilization_pct: number;
+      gpu_temperature_c: number;
+      is_nvidia: boolean;
+      system_memory_total_mb: number;
+      system_memory_free_mb: number;
+    }
+    const res = await invoke<RawGpuResult>('get_system_gpu_info');
+    return {
+      gpuName: res.gpu_name,
+      vramTotalMb: res.vram_total_mb,
+      vramUsedMb: res.vram_used_mb,
+      vramFreeMb: res.vram_free_mb,
+      gpuUtilizationPct: res.gpu_utilization_pct,
+      gpuTemperatureC: res.gpu_temperature_c,
+      isNvidia: res.is_nvidia,
+      systemMemoryTotalMb: res.system_memory_total_mb,
+      systemMemoryFreeMb: res.system_memory_free_mb,
+    };
+  } catch (err) {
+    console.warn('Failed to invoke get_system_gpu_info:', err);
+    return {
+      gpuName: 'Default System Adapter',
+      vramTotalMb: 0,
+      vramUsedMb: 0,
+      vramFreeMb: 0,
+      gpuUtilizationPct: 0,
+      gpuTemperatureC: 0,
+      isNvidia: false,
+      systemMemoryTotalMb: 0,
+      systemMemoryFreeMb: 0,
+    };
+  }
+}
+

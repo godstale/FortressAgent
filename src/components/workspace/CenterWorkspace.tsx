@@ -26,6 +26,7 @@ import { ImageViewerTab } from '@/components/workspace/ImageViewerTab';
 import { SkillViewerTab } from '@/components/workspace/SkillViewerTab';
 import { AgentEditorTab } from '@/components/workspace/AgentEditorTab';
 import { AgentStatsTab } from '@/components/workspace/AgentStatsTab';
+import { AgentMonitorTab } from '@/components/workspace/AgentMonitorTab';
 import { WelcomeGuide } from '@/components/workspace/WelcomeGuide';
 import { cn } from '@/lib/utils';
 
@@ -35,6 +36,7 @@ const TAB_ICONS: Record<WorkspaceTabType, LucideIcon> = {
   'image-viewer': ImageIcon,
   'agent-editor': Bot,
   'agent-stats': Activity,
+  'agent-monitor': Activity,
   'skill-viewer': Puzzle,
 };
 
@@ -200,6 +202,7 @@ export function CenterWorkspace() {
                 {tab.type === 'image-viewer' && <ImageViewerTab tab={tab} />}
                 {tab.type === 'agent-editor' && <AgentEditorTab tab={tab} />}
                 {tab.type === 'agent-stats' && <AgentStatsTab tab={tab} />}
+                {tab.type === 'agent-monitor' && <AgentMonitorTab tab={tab} />}
                 {tab.type === 'skill-viewer' && <SkillViewerTab tab={tab} />}
               </div>
             );
