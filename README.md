@@ -130,8 +130,9 @@ Fortress의 내부 구조 파악, 커스텀 에이전트 개발, 벤치마크 �
 | **재구현 및 종합 청사진** | **[ReimplementationGuide.md](./Docs/ReimplementationGuide.md)**<br>현재까지의 구현사항, 계층별 아키텍처, 런타임 루프 분석, 디렉터리 구성, 신규 앱 개발 및 재구현 시 단계별 가이드라인을 집대성한 핵심 문서. | [바로가기](./Docs/ReimplementationGuide.md) |
 | **시스템 아키텍처 설계서** | **[Architecture.md](./Docs/Architecture.md)**<br>데이터 모델, 엔트리 스키마, 신뢰 경계(Security), 런타임 수명 주기, 도구 정의의 단일 진실 공급원(Single Source of Truth). | [바로가기](./Docs/Architecture.md) |
 | **사용자 가이드** | **[UserGuide.md](./Docs/UserGuide.md)**<br>화면 레이아웃 구성, 에이전트 편집, 도구 승인 절차, 시각화 기능 등 사용자를 위한 실전 매뉴얼. | [바로가기](./Docs/UserGuide.md) |
-| **64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_64k.md](./Docs/MonitoringAnalysis_Qwen3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Qwen3.5 64k 컨텍스트 및 8개 도구/위키 연동 실측 데이터 분석 및 대용량 최적화 리포트. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_64k.md) |
-| **8k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_8k.md](./Docs/MonitoringAnalysis_Qwen3.5_8k.md)**<br>8k 컨텍스트 환경의 하드웨어 리소스 병목 진단 및 VRAM 예산 산정 가이드. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_8k.md) |
+| **Nemotron 64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Nemotron3.5_64k.md](./Docs/MonitoringAnalysis_Nemotron3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Nemotron-3.5-Lightning(30B MoE, A3B, Mamba-2 하이브리드) 64k 컨텍스트 실측 데이터 및 VRAM/속도 분석 리포트. | [바로가기](./Docs/MonitoringAnalysis_Nemotron3.5_64k.md) |
+| **Qwen 64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_64k.md](./Docs/MonitoringAnalysis_Qwen3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Qwen3.5 64k 컨텍스트 및 8개 도구/위키 연동 실측 데이터 분석 및 대용량 최적화 리포트. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_64k.md) |
+| **Qwen 8k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_8k.md](./Docs/MonitoringAnalysis_Qwen3.5_8k.md)**<br>8k 컨텍스트 환경의 하드웨어 리소스 병목 진단 및 VRAM 예산 산정 가이드. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_8k.md) |
 | **단계별 구현 계획서** | **[ImplementationPlan.md](./Docs/ImplementationPlan.md)**<br>Phase 0부터 Phase 7까지의 상세 작업 분할 및 단계별 의존성 그래프. | [바로가기](./Docs/ImplementationPlan.md) |
 | **진행상황 트래커** | **[TODO.md](./Docs/TODO.md)**<br>전체 작업 항목의 완료 상태 트래커 및 과거 이슈 해결 기록. | [바로가기](./Docs/TODO.md) |
 | **품질 검증 체크리스트** | **[QA-Checklist.md](./Docs/QA-Checklist.md)**<br>기능, 성능, 보안, UX 각 영역별 테스트 시나리오 및 품질 검증 기준. | [바로가기](./Docs/QA-Checklist.md) |
