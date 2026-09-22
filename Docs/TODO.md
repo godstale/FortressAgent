@@ -111,6 +111,7 @@
 | ----------------- | ------- | ------------------------- | ------ |
 | (예시) 2026-09-18 | P0-00   | 예시: 문서 초안 작성 완료 | 해결됨 |
 | 2026-09-22        | DESIGN  | Midnight Rampart 테마 적용: 시맨틱 토큰(success/warning/info/tertiary/code/subtle) 추가, 컴포넌트의 원시 팔레트 클래스 → 토큰 치환, 차트/Mermaid/CodeMirror 팔레트 통일. **신규 의존성** `@fontsource-variable/geist`·`@fontsource-variable/jetbrains-mono`·`@fontsource/ibm-plex-sans-kr` — 로컬 퍼스트 원칙상 Google Fonts CDN 대신 폰트를 번들하기 위함. | 해결됨 |
+| 2026-09-22        | DESIGN  | 다크 테마 눈부심 개선(tokens v1.1): 채도 높은 남색 → 차콜 중립(`#18191C` 계열), 본문 `#D9DBE1`(11.8:1), 강조색 채도 완화. Mermaid·CodeMirror 다크 팔레트 동기화. 참고: `Docs/screenshot/dark-theme-01.png` | 해결됨 |
 
 ---
 
