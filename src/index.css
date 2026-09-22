@@ -55,6 +55,7 @@
     --sidebar-accent-foreground: 225 11.8% 86.7%; /* #D9DBE1 */
     --sidebar-border: 226.7 8% 22.2%; /* #34363D */
     --sidebar-ring: 218.6 81.6% 72.4%; /* #7FA8F2 */
+    --brand: 33.7 57% 60.8%; /* #D4A262 */
     --radius: 0.5rem;
     color-scheme: dark;
   }
@@ -103,6 +104,7 @@
     --sidebar-accent-foreground: 231.2 54.8% 12.2%; /* #0E1330 */
     --sidebar-border: 225.7 31.3% 86.9%; /* #D3D8E8 */
     --sidebar-ring: 213.2 100% 42.9%; /* #0062DB */
+    --brand: 30.6 52.5% 39.6%; /* #9A6630 */
     color-scheme: light;
   }
 

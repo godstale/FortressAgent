@@ -1,13 +1,13 @@
 import {
   FolderOpen,
   Clock,
-  Bot,
   Sparkles,
   ShieldCheck,
   Files,
   ArrowRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FortressMark } from '@/components/brand/FortressMark';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -30,12 +30,12 @@ export function WelcomeGuide() {
       <div className="max-w-xl w-full space-y-8 animate-in fade-in slide-in-from-bottom-3 duration-200">
         {/* Fortress Title */}
         <div className="text-center space-y-3">
-          <div className="inline-flex h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 items-center justify-center text-primary shadow-sm">
-            <Bot className="h-8 w-8" />
+          <div className="inline-flex h-16 w-16 rounded-2xl bg-card border border-border items-center justify-center text-brand shadow-sm">
+            <FortressMark className="h-10 w-10" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Fortress AI Workstation</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Fortress</h1>
           <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-            로컬 Ollama LLM 기반 지능형 코딩 및 연구 어시스턴트입니다.
+            내 PC에 맞는 로컬 LLM을 찾는 테스트 & 모니터링 워크벤치입니다.
             <br />
             작업을 시작하려면 프로젝트(작업 폴더)를 열어주세요.
           </p>
