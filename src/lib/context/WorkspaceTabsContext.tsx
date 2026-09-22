@@ -13,13 +13,32 @@ import { useSafeWorkspace } from './WorkspaceContext';
 export interface WorkspaceTabsContextValue {
   tabs: WorkspaceTab[];
   activeTabId: string | null;
-  openTab: (tab: Omit<WorkspaceTab, 'id'> & { id?: string }) => string;
+  secondaryActiveTabId: string | null;
+  splitDirection: 'horizontal' | 'vertical';
+  isSplit: boolean;
+  openTab: (
+    tab: Omit<WorkspaceTab, 'id'> & { id?: string },
+    pane?: 'primary' | 'secondary',
+  ) => string;
   closeTab: (id: string) => void;
   closeTabs: (ids: string[]) => void;
-  closeAllTabs: () => void;
+  closeAllTabs: (pane?: 'primary' | 'secondary') => void;
   setActiveTab: (id: string) => void;
+  setSecondaryActiveTab: (id: string) => void;
   updateTab: (id: string, patch: Partial<Omit<WorkspaceTab, 'id'>>) => void;
-  moveTab: (fromIndex: number, toIndex: number) => void;
+  moveTab: (fromIndex: number, toIndex: number, pane?: 'primary' | 'secondary') => void;
+  moveTabToPane: (
+    tabId: string,
+    targetPane: 'primary' | 'secondary',
+    targetIndex?: number,
+  ) => void;
+  splitTab: (
+    tabId: string,
+    direction: 'horizontal' | 'vertical',
+    side: 'left' | 'right' | 'top' | 'bottom',
+  ) => void;
+  closeSplit: () => void;
+  setSplitDirection: (dir: 'horizontal' | 'vertical') => void;
   isTabsLoaded: boolean;
 }
 
@@ -44,12 +63,19 @@ export function WorkspaceTabsProvider({
 
   const [internalTabs, setInternalTabs] = useState<WorkspaceTab[]>([]);
   const [internalActiveTabId, setInternalActiveTabId] = useState<string | null>(null);
+  const [internalSecondaryActiveTabId, setInternalSecondaryActiveTabId] = useState<string | null>(null);
+  const [splitDirection, setSplitDirection] = useState<'horizontal' | 'vertical'>('horizontal');
   const [isLoaded, setIsLoaded] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isWithoutWorkspace = hasWorkspaceContext && !workspaceRoot;
   const tabs = isWithoutWorkspace ? [] : internalTabs;
   const activeTabId = isWithoutWorkspace ? null : internalActiveTabId;
+  const secondaryActiveTabId = isWithoutWorkspace ? null : internalSecondaryActiveTabId;
+
+  const primaryTabs = tabs.filter((t) => (t.pane ?? 'primary') === 'primary');
+  const secondaryTabs = tabs.filter((t) => t.pane === 'secondary');
+  const isSplit = secondaryTabs.length > 0 && primaryTabs.length > 0;
 
   // Restore saved tabs from app_settings on mount
   useEffect(() => {
@@ -60,9 +86,17 @@ export function WorkspaceTabsProvider({
         if (active && (!hasWorkspaceContext || workspaceRoot)) {
           if (settings.openTabs && settings.openTabs.length > 0) {
             setInternalTabs(settings.openTabs);
-            setInternalActiveTabId(settings.activeTabId ?? settings.openTabs[0].id);
+            const savedPrimary = settings.openTabs.filter((t) => (t.pane ?? 'primary') === 'primary');
+            const savedSecondary = settings.openTabs.filter((t) => t.pane === 'secondary');
+            setInternalActiveTabId(
+              settings.activeTabId && savedPrimary.some((t) => t.id === settings.activeTabId)
+                ? settings.activeTabId
+                : savedPrimary[0]?.id ?? null,
+            );
+            if (savedSecondary.length > 0) {
+              setInternalSecondaryActiveTabId(savedSecondary[0]?.id ?? null);
+            }
           } else {
-            // Only clear if no tabs were opened by user during load
             setInternalTabs((prev) => (prev.length > 0 ? prev : []));
             setInternalActiveTabId((prev) => (prev ? prev : null));
           }
@@ -103,7 +137,10 @@ export function WorkspaceTabsProvider({
   }, [internalTabs, internalActiveTabId, isLoaded, isWithoutWorkspace]);
 
   const openTab = useCallback(
-    (tab: Omit<WorkspaceTab, 'id'> & { id?: string }) => {
+    (
+      tab: Omit<WorkspaceTab, 'id'> & { id?: string },
+      pane: 'primary' | 'secondary' = 'primary',
+    ) => {
       if (hasWorkspaceContext && !workspaceRoot) {
         return '';
       }
@@ -114,10 +151,14 @@ export function WorkspaceTabsProvider({
         if (existing) {
           return prev;
         }
-        return [...prev, { ...tab, id: targetId }];
+        return [...prev, { ...tab, id: targetId, pane: tab.pane ?? pane }];
       });
 
-      setInternalActiveTabId(targetId);
+      if (pane === 'secondary') {
+        setInternalSecondaryActiveTabId(targetId);
+      } else {
+        setInternalActiveTabId(targetId);
+      }
       return targetId;
     },
     [hasWorkspaceContext, workspaceRoot],
@@ -125,13 +166,36 @@ export function WorkspaceTabsProvider({
 
   const closeTab = useCallback((id: string) => {
     setInternalTabs((prev) => {
+      const targetTab = prev.find((t) => t.id === id);
+      const isSecondary = targetTab?.pane === 'secondary';
       const next = prev.filter((t) => t.id !== id);
-      setInternalActiveTabId((current) => {
-        if (current !== id) return current;
-        const closedIndex = prev.findIndex((t) => t.id === id);
-        const fallback = next[closedIndex] ?? next[closedIndex - 1] ?? next[0];
-        return fallback ? fallback.id : null;
-      });
+
+      const nextPrimary = next.filter((t) => (t.pane ?? 'primary') === 'primary');
+      const nextSecondary = next.filter((t) => t.pane === 'secondary');
+
+      if (nextPrimary.length === 0 && nextSecondary.length > 0) {
+        const migrated = nextSecondary.map((t) => ({ ...t, pane: 'primary' as const }));
+        setInternalActiveTabId(migrated[0]?.id ?? null);
+        setInternalSecondaryActiveTabId(null);
+        return migrated;
+      }
+
+      if (isSecondary) {
+        setInternalSecondaryActiveTabId((curr) => {
+          if (curr !== id) return curr;
+          const closedIdx = prev.filter((t) => t.pane === 'secondary').findIndex((t) => t.id === id);
+          const fallback = nextSecondary[closedIdx] ?? nextSecondary[closedIdx - 1] ?? nextSecondary[0];
+          return fallback ? fallback.id : null;
+        });
+      } else {
+        setInternalActiveTabId((curr) => {
+          if (curr !== id) return curr;
+          const closedIdx = prev.filter((t) => (t.pane ?? 'primary') === 'primary').findIndex((t) => t.id === id);
+          const fallback = nextPrimary[closedIdx] ?? nextPrimary[closedIdx - 1] ?? nextPrimary[0];
+          return fallback ? fallback.id : null;
+        });
+      }
+
       return next;
     });
   }, []);
@@ -140,34 +204,73 @@ export function WorkspaceTabsProvider({
     const idSet = new Set(ids);
     setInternalTabs((prev) => {
       const next = prev.filter((t) => !idSet.has(t.id));
+      const nextPrimary = next.filter((t) => (t.pane ?? 'primary') === 'primary');
+      const nextSecondary = next.filter((t) => t.pane === 'secondary');
+
+      if (nextPrimary.length === 0 && nextSecondary.length > 0) {
+        const migrated = nextSecondary.map((t) => ({ ...t, pane: 'primary' as const }));
+        setInternalActiveTabId(migrated[0]?.id ?? null);
+        setInternalSecondaryActiveTabId(null);
+        return migrated;
+      }
+
       setInternalActiveTabId((current) => {
         if (!current || !idSet.has(current)) return current;
-        const closedIndex = prev.findIndex((t) => t.id === current);
-        let fallback: string | null = null;
-        let minDiff = Infinity;
-        for (let i = 0; i < prev.length; i++) {
-          const tab = prev[i];
-          if (!idSet.has(tab.id)) {
-            const diff = Math.abs(i - closedIndex);
-            if (diff < minDiff) {
-              minDiff = diff;
-              fallback = tab.id;
-            }
-          }
-        }
-        return fallback;
+        return nextPrimary[0]?.id ?? null;
       });
+
+      setInternalSecondaryActiveTabId((current) => {
+        if (!current || !idSet.has(current)) return current;
+        return nextSecondary[0]?.id ?? null;
+      });
+
       return next;
     });
   }, []);
 
-  const closeAllTabs = useCallback(() => {
-    setInternalTabs([]);
-    setInternalActiveTabId(null);
+  const closeSplit = useCallback(() => {
+    setInternalTabs((prev) => {
+      const next = prev.map((t) => ({ ...t, pane: 'primary' as const }));
+      setInternalSecondaryActiveTabId(null);
+      return next;
+    });
   }, []);
 
+  const closeAllTabs = useCallback(
+    (pane?: 'primary' | 'secondary') => {
+      if (!pane) {
+        setInternalTabs([]);
+        setInternalActiveTabId(null);
+        setInternalSecondaryActiveTabId(null);
+      } else if (pane === 'secondary') {
+        closeSplit();
+      } else {
+        setInternalTabs((prev) => {
+          const secondary = prev.filter((t) => t.pane === 'secondary');
+          const migrated = secondary.map((t) => ({ ...t, pane: 'primary' as const }));
+          setInternalActiveTabId(migrated[0]?.id ?? null);
+          setInternalSecondaryActiveTabId(null);
+          return migrated;
+        });
+      }
+    },
+    [closeSplit],
+  );
+
   const setActiveTab = useCallback((id: string) => {
-    setInternalActiveTabId(id);
+    setInternalTabs((prev) => {
+      const tab = prev.find((t) => t.id === id);
+      if (tab?.pane === 'secondary') {
+        setInternalSecondaryActiveTabId(id);
+      } else {
+        setInternalActiveTabId(id);
+      }
+      return prev;
+    });
+  }, []);
+
+  const setSecondaryActiveTab = useCallback((id: string) => {
+    setInternalSecondaryActiveTabId(id);
   }, []);
 
   const updateTab = useCallback(
@@ -179,36 +282,142 @@ export function WorkspaceTabsProvider({
     [],
   );
 
-  const moveTab = useCallback((fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
-    setInternalTabs((prev) => {
-      if (
-        fromIndex < 0 ||
-        fromIndex >= prev.length ||
-        toIndex < 0 ||
-        toIndex >= prev.length
-      ) {
-        return prev;
-      }
-      const updated = [...prev];
-      const [moved] = updated.splice(fromIndex, 1);
-      updated.splice(toIndex, 0, moved);
-      return updated;
-    });
-  }, []);
+  const moveTab = useCallback(
+    (fromIndex: number, toIndex: number, pane: 'primary' | 'secondary' = 'primary') => {
+      if (fromIndex === toIndex) return;
+      setInternalTabs((prev) => {
+        const paneTabs = prev.filter((t) => (t.pane ?? 'primary') === pane);
+        if (
+          fromIndex < 0 ||
+          fromIndex >= paneTabs.length ||
+          toIndex < 0 ||
+          toIndex >= paneTabs.length
+        ) {
+          return prev;
+        }
+        const otherTabs = prev.filter((t) => (t.pane ?? 'primary') !== pane);
+        const updatedPaneTabs = [...paneTabs];
+        const [moved] = updatedPaneTabs.splice(fromIndex, 1);
+        updatedPaneTabs.splice(toIndex, 0, moved);
+        return pane === 'primary'
+          ? [...updatedPaneTabs, ...otherTabs]
+          : [...otherTabs, ...updatedPaneTabs];
+      });
+    },
+    [],
+  );
+
+  const moveTabToPane = useCallback(
+    (tabId: string, targetPane: 'primary' | 'secondary', targetIndex?: number) => {
+      setInternalTabs((prev) => {
+        const tab = prev.find((t) => t.id === tabId);
+        if (!tab) return prev;
+        const currentPane = tab.pane ?? 'primary';
+        if (currentPane === targetPane && targetIndex === undefined) return prev;
+
+        const updatedTab = { ...tab, pane: targetPane };
+        const remainingCurrent = prev.filter(
+          (t) => t.id !== tabId && (t.pane ?? 'primary') === currentPane,
+        );
+        const targetList = prev.filter(
+          (t) => t.id !== tabId && (t.pane ?? 'primary') === targetPane,
+        );
+
+        const newTargetList = [...targetList];
+        if (
+          targetIndex !== undefined &&
+          targetIndex >= 0 &&
+          targetIndex <= newTargetList.length
+        ) {
+          newTargetList.splice(targetIndex, 0, updatedTab);
+        } else {
+          newTargetList.push(updatedTab);
+        }
+
+        if (targetPane === 'secondary') {
+          setInternalSecondaryActiveTabId(tabId);
+        } else {
+          setInternalActiveTabId(tabId);
+        }
+
+        if (currentPane === 'secondary') {
+          setInternalSecondaryActiveTabId((curr) => {
+            if (curr !== tabId) return curr;
+            return remainingCurrent[0]?.id ?? null;
+          });
+        } else {
+          setInternalActiveTabId((curr) => {
+            if (curr !== tabId) return curr;
+            return remainingCurrent[0]?.id ?? null;
+          });
+        }
+
+        return targetPane === 'primary'
+          ? [...newTargetList, ...remainingCurrent]
+          : [...remainingCurrent, ...newTargetList];
+      });
+    },
+    [],
+  );
+
+  const splitTab = useCallback(
+    (
+      tabId: string,
+      direction: 'horizontal' | 'vertical',
+      side: 'left' | 'right' | 'top' | 'bottom',
+    ) => {
+      setSplitDirection(direction);
+      setInternalTabs((prev) => {
+        const tab = prev.find((t) => t.id === tabId);
+        if (!tab) return prev;
+
+        if (side === 'right' || side === 'bottom') {
+          const next = prev.map((t) =>
+            t.id === tabId ? { ...t, pane: 'secondary' as const } : t,
+          );
+          const primary = next.filter((t) => (t.pane ?? 'primary') === 'primary');
+          setInternalSecondaryActiveTabId(tabId);
+          setInternalActiveTabId((curr) => {
+            if (curr !== tabId) return curr;
+            return primary[0]?.id ?? null;
+          });
+          return next;
+        } else {
+          const next = prev.map((t) =>
+            t.id === tabId
+              ? { ...t, pane: 'primary' as const }
+              : { ...t, pane: 'secondary' as const },
+          );
+          setInternalActiveTabId(tabId);
+          const secondary = next.filter((t) => t.pane === 'secondary');
+          setInternalSecondaryActiveTabId(secondary[0]?.id ?? null);
+          return next;
+        }
+      });
+    },
+    [],
+  );
 
   return (
     <WorkspaceTabsContext.Provider
       value={{
         tabs,
         activeTabId,
+        secondaryActiveTabId,
+        splitDirection,
+        isSplit,
         openTab,
         closeTab,
         closeTabs,
         closeAllTabs,
         setActiveTab,
+        setSecondaryActiveTab,
         updateTab,
         moveTab,
+        moveTabToPane,
+        splitTab,
+        closeSplit,
+        setSplitDirection,
         isTabsLoaded: isLoaded,
       }}
     >

@@ -47,7 +47,7 @@ export function SettingsApproval() {
             )}
           >
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              <AlertTriangle className="h-4 w-4 text-warning" />
               <span className="text-xs font-semibold text-foreground">
                 위험 도구만 승인 요청 (권장)
               </span>
@@ -75,7 +75,7 @@ export function SettingsApproval() {
             )}
           >
             <div className="flex items-center gap-2">
-              <ShieldAlert className="h-4 w-4 text-rose-400" />
+              <ShieldAlert className="h-4 w-4 text-destructive" />
               <span className="text-xs font-semibold text-foreground">모든 도구 승인 요청 (엄격)</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1 ml-6 leading-relaxed">
@@ -94,7 +94,7 @@ export function SettingsApproval() {
             )}
           >
             <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-sky-400" />
+              <ShieldCheck className="h-4 w-4 text-primary" />
               <span className="text-xs font-semibold text-foreground">자동 승인 (위험)</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1 ml-6 leading-relaxed">

@@ -77,7 +77,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 title="복사"
               >
-                {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
                 <span>{copied ? '복사됨' : '복사'}</span>
               </button>
             </div>
@@ -167,7 +167,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                     ) : (
                       <ChevronRight className="h-3.5 w-3.5" />
                     )}
-                    <Brain className="h-3.5 w-3.5 text-amber-400" />
+                    <Brain className="h-3.5 w-3.5 text-warning" />
                     <span className="font-medium text-[11px]">생각 과정 (Thinking)</span>
                   </button>
                   {showThinking && (
@@ -283,7 +283,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                 onClick={handleCopy}
                 className="flex items-center gap-1 text-xs hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/70 cursor-pointer"
               >
-                {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
                 <span>{copied ? '복사됨' : '복사'}</span>
               </button>
             </div>

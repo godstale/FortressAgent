@@ -23,7 +23,7 @@ const mockAgent: Agent = {
 };
 
 describe('AgentCard connection status', () => {
-  it('renders with unknown status (white icon) by default', () => {
+  it('renders with unknown status (neutral icon) by default', () => {
     render(
       <AgentCard
         agent={mockAgent}
@@ -36,7 +36,7 @@ describe('AgentCard connection status', () => {
 
     const statusButton = screen.getByLabelText(/상태체크 전/i);
     expect(statusButton).toBeInTheDocument();
-    expect(statusButton.className).toContain('text-white');
+    expect(statusButton.className).toContain('text-foreground');
   });
 
   it('renders green icon styling when status is connected', () => {
@@ -53,7 +53,7 @@ describe('AgentCard connection status', () => {
 
     const statusButton = screen.getByLabelText(/연결됨/i);
     expect(statusButton).toBeInTheDocument();
-    expect(statusButton.className).toContain('text-emerald-500');
+    expect(statusButton.className).toContain('text-success');
   });
 
   it('renders red icon styling when status is disconnected', () => {
@@ -70,7 +70,7 @@ describe('AgentCard connection status', () => {
 
     const statusButton = screen.getByLabelText(/미연결/i);
     expect(statusButton).toBeInTheDocument();
-    expect(statusButton.className).toContain('text-rose-500');
+    expect(statusButton.className).toContain('text-destructive');
   });
 
   it('triggers onCheckConnection when clicking the status icon button', () => {

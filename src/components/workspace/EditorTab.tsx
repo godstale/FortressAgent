@@ -39,33 +39,33 @@ export interface EditorTabProps {
  */
 const darkHighlightStyle = HighlightStyle.define([
   // Markdown Headings
-  { tag: t.heading1, color: '#38bdf8', fontWeight: 'bold', fontSize: '1.25em' },
-  { tag: t.heading2, color: '#60a5fa', fontWeight: 'bold', fontSize: '1.15em' },
-  { tag: t.heading3, color: '#818cf8', fontWeight: 'bold', fontSize: '1.05em' },
-  { tag: [t.heading4, t.heading5, t.heading6], color: '#a78bfa', fontWeight: 'bold' },
+  { tag: t.heading1, color: '#8AB6FF', fontWeight: 'bold', fontSize: '1.25em' },
+  { tag: t.heading2, color: '#5B9BFF', fontWeight: 'bold', fontSize: '1.15em' },
+  { tag: t.heading3, color: '#A3B0EC', fontWeight: 'bold', fontSize: '1.05em' },
+  { tag: [t.heading4, t.heading5, t.heading6], color: '#E09BE6', fontWeight: 'bold' },
 
   // Markdown Formatting
-  { tag: t.strong, fontWeight: 'bold', color: '#f8fafc' },
-  { tag: t.emphasis, fontStyle: 'italic', color: '#e2e8f0' },
-  { tag: t.link, color: '#38bdf8', textDecoration: 'underline' },
-  { tag: t.url, color: '#2dd4bf' },
-  { tag: t.quote, color: '#94a3b8', fontStyle: 'italic' },
+  { tag: t.strong, fontWeight: 'bold', color: '#F5F6FB' },
+  { tag: t.emphasis, fontStyle: 'italic', color: '#E8EBFA' },
+  { tag: t.link, color: '#8AB6FF', textDecoration: 'underline' },
+  { tag: t.url, color: '#A3B0EC' },
+  { tag: t.quote, color: '#A6ADCF', fontStyle: 'italic' },
   { tag: t.strikethrough, textDecoration: 'line-through', opacity: '0.6' },
 
   // Code & Tokens
-  { tag: t.monospace, color: '#f472b6', backgroundColor: 'rgba(244, 114, 182, 0.08)' },
-  { tag: t.keyword, color: '#f472b6', fontWeight: '600' },
-  { tag: [t.string, t.special(t.string)], color: '#4ade80' },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: '#64748b', fontStyle: 'italic' },
-  { tag: [t.number, t.integer, t.float], color: '#facc15' },
-  { tag: [t.bool, t.null], color: '#fb923c', fontWeight: '600' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#38bdf8' },
-  { tag: [t.typeName, t.className], color: '#fbbf24', fontWeight: '500' },
-  { tag: [t.propertyName, t.attributeName], color: '#93c5fd' },
-  { tag: [t.variableName, t.definition(t.variableName)], color: '#e2e8f0' },
-  { tag: t.operator, color: '#cbd5e1' },
-  { tag: [t.meta, t.documentMeta], color: '#a855f7' },
-  { tag: t.tagName, color: '#f87171', fontWeight: '500' },
+  { tag: t.monospace, color: '#E09BE6', backgroundColor: 'rgba(224, 155, 230, 0.10)' },
+  { tag: t.keyword, color: '#E09BE6', fontWeight: '600' },
+  { tag: [t.string, t.special(t.string)], color: '#4FD39A' },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: '#8189B0', fontStyle: 'italic' },
+  { tag: [t.number, t.integer, t.float], color: '#FFC062' },
+  { tag: [t.bool, t.null], color: '#FF8A80', fontWeight: '600' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#8AB6FF' },
+  { tag: [t.typeName, t.className], color: '#FFC062', fontWeight: '500' },
+  { tag: [t.propertyName, t.attributeName], color: '#B3CCFF' },
+  { tag: [t.variableName, t.definition(t.variableName)], color: '#E8EBFA' },
+  { tag: t.operator, color: '#B3B9D2' },
+  { tag: [t.meta, t.documentMeta], color: '#DE92E3' },
+  { tag: t.tagName, color: '#FF8A80', fontWeight: '500' },
 ]);
 
 /**
@@ -73,34 +73,36 @@ const darkHighlightStyle = HighlightStyle.define([
  */
 const lightHighlightStyle = HighlightStyle.define([
   // Markdown Headings
-  { tag: t.heading1, color: '#0969da', fontWeight: 'bold', fontSize: '1.25em' },
-  { tag: t.heading2, color: '#0550ae', fontWeight: 'bold', fontSize: '1.15em' },
-  { tag: t.heading3, color: '#1a7f37', fontWeight: 'bold', fontSize: '1.05em' },
-  { tag: [t.heading4, t.heading5, t.heading6], color: '#8250df', fontWeight: 'bold' },
+  { tag: t.heading1, color: '#0062DB', fontWeight: 'bold', fontSize: '1.25em' },
+  { tag: t.heading2, color: '#004FB3', fontWeight: 'bold', fontSize: '1.15em' },
+  { tag: t.heading3, color: '#4357BE', fontWeight: 'bold', fontSize: '1.05em' },
+  { tag: [t.heading4, t.heading5, t.heading6], color: '#8E4394', fontWeight: 'bold' },
 
   // Markdown Formatting
-  { tag: t.strong, fontWeight: 'bold', color: '#1f2328' },
-  { tag: t.emphasis, fontStyle: 'italic', color: '#24292f' },
-  { tag: t.link, color: '#0969da', textDecoration: 'underline' },
-  { tag: t.url, color: '#0550ae' },
-  { tag: t.quote, color: '#57606a', fontStyle: 'italic' },
+  { tag: t.strong, fontWeight: 'bold', color: '#0E1330' },
+  { tag: t.emphasis, fontStyle: 'italic', color: '#1A1F3A' },
+  { tag: t.link, color: '#0062DB', textDecoration: 'underline' },
+  { tag: t.url, color: '#004FB3' },
+  { tag: t.quote, color: '#4A5173', fontStyle: 'italic' },
   { tag: t.strikethrough, textDecoration: 'line-through', opacity: '0.6' },
 
   // Code & Tokens
-  { tag: t.monospace, color: '#cf222e', backgroundColor: 'rgba(175, 15, 34, 0.06)' },
-  { tag: t.keyword, color: '#cf222e', fontWeight: '600' },
-  { tag: [t.string, t.special(t.string)], color: '#0a3069' },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: '#6e7781', fontStyle: 'italic' },
-  { tag: [t.number, t.integer, t.float], color: '#0550ae' },
-  { tag: [t.bool, t.null], color: '#953800', fontWeight: '600' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#8250df' },
-  { tag: [t.typeName, t.className], color: '#953800', fontWeight: '500' },
-  { tag: [t.propertyName, t.attributeName], color: '#116329' },
-  { tag: [t.variableName, t.definition(t.variableName)], color: '#24292f' },
-  { tag: t.operator, color: '#0550ae' },
-  { tag: [t.meta, t.documentMeta], color: '#8250df' },
-  { tag: t.tagName, color: '#116329', fontWeight: '500' },
+  { tag: t.monospace, color: '#8E4394', backgroundColor: 'rgba(142, 67, 148, 0.06)' },
+  { tag: t.keyword, color: '#8E4394', fontWeight: '600' },
+  { tag: [t.string, t.special(t.string)], color: '#0B7A4B' },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: '#5F6689', fontStyle: 'italic' },
+  { tag: [t.number, t.integer, t.float], color: '#004FB3' },
+  { tag: [t.bool, t.null], color: '#8F5600', fontWeight: '600' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#4357BE' },
+  { tag: [t.typeName, t.className], color: '#8F5600', fontWeight: '500' },
+  { tag: [t.propertyName, t.attributeName], color: '#34449A' },
+  { tag: [t.variableName, t.definition(t.variableName)], color: '#0E1330' },
+  { tag: t.operator, color: '#004FB3' },
+  { tag: [t.meta, t.documentMeta], color: '#8E4394' },
+  { tag: t.tagName, color: '#C4302B', fontWeight: '500' },
 ]);
+
+const EDITOR_FONT = "'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 /**
  * Modern Dark Editor Theme
@@ -108,13 +110,13 @@ const lightHighlightStyle = HighlightStyle.define([
 const darkEditorTheme = EditorView.theme({
   '&': {
     height: '100%',
-    color: '#e6edf3',
-    backgroundColor: '#0d1117',
+    color: '#E8EBFA',
+    backgroundColor: '#0B1026',
     fontSize: 'var(--editor-font-size, 13px)',
   },
   '.cm-content': {
-    caretColor: '#38bdf8',
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+    caretColor: '#8AB6FF',
+    fontFamily: EDITOR_FONT,
     lineHeight: '1.65',
     padding: '12px 4px',
   },
@@ -122,47 +124,47 @@ const darkEditorTheme = EditorView.theme({
     overflow: 'auto',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: '#38bdf8',
+    borderLeftColor: '#8AB6FF',
     borderLeftWidth: '2px',
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'rgba(56, 189, 248, 0.25) !important',
+    backgroundColor: 'rgba(91, 155, 255, 0.28) !important',
   },
   '.cm-panels': {
-    backgroundColor: '#161b22',
-    color: '#e6edf3',
+    backgroundColor: '#111733',
+    color: '#E8EBFA',
   },
   '.cm-panels.cm-panels-top': {
-    borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+    borderBottom: '1px solid #2A3360',
   },
   '.cm-panels.cm-panels-bottom': {
-    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+    borderTop: '1px solid #2A3360',
   },
   '.cm-gutters': {
-    backgroundColor: '#0d1117',
-    color: '#484f58',
-    borderRight: '1px solid rgba(255, 255, 255, 0.07)',
+    backgroundColor: '#0B1026',
+    color: '#8189B0',
+    borderRight: '1px solid #2A3360',
     minWidth: '38px',
     paddingRight: '8px',
   },
   '.cm-activeLine': {
-    backgroundColor: 'rgba(255, 255, 255, 0.035)',
+    backgroundColor: 'rgba(91, 155, 255, 0.06)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    color: '#f0f6fc',
+    backgroundColor: 'rgba(91, 155, 255, 0.10)',
+    color: '#E8EBFA',
     fontWeight: '600',
   },
   '.cm-foldPlaceholder': {
-    backgroundColor: '#21262d',
+    backgroundColor: '#212A55',
     border: 'none',
-    color: '#8b949e',
+    color: '#A6ADCF',
     borderRadius: '3px',
     padding: '0 4px',
   },
   '.cm-matchingBracket': {
-    backgroundColor: 'rgba(56, 189, 248, 0.2)',
-    outline: '1px solid rgba(56, 189, 248, 0.4)',
+    backgroundColor: 'rgba(91, 155, 255, 0.2)',
+    outline: '1px solid rgba(91, 155, 255, 0.45)',
   },
 });
 
@@ -172,13 +174,13 @@ const darkEditorTheme = EditorView.theme({
 const lightEditorTheme = EditorView.theme({
   '&': {
     height: '100%',
-    color: '#24292f',
-    backgroundColor: '#ffffff',
+    color: '#0E1330',
+    backgroundColor: '#FFFFFF',
     fontSize: 'var(--editor-font-size, 13px)',
   },
   '.cm-content': {
-    caretColor: '#0969da',
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+    caretColor: '#0062DB',
+    fontFamily: EDITOR_FONT,
     lineHeight: '1.65',
     padding: '12px 4px',
   },
@@ -186,47 +188,47 @@ const lightEditorTheme = EditorView.theme({
     overflow: 'auto',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: '#0969da',
+    borderLeftColor: '#0062DB',
     borderLeftWidth: '2px',
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'rgba(9, 105, 218, 0.18) !important',
+    backgroundColor: 'rgba(0, 98, 219, 0.18) !important',
   },
   '.cm-panels': {
-    backgroundColor: '#f6f8fa',
-    color: '#24292f',
+    backgroundColor: '#F4F6FB',
+    color: '#0E1330',
   },
   '.cm-panels.cm-panels-top': {
-    borderBottom: '1px solid #d0d7de',
+    borderBottom: '1px solid #D3D8E8',
   },
   '.cm-panels.cm-panels-bottom': {
-    borderTop: '1px solid #d0d7de',
+    borderTop: '1px solid #D3D8E8',
   },
   '.cm-gutters': {
-    backgroundColor: '#f6f8fa',
-    color: '#8c959f',
-    borderRight: '1px solid #e1e4e8',
+    backgroundColor: '#F4F6FB',
+    color: '#5F6689',
+    borderRight: '1px solid #E3E7F2',
     minWidth: '38px',
     paddingRight: '8px',
   },
   '.cm-activeLine': {
-    backgroundColor: 'rgba(234, 238, 242, 0.5)',
+    backgroundColor: 'rgba(0, 98, 219, 0.04)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: '#eaeef2',
-    color: '#24292f',
+    backgroundColor: '#E3E7F2',
+    color: '#0E1330',
     fontWeight: '600',
   },
   '.cm-foldPlaceholder': {
-    backgroundColor: '#eaeef2',
+    backgroundColor: '#E3E7F2',
     border: 'none',
-    color: '#57606a',
+    color: '#4A5173',
     borderRadius: '3px',
     padding: '0 4px',
   },
   '.cm-matchingBracket': {
-    backgroundColor: 'rgba(9, 105, 218, 0.15)',
-    outline: '1px solid rgba(9, 105, 218, 0.35)',
+    backgroundColor: 'rgba(0, 98, 219, 0.12)',
+    outline: '1px solid rgba(0, 98, 219, 0.35)',
   },
 });
 
@@ -503,14 +505,14 @@ export function EditorTab({ tab }: EditorTabProps) {
           <div className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded bg-muted/40 border border-border/60">
             {saveStatus === 'saving' && (
               <>
-                <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
-                <span className="text-amber-400">저장 중...</span>
+                <Loader2 className="h-3 w-3 animate-spin text-warning" />
+                <span className="text-warning">저장 중...</span>
               </>
             )}
             {saveStatus === 'saved' && (
               <>
-                <Check className="h-3 w-3 text-emerald-400" />
-                <span className="text-emerald-400">저장됨</span>
+                <Check className="h-3 w-3 text-success" />
+                <span className="text-success">저장됨</span>
               </>
             )}
             {saveStatus === 'error' && (

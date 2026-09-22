@@ -105,13 +105,13 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
   const getLevelIcon = (level: LogLevel) => {
     switch (level) {
       case 'error':
-        return <XCircle className="h-3 w-3 text-rose-400 shrink-0" />;
+        return <XCircle className="h-3 w-3 text-destructive shrink-0" />;
       case 'warn':
-        return <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />;
+        return <AlertTriangle className="h-3 w-3 text-warning shrink-0" />;
       case 'info':
-        return <Info className="h-3 w-3 text-blue-400 shrink-0" />;
+        return <Info className="h-3 w-3 text-primary shrink-0" />;
       case 'debug':
-        return <CheckCircle2 className="h-3 w-3 text-zinc-400 shrink-0" />;
+        return <CheckCircle2 className="h-3 w-3 text-muted-foreground shrink-0" />;
     }
   };
 
@@ -187,7 +187,7 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
             variant="ghost"
             size="sm"
             onClick={() => setClearDialogOpen(true)}
-            className="h-6 text-[11px] gap-1 px-2 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+            className="h-6 text-[11px] gap-1 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
             title="실행 로그 비우기"
           >
             <Trash2 className="h-3 w-3" />
@@ -214,9 +214,9 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
                 key={l.id}
                 className={`p-2.5 rounded-lg border leading-relaxed text-[11px] break-all transition-colors ${
                   l.level === 'error'
-                    ? 'bg-destructive/10 border-destructive/30 text-rose-300'
+                    ? 'bg-destructive/10 border-destructive/30 text-destructive'
                     : l.level === 'warn'
-                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                    ? 'bg-warning/10 border-warning/30 text-warning'
                     : l.level === 'debug'
                     ? 'bg-muted/20 border-border/30 text-muted-foreground'
                     : 'bg-card/70 border-border/60 text-foreground'

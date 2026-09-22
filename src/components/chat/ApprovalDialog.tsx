@@ -106,8 +106,8 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
     activeRequest.risk === 'critical'
       ? 'bg-destructive/20 text-destructive border-destructive/30'
       : activeRequest.risk === 'high'
-        ? 'bg-amber-500/20 text-amber-500 border-amber-500/30'
-        : 'bg-blue-500/20 text-blue-500 border-blue-500/30';
+        ? 'bg-warning/20 text-warning border-warning/30'
+        : 'bg-primary/20 text-primary border-primary/30';
 
   return (
     <Dialog open={Boolean(activeRequest)} onOpenChange={(open) => !open && handleDecision(false)}>
@@ -117,7 +117,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
             {activeRequest.risk === 'critical' ? (
               <AlertTriangle className="h-5 w-5 text-destructive" />
             ) : (
-              <ShieldAlert className="h-5 w-5 text-amber-500" />
+              <ShieldAlert className="h-5 w-5 text-warning" />
             )}
             <DialogTitle className="text-base font-semibold text-foreground">
               도구 실행 승인 요청
@@ -152,7 +152,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
           {isShell && shellCommand && (
             <div className="space-y-1">
               <span className="text-[11px] font-medium text-muted-foreground">실행될 명령:</span>
-              <div className="p-3 rounded-lg bg-black text-green-400 font-mono text-xs overflow-x-auto border border-border/80">
+              <div className="p-3 rounded-lg bg-code text-code-foreground font-mono text-xs overflow-x-auto border border-border/80">
                 <code>$ {shellCommand}</code>
               </div>
             </div>
@@ -183,8 +183,8 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
                   <div className="text-destructive font-semibold mb-1">- 변경 전</div>
                   <pre className="whitespace-pre-wrap">{targetContent}</pre>
                 </div>
-                <div className="p-2 rounded bg-green-500/10 border border-green-500/20 max-h-32 overflow-y-auto">
-                  <div className="text-green-500 font-semibold mb-1">+ 변경 후</div>
+                <div className="p-2 rounded bg-success/10 border border-success/20 max-h-32 overflow-y-auto">
+                  <div className="text-success font-semibold mb-1">+ 변경 후</div>
                   <pre className="whitespace-pre-wrap">{replacementContent}</pre>
                 </div>
               </div>

@@ -46,7 +46,7 @@ export function WelcomeGuide() {
           <div className="flex items-center justify-between">
             <div className="space-y-1">
               <h2 className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                <FolderOpen className="h-4 w-4 text-amber-400" />
+                <FolderOpen className="h-4 w-4 text-warning" />
                 프로젝트 폴더 열기
               </h2>
               <p className="text-xs text-muted-foreground">
@@ -96,17 +96,17 @@ export function WelcomeGuide() {
         {/* Feature Highlights */}
         <div className="grid grid-cols-3 gap-3 text-center">
           <div className="p-3.5 rounded-xl border border-border/50 bg-card/40 space-y-1">
-            <Files className="h-4 w-4 text-sky-400 mx-auto" />
+            <Files className="h-4 w-4 text-primary mx-auto" />
             <div className="text-[11px] font-semibold text-foreground">로컬 파일 작업</div>
             <p className="text-[10px] text-muted-foreground">안전한 샌드박스 파일 읽기/쓰기</p>
           </div>
           <div className="p-3.5 rounded-xl border border-border/50 bg-card/40 space-y-1">
-            <ShieldCheck className="h-4 w-4 text-emerald-400 mx-auto" />
+            <ShieldCheck className="h-4 w-4 text-success mx-auto" />
             <div className="text-[11px] font-semibold text-foreground">위험 동작 승인제</div>
             <p className="text-[10px] text-muted-foreground">쓰기/명령어 실행 전 사용자 확인</p>
           </div>
           <div className="p-3.5 rounded-xl border border-border/50 bg-card/40 space-y-1">
-            <Sparkles className="h-4 w-4 text-amber-400 mx-auto" />
+            <Sparkles className="h-4 w-4 text-warning mx-auto" />
             <div className="text-[11px] font-semibold text-foreground">AGENTS.md & 스킬</div>
             <p className="text-[10px] text-muted-foreground">워크스페이스 규칙 자동 인지</p>
           </div>

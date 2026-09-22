@@ -33,7 +33,7 @@ export function SettingsModel() {
               로컬 또는 원격 Ollama 인스턴스 HTTP 엔드포인트입니다.
             </p>
           </div>
-          <span className="flex items-center gap-1 text-xs text-emerald-400 font-medium">
+          <span className="flex items-center gap-1 text-xs text-success font-medium">
             <CheckCircle2 className="h-3.5 w-3.5" />
             연결됨
           </span>

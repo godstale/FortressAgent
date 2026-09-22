@@ -37,7 +37,7 @@
 | 이미지 뷰어 탭                              | `src/components/workspace/ImageViewerTab.tsx` (`convertFileSrc` + 줌)                                                         | `src/components/workspace/ImageViewerTab.tsx`                                                                          |
 | 텍스트 파일 편집 탭                         | `src/components/workspace/EditorTab.tsx` (textarea 기반, autosave)                                                            | `src/components/workspace/EditorTab.tsx` (단, **CodeMirror 6로 실제 문법 강조 추가** — VivoStudio는 없었음, 개선 사항) |
 | Context per concern 상태관리                | `src/lib/context/*`                                                                                                           | `src/lib/context/*`                                                                                                    |
-| 다크 우선 테마(CSS 변수)                    | `src/index.css`, `ThemeContext.tsx`                                                                                           | 동일                                                                                                                   |
+| 다크 우선 테마(CSS 변수)                    | `src/index.css`, `ThemeContext.tsx`                                                                                           | 동일 + **Midnight Rampart 디자인 시스템**(`design/` 토큰·프리셋, 규칙은 `DESIGN.md`)                                   |
 | Tauri IPC 파일 커맨드 네이밍                | `read_text_file`, `write_text_file`, `read_project_folder_tree`, `create_file`, `create_folder`, `rename_path`, `delete_path` | 동일한 커맨드명 재사용 (일관성 유지)                                                                                   |
 
 **가져오지 않는 것**: VivoStudio의 "fake Supabase" DB 클라이언트, 강좌(Course) 관련 기능, TTS, 3D/애니메이션 카드 렌더러, CLI 에이전트(Claude Code/Codex) 터미널 런처, 스플릿 탭 드래그앤드롭(1단계 고정 분할)은 **1차 스코프에서 제외**(Phase 7 이후 "선택적 확장"으로만 고려).
@@ -85,7 +85,9 @@ Fortress/
 ├── pnpm-lock.yaml
 ├── tsconfig.json
 ├── vite.config.ts
-├── tailwind.config.ts
+├── tailwind.config.ts             # design/tailwind.preset.ts 를 preset으로 사용
+├── DESIGN.md                      # 디자인 시스템(색·타이포·포팅 가이드)
+├── design/                        # tokens.json(단일 진실 공급원), build-theme.mjs, theme.css, tailwind.preset.ts
 ├── postcss.config.mjs
 ├── components.json                # shadcn/ui 설정
 ├── index.html

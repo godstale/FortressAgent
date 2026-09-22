@@ -178,24 +178,24 @@ export function TopMenuBar() {
               파일 (File)
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-56 text-xs">
-            <DropdownMenuItem onClick={handlePickFolder} className="gap-2 cursor-pointer">
-              <FolderOpen className="h-3.5 w-3.5 text-amber-400" />
+          <DropdownMenuContent align="start" className="w-56 text-[11px] p-1 [&_[role=menuitem]]:text-[11px] [&_[role=menuitem]]:py-1 [&_[role=menuitem]]:gap-2 [&_[role=menuitem]_svg]:size-3.5">
+            <DropdownMenuItem onClick={handlePickFolder} className="gap-2 cursor-pointer text-[11px] py-1">
+              <FolderOpen className="h-3.5 w-3.5 text-warning" />
               <span>폴더 열기...</span>
             </DropdownMenuItem>
 
             {recentWorkspaces.length > 0 && (
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="gap-2">
+                <DropdownMenuSubTrigger className="gap-2 text-[11px] py-1 cursor-pointer">
                   <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>최근 폴더 열기</span>
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-64">
+                <DropdownMenuSubContent className="w-64 text-[11px] p-1 [&_[role=menuitem]]:text-[11px] [&_[role=menuitem]]:py-1 [&_[role=menuitem]]:gap-2 [&_[role=menuitem]_svg]:size-3.5">
                   {recentWorkspaces.map((path) => (
                     <DropdownMenuItem
                       key={path}
                       onClick={() => setWorkspaceRoot(path)}
-                      className="cursor-pointer truncate"
+                      className="cursor-pointer truncate text-[11px] py-1"
                       title={path}
                     >
                       <span className="truncate">{path}</span>
@@ -206,7 +206,7 @@ export function TopMenuBar() {
             )}
 
             {workspaceRoot && (
-              <DropdownMenuItem onClick={handleCloseFolder} className="gap-2 cursor-pointer">
+              <DropdownMenuItem onClick={handleCloseFolder} className="gap-2 cursor-pointer text-[11px] py-1">
                 <FolderX className="h-3.5 w-3.5 text-muted-foreground" />
                 <span>폴더 닫기</span>
               </DropdownMenuItem>
@@ -222,7 +222,7 @@ export function TopMenuBar() {
                 }
               }}
               className={cn(
-                'gap-2',
+                'gap-2 text-[11px] py-1',
                 !hasWorkspace
                   ? 'opacity-40 cursor-not-allowed pointer-events-none'
                   : 'cursor-pointer',
@@ -232,7 +232,7 @@ export function TopMenuBar() {
               <span>새 대화 시작</span>
             </DropdownMenuItem>
 
-            <DropdownMenuItem onClick={() => navigate('/settings')} className="gap-2 cursor-pointer">
+            <DropdownMenuItem onClick={() => navigate('/settings')} className="gap-2 cursor-pointer text-[11px] py-1">
               <Settings className="h-3.5 w-3.5 text-muted-foreground" />
               <span>설정 (Settings)</span>
             </DropdownMenuItem>
@@ -257,14 +257,14 @@ export function TopMenuBar() {
             </button>
           </DropdownMenuTrigger>
           {hasWorkspace && (
-            <DropdownMenuContent align="start" className="w-48 text-xs">
-              <DropdownMenuItem onClick={handleCreateAgent} className="gap-2 cursor-pointer">
+            <DropdownMenuContent align="start" className="w-48 text-[11px] p-1 [&_[role=menuitem]]:text-[11px] [&_[role=menuitem]]:py-1 [&_[role=menuitem]]:gap-2 [&_[role=menuitem]_svg]:size-3.5">
+              <DropdownMenuItem onClick={handleCreateAgent} className="gap-2 cursor-pointer text-[11px] py-1">
                 <Bot className="h-3.5 w-3.5 text-primary" />
                 <span>새 에이전트 생성</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setActiveView('agents')}
-                className="gap-2 cursor-pointer"
+                className="gap-2 cursor-pointer text-[11px] py-1"
               >
                 <Bot className="h-3.5 w-3.5 text-muted-foreground" />
                 <span>에이전트 관리 패널</span>
@@ -291,26 +291,26 @@ export function TopMenuBar() {
             </button>
           </DropdownMenuTrigger>
           {hasWorkspace && (
-            <DropdownMenuContent align="start" className="w-48 text-xs">
+            <DropdownMenuContent align="start" className="w-48 text-[11px] p-1 [&_[role=menuitem]]:text-[11px] [&_[role=menuitem]]:py-1 [&_[role=menuitem]]:gap-2 [&_[role=menuitem]_svg]:size-3.5">
               <DropdownMenuItem
                 onClick={() => setActiveView('explorer')}
-                className="gap-2 cursor-pointer"
+                className="gap-2 cursor-pointer text-[11px] py-1"
               >
-                <Files className="h-3.5 w-3.5 text-sky-400" />
+                <Files className="h-3.5 w-3.5 text-primary" />
                 <span>파일 탐색기</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setActiveView('chat-sessions')}
-                className="gap-2 cursor-pointer"
+                className="gap-2 cursor-pointer text-[11px] py-1"
               >
-                <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
+                <MessageSquare className="h-3.5 w-3.5 text-success" />
                 <span>대화 목록</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setActiveView('skills')}
-                className="gap-2 cursor-pointer"
+                className="gap-2 cursor-pointer text-[11px] py-1"
               >
-                <Puzzle className="h-3.5 w-3.5 text-amber-400" />
+                <Puzzle className="h-3.5 w-3.5 text-warning" />
                 <span>스킬 관리</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -330,7 +330,7 @@ export function TopMenuBar() {
             onClick={handlePickFolder}
             title={`${workspaceRoot} (클릭하여 폴더 변경)`}
           >
-            <Folder className="h-3 w-3 text-amber-400 shrink-0" />
+            <Folder className="h-3 w-3 text-warning shrink-0" />
             <span className="font-semibold text-foreground">{folderName}</span>
             <span className="opacity-50 text-[10px] truncate max-w-sm hidden sm:inline">
               — {workspaceRoot}
@@ -339,7 +339,7 @@ export function TopMenuBar() {
         ) : (
           <div
             data-no-drag="true"
-            className="flex items-center gap-1.5 text-[11px] text-amber-400/80 font-medium cursor-pointer hover:text-amber-300 transition-colors px-2 py-0.5 rounded hover:bg-muted/40"
+            className="flex items-center gap-1.5 text-[11px] text-warning/80 font-medium cursor-pointer hover:text-warning transition-colors px-2 py-0.5 rounded hover:bg-muted/40"
             onClick={handlePickFolder}
           >
             <FolderOpen className="h-3 w-3" />

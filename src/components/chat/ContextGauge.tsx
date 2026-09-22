@@ -8,15 +8,15 @@ export function ContextGauge({ tokens, limit, onClick }: ContextGaugeProps) {
   const safeLimit = limit > 0 ? limit : 32768;
   const percentage = Math.min(100, Math.round((tokens / safeLimit) * 100));
 
-  let barColor = 'bg-emerald-500';
+  let barColor = 'bg-success';
   let textColor = 'text-muted-foreground';
 
   if (percentage >= 85) {
     barColor = 'bg-destructive';
     textColor = 'text-destructive';
   } else if (percentage >= 65) {
-    barColor = 'bg-amber-500';
-    textColor = 'text-amber-500';
+    barColor = 'bg-warning';
+    textColor = 'text-warning';
   }
 
   return (

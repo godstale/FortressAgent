@@ -67,24 +67,24 @@ export const AgentCard: React.FC<AgentCardProps> = ({
     switch (status) {
       case 'connected':
         return {
-          containerClass: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500',
-          iconClass: 'text-emerald-500',
-          dotClass: 'bg-emerald-500',
+          containerClass: 'bg-success/10 border-success/30 text-success',
+          iconClass: 'text-success',
+          dotClass: 'bg-success',
           label: '연결됨 (서비스 정상)',
         };
       case 'disconnected':
         return {
-          containerClass: 'bg-rose-500/10 border-rose-500/30 text-rose-500',
-          iconClass: 'text-rose-500',
-          dotClass: 'bg-rose-500',
+          containerClass: 'bg-destructive/10 border-destructive/30 text-destructive',
+          iconClass: 'text-destructive',
+          dotClass: 'bg-destructive',
           label: '미연결 (서비스 미연결 또는 모델 미설치)',
         };
       case 'unknown':
       default:
         return {
-          containerClass: 'bg-zinc-700/30 border-zinc-500/40 text-white',
-          iconClass: 'text-white',
-          dotClass: 'bg-white',
+          containerClass: 'bg-muted border-border text-foreground',
+          iconClass: 'text-foreground',
+          dotClass: 'bg-foreground',
           label: '상태체크 전',
         };
     }
@@ -119,8 +119,8 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               <div className="flex items-center gap-1.5">
                 <h4 className="text-xs font-semibold text-foreground truncate">{agent.name}</h4>
                 {agent.isDefault && (
-                  <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-amber-500/15 text-amber-500 text-[10px] font-medium border border-amber-500/25 shrink-0">
-                    <Star className="h-2.5 w-2.5 fill-amber-500" />
+                  <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-warning/15 text-warning text-[10px] font-medium border border-warning/25 shrink-0">
+                    <Star className="h-2.5 w-2.5 fill-warning" />
                     <span>기본</span>
                   </span>
                 )}
@@ -146,7 +146,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               <button
                 type="button"
                 onClick={() => onSetDefault(agent)}
-                className="p-1 rounded text-muted-foreground hover:text-amber-500 hover:bg-muted transition-colors"
+                className="p-1 rounded text-muted-foreground hover:text-warning hover:bg-muted transition-colors"
                 title="기본 에이전트로 설정"
               >
                 <Star className="h-3.5 w-3.5" />
@@ -180,7 +180,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
             <span className="truncate max-w-[100px]">{agent.model}</span>
           </span>
           <span className="flex items-center gap-1 bg-muted/60 px-1.5 py-0.5 rounded">
-            <Layers className="h-3 w-3 text-cyan-400" />
+            <Layers className="h-3 w-3 text-info" />
             <span>
               {agent.contextSize > 0
                 ? `${agent.contextSize >= 1024 ? Math.round(agent.contextSize / 1024) + 'k' : agent.contextSize} ctx`
@@ -197,7 +197,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           </span>
           {agent.enabledSkills.length > 0 && (
             <span className="flex items-center gap-1 bg-muted/60 px-1.5 py-0.5 rounded">
-              <BookOpen className="h-3 w-3 text-sky-400" />
+              <BookOpen className="h-3 w-3 text-primary" />
               <span>{agent.enabledSkills.length}개 스킬</span>
             </span>
           )}
@@ -237,7 +237,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               className="w-full h-7 text-[10px] px-1 flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
               title="세션 및 호출 지표 통계"
             >
-              <Cpu className="h-3 w-3 text-amber-400" />
+              <Cpu className="h-3 w-3 text-warning" />
               <span>통계</span>
             </Button>
 
@@ -249,7 +249,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               className="w-full h-7 text-[10px] px-1 flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
               title="에이전트 실행 로그"
             >
-              <Terminal className="h-3 w-3 text-sky-400" />
+              <Terminal className="h-3 w-3 text-primary" />
               <span>로그</span>
             </Button>
           </div>
@@ -265,7 +265,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               정말로 <strong className="text-foreground font-medium">"{agent.name}"</strong>{' '}
               에이전트를 삭제하시겠습니까?
               {agent.isDefault && (
-                <span className="block mt-2 text-amber-500 font-medium">
+                <span className="block mt-2 text-warning font-medium">
                   * 이 에이전트는 현재 기본 에이전트입니다. 삭제 시 목록의 다음 에이전트가
                   자동으로 기본으로 승격됩니다.
                 </span>
