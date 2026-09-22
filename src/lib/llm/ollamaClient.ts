@@ -210,8 +210,13 @@ export async function* streamChat(
             ? Number((parsed.load_duration / 1e6).toFixed(1))
             : 0;
 
+          // If prompt was cached or duration is extremely sub-millisecond (< 20ms with tokens),
+          // avoid division by near-zero which yields absurd 120,000+ t/s spikes that skew the charts
+          const isPromptCached = promptEvalDurationMs < 20 && promptEvalCount > 5;
           const prefillSpeed =
-            promptEvalDurationMs > 0
+            isPromptCached
+              ? 0
+              : promptEvalDurationMs > 0
               ? Number(((promptEvalCount / (promptEvalDurationMs / 1000))).toFixed(1))
               : 0;
           const decodingSpeed =
@@ -228,6 +233,7 @@ export async function* streamChat(
             evalDurationMs,
             prefillSpeed,
             decodingSpeed,
+            completedAt: Date.now(),
           };
         }
 

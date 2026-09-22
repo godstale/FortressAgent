@@ -25,15 +25,46 @@ class MonitoringCollectorService {
   private intervals = new Map<string, number>();
   private isCollectingMap = new Map<string, boolean>();
   private latestInferenceMetrics = new Map<string, LlmPerformanceMetrics>();
+  private lastCompletedMetrics = new Map<string, LlmPerformanceMetrics>();
   private lastDbSavedTime = new Map<string, number>();
   private lastSavedStatus = new Map<string, string>();
+  private activeAgentContexts = new Map<
+    string,
+    { agent: Agent; baseUrl: string; workspaceRoot?: string | null }
+  >();
+  private runningModelsCache = new Map<
+    string,
+    { models: OllamaRunningModel[]; timestamp: number }
+  >();
 
   public recordInferenceMetrics(agentId: string, metrics: LlmPerformanceMetrics): void {
     this.latestInferenceMetrics.set(agentId, metrics);
+    this.lastCompletedMetrics.set(agentId, metrics);
+
+    // Event-driven immediate measurement:
+    // If the agent is actively being monitored, trigger an immediate collection right after inference completes.
+    // If a periodic tick is currently in flight, retry shortly so the fresh metrics are captured without waiting.
+    const ctx = this.activeAgentContexts.get(agentId);
+    if (ctx) {
+      if (this.isCollectingMap.get(agentId)) {
+        setTimeout(() => {
+          const freshCtx = this.activeAgentContexts.get(agentId);
+          if (freshCtx) {
+            void this.collect(freshCtx.agent, freshCtx.baseUrl, freshCtx.workspaceRoot);
+          }
+        }, 100);
+      } else {
+        void this.collect(ctx.agent, ctx.baseUrl, ctx.workspaceRoot);
+      }
+    }
   }
 
   public getLatestInferenceMetrics(agentId: string): LlmPerformanceMetrics | undefined {
     return this.latestInferenceMetrics.get(agentId);
+  }
+
+  public getLastCompletedMetrics(agentId: string): LlmPerformanceMetrics | undefined {
+    return this.lastCompletedMetrics.get(agentId);
   }
 
   public subscribe(agentId: string, listener: MonitoringListener): () => void {
@@ -55,6 +86,7 @@ class MonitoringCollectorService {
 
   public setInterval(agentId: string, intervalMs: number, agent: Agent, baseUrl: string, workspaceRoot?: string | null): void {
     this.intervals.set(agentId, intervalMs);
+    this.activeAgentContexts.set(agentId, { agent, baseUrl, workspaceRoot });
     if (this.activeTimers.has(agentId)) {
       this.stop(agentId);
       this.start(agent, baseUrl, intervalMs, workspaceRoot);
@@ -75,6 +107,8 @@ class MonitoringCollectorService {
     intervalMs = 3000,
     workspaceRoot?: string | null,
   ): void {
+    this.activeAgentContexts.set(agent.id, { agent, baseUrl, workspaceRoot });
+
     if (this.activeTimers.has(agent.id)) {
       return;
     }
@@ -97,6 +131,7 @@ class MonitoringCollectorService {
       clearInterval(timer);
       this.activeTimers.delete(agentId);
     }
+    this.activeAgentContexts.delete(agentId);
   }
 
   public stopAll(): void {
@@ -104,6 +139,7 @@ class MonitoringCollectorService {
       clearInterval(timer);
     }
     this.activeTimers.clear();
+    this.activeAgentContexts.clear();
   }
 
   public async collectNow(
@@ -180,7 +216,12 @@ class MonitoringCollectorService {
     try {
       const timestamp = new Date().toISOString();
 
-      // 1. Query Hardware GPU & System Memory
+      // 1. Detect Current Operational Task first
+      const opState = this.detectAgentOperationalStatus(agent.id);
+      const isAgentActive = opState.status !== 'idle';
+      const hasPendingInference = this.latestInferenceMetrics.has(agent.id);
+
+      // 2. Query Hardware GPU & System Memory
       let gpuInfo: SystemGpuInfo;
       try {
         gpuInfo = await getSystemGpuInfo();
@@ -198,12 +239,28 @@ class MonitoringCollectorService {
         };
       }
 
-      // 2. Query Running Models in Ollama memory
+      // 3. Query Running Models in Ollama memory (Throttled/cached when idle to save overhead)
       let runningModels: OllamaRunningModel[] = [];
-      try {
-        runningModels = await getRunningModels(baseUrl);
-      } catch (err) {
-        console.warn('Failed to query running models from Ollama:', err);
+      const cachedRunning = this.runningModelsCache.get(baseUrl);
+      const nowMs = Date.now();
+      const shouldQueryRunningModels =
+        isAgentActive ||
+        hasPendingInference ||
+        !cachedRunning ||
+        nowMs - cachedRunning.timestamp >= 10_000;
+
+      if (shouldQueryRunningModels) {
+        try {
+          runningModels = await getRunningModels(baseUrl);
+          this.runningModelsCache.set(baseUrl, { models: runningModels, timestamp: nowMs });
+        } catch (err) {
+          console.warn('Failed to query running models from Ollama:', err);
+          if (cachedRunning) {
+            runningModels = cachedRunning.models;
+          }
+        }
+      } else {
+        runningModels = cachedRunning.models;
       }
 
       // Match current agent model
@@ -216,10 +273,10 @@ class MonitoringCollectorService {
           agentModelName.startsWith(m.name.split(':')[0]),
       );
 
-      // 3. Query or use cached architecture
+      // 4. Query or use cached architecture
       const arch = await this.getArchitectureCached(baseUrl, agent.model);
 
-      // 4. Memory breakdown & CPU/GPU Offloading
+      // 5. Memory breakdown & CPU/GPU Offloading
       const modelWeightBytes = matchedRunning ? matchedRunning.size : 0;
       const vramAllocatedBytes = matchedRunning ? matchedRunning.size_vram : 0;
       const gpuOffloadPct =
@@ -239,11 +296,14 @@ class MonitoringCollectorService {
           )
         : 0;
 
-      // 6. Detect Current Operational Task
-      const opState = this.detectAgentOperationalStatus(agent.id);
+      // 6. Get pending inference performance metrics and last completed inference
+      const pendingPerf = this.latestInferenceMetrics.get(agent.id);
+      const lastCompleted = this.lastCompletedMetrics.get(agent.id);
 
-      // 7. Get latest inference performance metrics
-      const perf = this.latestInferenceMetrics.get(agent.id);
+      // Consume pending metrics so idle snapshots return to 0 (flat horizontal lines removed)
+      if (pendingPerf) {
+        this.latestInferenceMetrics.delete(agent.id);
+      }
 
       const snapshot: AgentMonitoringSnapshot = {
         id: `mon-${agent.id}-${Date.now()}`,
@@ -268,13 +328,13 @@ class MonitoringCollectorService {
         gpuOffloadPct,
         agentStatus: opState.status,
         currentTask: opState.task,
-        prefillTokens: perf?.promptEvalCount,
-        prefillDurationMs: perf?.promptEvalDurationMs,
-        prefillSpeed: perf?.prefillSpeed,
-        decodingTokens: perf?.evalCount,
-        decodingDurationMs: perf?.evalDurationMs,
-        decodingSpeed: perf?.decodingSpeed,
-        totalDurationMs: perf?.totalDurationMs,
+        prefillTokens: pendingPerf ? pendingPerf.promptEvalCount : 0,
+        prefillDurationMs: pendingPerf ? pendingPerf.promptEvalDurationMs : 0,
+        prefillSpeed: pendingPerf ? pendingPerf.prefillSpeed : 0,
+        decodingTokens: pendingPerf ? pendingPerf.evalCount : 0,
+        decodingDurationMs: pendingPerf ? pendingPerf.evalDurationMs : 0,
+        decodingSpeed: pendingPerf ? pendingPerf.decodingSpeed : 0,
+        totalDurationMs: pendingPerf ? pendingPerf.totalDurationMs : 0,
         details: {
           blockCount: arch?.blockCount ?? 0,
           headCount: arch?.headCount ?? 0,
@@ -286,6 +346,18 @@ class MonitoringCollectorService {
           parameterCount: arch?.parameterCount ?? 0,
           isModelLoadedInMemory: Boolean(matchedRunning),
           runningExpiresAt: matchedRunning?.expires_at,
+          lastCompletedInference: lastCompleted
+            ? {
+                prefillSpeed: lastCompleted.prefillSpeed,
+                decodingSpeed: lastCompleted.decodingSpeed,
+                prefillDurationMs: lastCompleted.promptEvalDurationMs,
+                decodingDurationMs: lastCompleted.evalDurationMs,
+                prefillTokens: lastCompleted.promptEvalCount,
+                decodingTokens: lastCompleted.evalCount,
+                totalDurationMs: lastCompleted.totalDurationMs,
+                completedAt: lastCompleted.completedAt,
+              }
+            : null,
           allRunningModels: runningModels.map((r) => ({
             name: r.name,
             size_vram_mb: Math.round(r.size_vram / 1024 / 1024),
@@ -297,19 +369,19 @@ class MonitoringCollectorService {
       // Intelligent DB persistence:
       // Always persist when active (generating, executing tool, or state changed),
       // but throttle writes to max once per 15s when agent is completely idle with low GPU to prevent DB bloat.
-      const nowMs = Date.now();
+      const currentMs = Date.now();
       const lastSaved = this.lastDbSavedTime.get(agent.id) ?? 0;
       const prevStatus = this.lastSavedStatus.get(agent.id);
       const isStatusChanged = prevStatus !== snapshot.agentStatus;
       const isActivelyWorking = snapshot.agentStatus !== 'idle';
       const hasRecentInference = (snapshot.prefillTokens ?? 0) > 0 || (snapshot.decodingTokens ?? 0) > 0;
       const isGpuActive = snapshot.gpuUtilizationPct > 10;
-      const shouldSaveToDb = isActivelyWorking || isStatusChanged || hasRecentInference || isGpuActive || (nowMs - lastSaved >= 15_000);
+      const shouldSaveToDb = isActivelyWorking || isStatusChanged || hasRecentInference || isGpuActive || (currentMs - lastSaved >= 15_000);
 
       if (shouldSaveToDb) {
         try {
           await saveMonitoringSnapshot(snapshot, workspaceRoot);
-          this.lastDbSavedTime.set(agent.id, nowMs);
+          this.lastDbSavedTime.set(agent.id, currentMs);
           this.lastSavedStatus.set(agent.id, snapshot.agentStatus);
         } catch (err) {
           console.warn('Failed to save monitoring snapshot to SQLite:', err);

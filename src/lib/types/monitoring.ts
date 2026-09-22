@@ -56,6 +56,7 @@ export interface LlmPerformanceMetrics {
   evalDurationMs: number;
   prefillSpeed: number; // tokens/sec
   decodingSpeed: number; // tokens/sec
+  completedAt?: number; // timestamp in ms when inference finished
 }
 
 export interface AgentMonitoringSnapshot {
