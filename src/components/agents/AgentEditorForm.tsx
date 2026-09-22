@@ -289,7 +289,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-medium text-muted-foreground">Ollama 모델</label>
               {!modelSupportsTools && (
-                <span className="text-[10px] text-amber-500 font-medium flex items-center gap-0.5">
+                <span className="text-[10px] text-warning font-medium flex items-center gap-0.5">
                   <AlertTriangle className="h-3 w-3" /> 도구 미지원
                 </span>
               )}
@@ -474,7 +474,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
       <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-amber-500" />
+            <Shield className="h-4 w-4 text-warning" />
             <h3 className="text-sm font-semibold text-foreground">도구 승인 정책</h3>
           </div>
           <span className="text-[11px] text-muted-foreground font-mono">
@@ -489,21 +489,21 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
                 id: 'always',
                 label: '엄격 (모든 도구 승인)',
                 tag: '최고 보안',
-                tagColor: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                tagColor: 'bg-primary/10 text-primary border-primary/20',
                 desc: '파일 읽기(read)를 포함하여 모든 도구 호출 시 매번 사용자 승인을 받습니다.',
               },
               {
                 id: 'dangerous-only',
                 label: '기본 (위험 도구만)',
                 tag: '권장',
-                tagColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+                tagColor: 'bg-success/10 text-success border-success/20',
                 desc: '파일 읽기/검색은 자동 허용하고 파일 쓰기·수정 및 셸 실행 시에만 확인합니다.',
               },
               {
                 id: 'never',
                 label: '위험 (자동 승인 / YOLO)',
                 tag: '주의',
-                tagColor: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+                tagColor: 'bg-destructive/10 text-destructive border-destructive/20',
                 desc: '파일 쓰기/수정도 확인 없이 즉시 실행합니다 (셸 실행은 안전상 여전히 확인).',
               },
             ] as const
@@ -536,9 +536,9 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
               <div className="text-muted-foreground text-[10px] mb-1">파일 읽기/검색 (read, ls, grep)</div>
               <div className="font-semibold">
                 {approvalMode === 'always' ? (
-                  <span className="text-amber-400">🛡️ 매번 승인 요청</span>
+                  <span className="text-warning">🛡️ 매번 승인 요청</span>
                 ) : (
-                  <span className="text-emerald-400">⚡ 자동 실행</span>
+                  <span className="text-success">⚡ 자동 실행</span>
                 )}
               </div>
             </div>
@@ -546,15 +546,15 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
               <div className="text-muted-foreground text-[10px] mb-1">파일 쓰기/수정 (write, edit)</div>
               <div className="font-semibold">
                 {approvalMode === 'never' ? (
-                  <span className="text-rose-400">⚡ 자동 실행 (주의)</span>
+                  <span className="text-destructive">⚡ 자동 실행 (주의)</span>
                 ) : (
-                  <span className="text-amber-400">🛡️ 매번 승인 요청</span>
+                  <span className="text-warning">🛡️ 매번 승인 요청</span>
                 )}
               </div>
             </div>
             <div className="p-2 rounded bg-muted/30 border border-border/50">
               <div className="text-muted-foreground text-[10px] mb-1">시스템 명령 (shell)</div>
-              <div className="font-semibold text-rose-400">
+              <div className="font-semibold text-destructive">
                 🛡️ 항상 승인 필수 (§7)
               </div>
             </div>
@@ -577,7 +577,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         </div>
 
         {showReadToolWarning && (
-          <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs flex items-center gap-1.5">
+          <div className="p-2.5 rounded bg-warning/10 border border-warning/30 text-warning text-xs flex items-center gap-1.5">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span>스킬 본문을 읽으려면 <code>read</code> 도구가 필요합니다 (§4.2).</span>
           </div>
@@ -625,7 +625,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-sky-400" />
+              <BookOpen className="h-4 w-4 text-primary" />
               <h3 className="text-sm font-semibold text-foreground">활성 스킬 (Agent Skills)</h3>
             </div>
             <span className="text-[11px] text-muted-foreground">
@@ -641,7 +641,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
                   key={skill.name}
                   className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
                     isChecked
-                      ? 'border-sky-500/50 bg-sky-500/5'
+                      ? 'border-primary/50 bg-primary/5'
                       : 'border-border/60 hover:bg-muted/40'
                   }`}
                 >
@@ -649,7 +649,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
                     type="checkbox"
                     checked={isChecked}
                     onChange={() => toggleSkill(skill.name)}
-                    className="rounded border-border text-sky-500 focus:ring-sky-500 h-3.5 w-3.5 mt-0.5 accent-sky-500"
+                    className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 mt-0.5 accent-primary"
                   />
                   <div className="min-w-0">
                     <span className="text-xs font-mono font-medium text-foreground">

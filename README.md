@@ -136,6 +136,7 @@ Fortress의 내부 구조 파악, 커스텀 에이전트 개발, 벤치마크 �
 | **단계별 구현 계획서** | **[ImplementationPlan.md](./Docs/ImplementationPlan.md)**<br>Phase 0부터 Phase 7까지의 상세 작업 분할 및 단계별 의존성 그래프. | [바로가기](./Docs/ImplementationPlan.md) |
 | **진행상황 트래커** | **[TODO.md](./Docs/TODO.md)**<br>전체 작업 항목의 완료 상태 트래커 및 과거 이슈 해결 기록. | [바로가기](./Docs/TODO.md) |
 | **품질 검증 체크리스트** | **[QA-Checklist.md](./Docs/QA-Checklist.md)**<br>기능, 성능, 보안, UX 각 영역별 테스트 시나리오 및 품질 검증 기준. | [바로가기](./Docs/QA-Checklist.md) |
+| **디자인 시스템** | **[DESIGN.md](./DESIGN.md)**<br>Midnight Rampart 라이트/다크 테마의 색상 토큰, 타이포그래피, 컴포넌트 패턴, 다른 앱으로의 포팅 가이드(`design/` 리소스). | [바로가기](./DESIGN.md) |
 | **AI 에이전트 작업 지침** | **[AGENTS.md](./AGENTS.md)**<br>Fortress 리포지토리를 개발하는 AI 코딩 에이전트를 위한 컨벤션, 코딩 규칙, 커밋 수칙. | [바로가기](./AGENTS.md) |
 
 ---

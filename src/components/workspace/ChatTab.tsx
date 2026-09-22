@@ -309,7 +309,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           <Bot className="h-4 w-4 text-primary shrink-0" />
           <span className="truncate">{tab.title}</span>
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md font-mono shrink-0">
-            <Sparkles className="h-3 w-3 text-amber-500" />
+            <Sparkles className="h-3 w-3 text-warning" />
             <span className="font-semibold text-foreground">{activeAgent.name}</span>
             <span className="text-muted-foreground/60">•</span>
             <Cpu className="h-3 w-3" />
@@ -317,7 +317,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           </div>
 
           {yoloMode && (
-            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-semibold animate-pulse">
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/20 text-destructive border border-destructive/30 text-[10px] font-semibold animate-pulse">
               <Zap className="h-3 w-3 fill-current" />
               <span>YOLO</span>
             </div>

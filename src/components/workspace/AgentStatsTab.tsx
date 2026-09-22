@@ -268,7 +268,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
         <div>
           <div className="flex items-center gap-2">
             {activeTab === 'logs' ? (
-              <Terminal className="h-5 w-5 text-sky-400" />
+              <Terminal className="h-5 w-5 text-primary" />
             ) : (
               <Activity className="h-5 w-5 text-primary" />
             )}
@@ -340,7 +340,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 size="sm"
                 onClick={() => setClearConfirmOpen(true)}
                 disabled={logs.length === 0}
-                className="text-xs gap-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
+                className="text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
                 title="에이전트 로그 비우기"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -369,7 +369,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
 
             <div className="p-4 rounded-xl bg-card border border-border space-y-1">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                <MessageSquare className="h-3.5 w-3.5 text-sky-400" />
+                <MessageSquare className="h-3.5 w-3.5 text-primary" />
                 <span>총 메시지 수</span>
               </div>
               <div className="text-xl font-bold text-foreground">
@@ -382,7 +382,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
 
             <div className="p-4 rounded-xl bg-card border border-border space-y-1">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                <Cpu className="h-3.5 w-3.5 text-emerald-400" />
+                <Cpu className="h-3.5 w-3.5 text-success" />
                 <span>총 토큰 사용량</span>
               </div>
               <div className="text-xl font-bold text-foreground">
@@ -395,7 +395,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
 
             <div className="p-4 rounded-xl bg-card border border-border space-y-1">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-amber-400" />
+                <Clock className="h-3.5 w-3.5 text-warning" />
                 <span>평균 추론 응답 시간</span>
               </div>
               <div className="text-xl font-bold text-foreground">
@@ -434,15 +434,16 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     <YAxis tick={{ fontSize: 10 }} />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#18181b',
-                        border: '1px solid #27272a',
+                        backgroundColor: 'hsl(var(--popover))',
+                        color: 'hsl(var(--popover-foreground))',
+                        border: '1px solid hsl(var(--border))',
                         borderRadius: '8px',
                         fontSize: '11px',
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    <Bar dataKey="메시지" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="토큰" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="메시지" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="토큰" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -451,7 +452,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
             {/* Tool Executions */}
             <div className="p-4 rounded-xl border border-border bg-card space-y-3">
               <div className="flex items-center gap-2">
-                <Wrench className="h-4 w-4 text-amber-400" />
+                <Wrench className="h-4 w-4 text-warning" />
                 <span className="text-xs font-semibold text-foreground">
                   도구별 호출 빈도 및 성공/실패율
                 </span>
@@ -472,15 +473,16 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                       <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: '#18181b',
-                          border: '1px solid #27272a',
+                          backgroundColor: 'hsl(var(--popover))',
+                          color: 'hsl(var(--popover-foreground))',
+                          border: '1px solid hsl(var(--border))',
                           borderRadius: '8px',
                           fontSize: '11px',
                         }}
                       />
                       <Legend wrapperStyle={{ fontSize: '11px' }} />
-                      <Bar dataKey="성공" fill="#10b981" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="실패" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="성공" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="실패" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -492,7 +494,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
           <div className="p-4 rounded-xl border border-border bg-card space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4 text-amber-400" />
+                <Zap className="h-4 w-4 text-warning" />
                 <span className="text-xs font-semibold text-foreground">
                   컨텍스트 크기 vs 모델 실행 시간(Latency) 상관관계
                 </span>
@@ -521,12 +523,13 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   >
                     <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                     <XAxis dataKey="index" tick={{ fontSize: 10 }} />
-                    <YAxis yAxisId="left" orientation="left" stroke="#3b82f6" tick={{ fontSize: 10 }} />
-                    <YAxis yAxisId="right" orientation="right" stroke="#f59e0b" tick={{ fontSize: 10 }} unit="s" />
+                    <YAxis yAxisId="left" orientation="left" stroke="hsl(var(--chart-1))" tick={{ fontSize: 10 }} />
+                    <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--chart-4))" tick={{ fontSize: 10 }} unit="s" />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#18181b',
-                        border: '1px solid #27272a',
+                        backgroundColor: 'hsl(var(--popover))',
+                        color: 'hsl(var(--popover-foreground))',
+                        border: '1px solid hsl(var(--border))',
                         borderRadius: '8px',
                         fontSize: '11px',
                       }}
@@ -536,16 +539,16 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                       yAxisId="left"
                       type="monotone"
                       dataKey="컨텍스트"
-                      stroke="#3b82f6"
-                      fill="#3b82f6"
+                      stroke="hsl(var(--chart-1))"
+                      fill="hsl(var(--chart-1))"
                       fillOpacity={0.15}
                     />
                     <Area
                       yAxisId="right"
                       type="monotone"
                       dataKey="실행시간_초"
-                      stroke="#f59e0b"
-                      fill="#f59e0b"
+                      stroke="hsl(var(--chart-4))"
+                      fill="hsl(var(--chart-4))"
                       fillOpacity={0.15}
                     />
                   </AreaChart>
@@ -599,10 +602,10 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                           <td className="p-2.5 font-semibold text-foreground">
                             {call.contextTokens.toLocaleString()} tokens
                           </td>
-                          <td className="p-2.5 text-emerald-400 font-medium">
+                          <td className="p-2.5 text-success font-medium">
                             {call.outputTokens.toLocaleString()} tokens
                           </td>
-                          <td className="p-2.5 text-amber-400 font-medium">
+                          <td className="p-2.5 text-warning font-medium">
                             {(call.durationMs / 1000).toFixed(2)}s
                           </td>
                           <td className="p-2.5">
@@ -759,7 +762,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 size="sm"
                 onClick={() => setClearConfirmOpen(true)}
                 disabled={logs.length === 0}
-                className="h-7 text-xs gap-1 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
+                className="h-7 text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
                 title="에이전트 로그 비우기"
               >
                 <Trash2 className="h-3 w-3" />
@@ -785,17 +788,17 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 const isInfo = log.level === 'info';
                 const categoryClass =
                   log.category === 'chat'
-                    ? 'bg-sky-500/20 text-sky-400 border-sky-500/30'
+                    ? 'bg-primary/20 text-primary border-primary/30'
                     : log.category === 'ollama'
-                    ? 'bg-purple-500/20 text-purple-400 border-purple-500/30'
+                    ? 'bg-tertiary/20 text-tertiary border-tertiary/30'
                     : log.category === 'tools'
-                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                    ? 'bg-warning/20 text-warning border-warning/30'
                     : log.category === 'agent'
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    ? 'bg-success/20 text-success border-success/30'
                     : log.category === 'approval'
-                    ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                    ? 'bg-destructive/20 text-destructive border-destructive/30'
                     : log.category === 'context'
-                    ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                    ? 'bg-info/20 text-info border-info/30'
                     : 'bg-muted text-muted-foreground border-border';
 
                 const detailsObj =
@@ -814,7 +817,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   <div
                     key={log.id}
                     className={`p-3 space-y-2 hover:bg-muted/30 transition-colors ${
-                      isError ? 'bg-destructive/5' : isWarn ? 'bg-amber-500/5' : ''
+                      isError ? 'bg-destructive/5' : isWarn ? 'bg-warning/5' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">
@@ -824,9 +827,9 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                             isError
                               ? 'bg-destructive/20 text-destructive border-destructive/30'
                               : isWarn
-                              ? 'bg-amber-500/20 text-amber-500 border-amber-500/30'
+                              ? 'bg-warning/20 text-warning border-warning/30'
                               : isInfo
-                              ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                              ? 'bg-primary/20 text-primary border-primary/30'
                               : 'bg-muted text-muted-foreground border-border'
                           }`}
                         >
@@ -859,7 +862,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                         title="로그 복사"
                       >
                         {copiedLogId === log.id ? (
-                          <Check className="h-3 w-3 text-emerald-400" />
+                          <Check className="h-3 w-3 text-success" />
                         ) : (
                           <Copy className="h-3 w-3" />
                         )}
@@ -873,8 +876,8 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
 
                     {/* Rich Details Renderers */}
                     {hasPrompt && (
-                      <div className="p-2.5 rounded-lg bg-sky-950/20 border border-sky-500/20 text-xs">
-                        <div className="text-[11px] font-semibold text-sky-400 mb-1 flex items-center gap-1.5">
+                      <div className="p-2.5 rounded-lg bg-primary/5 border border-primary/20 text-xs">
+                        <div className="text-[11px] font-semibold text-primary mb-1 flex items-center gap-1.5">
                           <MessageSquare className="h-3.5 w-3.5" />
                           <span>사용자 프롬프트 전문</span>
                         </div>
@@ -885,36 +888,36 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     )}
 
                     {hasThinking && (
-                      <details className="group rounded-lg bg-purple-950/20 border border-purple-500/20 text-xs overflow-hidden" open>
-                        <summary className="px-2.5 py-1.5 font-semibold text-purple-400 cursor-pointer select-none flex items-center justify-between hover:bg-purple-500/10 transition-colors">
+                      <details className="group rounded-lg bg-tertiary/5 border border-tertiary/20 text-xs overflow-hidden" open>
+                        <summary className="px-2.5 py-1.5 font-semibold text-tertiary cursor-pointer select-none flex items-center justify-between hover:bg-tertiary/10 transition-colors">
                           <div className="flex items-center gap-1.5">
-                            <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+                            <Sparkles className="h-3.5 w-3.5 text-tertiary" />
                             <span>LLM 사고 과정 (Thinking / CoT) — {String(detailsObj!.thinking).length}자</span>
                           </div>
                         </summary>
-                        <div className="p-2.5 border-t border-purple-500/20 whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed max-h-72 overflow-y-auto">
+                        <div className="p-2.5 border-t border-tertiary/20 whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed max-h-72 overflow-y-auto">
                           {String(detailsObj!.thinking)}
                         </div>
                       </details>
                     )}
 
                     {hasContent && (
-                      <details className="group rounded-lg bg-emerald-950/20 border border-emerald-500/20 text-xs overflow-hidden" open>
-                        <summary className="px-2.5 py-1.5 font-semibold text-emerald-400 cursor-pointer select-none flex items-center justify-between hover:bg-emerald-500/10 transition-colors">
+                      <details className="group rounded-lg bg-success/5 border border-success/20 text-xs overflow-hidden" open>
+                        <summary className="px-2.5 py-1.5 font-semibold text-success cursor-pointer select-none flex items-center justify-between hover:bg-success/10 transition-colors">
                           <div className="flex items-center gap-1.5">
-                            <Bot className="h-3.5 w-3.5 text-emerald-400" />
+                            <Bot className="h-3.5 w-3.5 text-success" />
                             <span>LLM 응답 전문 — {String(detailsObj!.content).length}자</span>
                           </div>
                         </summary>
-                        <div className="p-2.5 border-t border-emerald-500/20 whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed max-h-72 overflow-y-auto">
+                        <div className="p-2.5 border-t border-success/20 whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed max-h-72 overflow-y-auto">
                           {String(detailsObj!.content)}
                         </div>
                       </details>
                     )}
 
                     {hasArguments && (
-                      <div className="p-2.5 rounded-lg bg-amber-950/20 border border-amber-500/20 text-xs">
-                        <div className="text-[11px] font-semibold text-amber-400 mb-1 flex items-center gap-1.5">
+                      <div className="p-2.5 rounded-lg bg-warning/5 border border-warning/20 text-xs">
+                        <div className="text-[11px] font-semibold text-warning mb-1 flex items-center gap-1.5">
                           <Wrench className="h-3.5 w-3.5" />
                           <span>도구 호출 인자 (Arguments)</span>
                         </div>
@@ -941,14 +944,14 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     )}
 
                     {hasMessages && (
-                      <details className="group rounded-lg bg-zinc-950/40 border border-zinc-700/40 text-xs overflow-hidden">
-                        <summary className="px-2.5 py-1.5 font-semibold text-zinc-400 cursor-pointer select-none flex items-center justify-between hover:bg-zinc-800/40 transition-colors">
+                      <details className="group rounded-lg bg-muted/40 border border-border text-xs overflow-hidden">
+                        <summary className="px-2.5 py-1.5 font-semibold text-muted-foreground cursor-pointer select-none flex items-center justify-between hover:bg-accent transition-colors">
                           <div className="flex items-center gap-1.5">
                             <Code className="h-3.5 w-3.5" />
                             <span>LLM 입력 프롬프트 및 컨텍스트 메시지 ({(detailsObj!.messages as unknown[]).length}개)</span>
                           </div>
                         </summary>
-                        <div className="p-2.5 border-t border-zinc-700/40 space-y-2 max-h-80 overflow-y-auto">
+                        <div className="p-2.5 border-t border-border space-y-2 max-h-80 overflow-y-auto">
                           {(detailsObj!.messages as Array<{ role: string; content?: string }>).map((m, idx) => (
                             <div key={idx} className="p-2 rounded bg-background border border-border/50 font-mono text-[11px]">
                               <div className="font-bold text-primary uppercase text-[10px] mb-1">[{m.role}]</div>
@@ -1036,7 +1039,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 <DialogTitle className="text-sm font-semibold">에이전트 실행 로그 비우기</DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-2">
                   <strong className="text-foreground font-medium">"{agent.name}"</strong> 에이전트의 모든 실행 로그 기록을 완전히 삭제하시겠습니까?
-                  <span className="block mt-2 text-rose-400 font-medium">
+                  <span className="block mt-2 text-destructive font-medium">
                     * 이 작업은 되돌릴 수 없으며, SQLite에 저장된 과거 기록도 모두 삭제됩니다.
                   </span>
                 </DialogDescription>

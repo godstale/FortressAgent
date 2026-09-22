@@ -557,7 +557,7 @@ export function FileTree() {
                 style={{ paddingLeft: `${(depth + 1) * 14 + 6}px` }}
               >
                 {creatingIn.type === 'folder' ? (
-                  <Folder className="h-4 w-4 text-amber-400" />
+                  <Folder className="h-4 w-4 text-warning" />
                 ) : (
                   <File className="h-4 w-4 text-muted-foreground" />
                 )}
@@ -596,7 +596,7 @@ export function FileTree() {
           className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 truncate hover:text-foreground hover:bg-accent/50 px-1.5 py-0.5 rounded transition-colors text-left"
           title="클릭하여 프로젝트 폴더 변경"
         >
-          <Folder className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+          <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
           <span className="truncate">{tree ? tree.name : '파일 탐색기'}</span>
         </button>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -689,7 +689,7 @@ export function FileTree() {
             {creatingIn?.dirPath === workspacePath && (
               <div className="flex items-center gap-1.5 px-2 py-1">
                 {creatingIn.type === 'folder' ? (
-                  <Folder className="h-4 w-4 text-amber-400" />
+                  <Folder className="h-4 w-4 text-warning" />
                 ) : (
                   <File className="h-4 w-4 text-muted-foreground" />
                 )}

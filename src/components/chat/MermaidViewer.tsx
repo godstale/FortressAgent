@@ -5,6 +5,41 @@ import { useTheme } from '../../lib/context/ThemeContext';
 import { isChartDsl } from '../../lib/types/chartDsl';
 import { RechartsViewer } from './RechartsViewer';
 
+// Mermaid derives shades from hex inputs, so it cannot read the CSS variables; values mirror design/tokens.json.
+const MERMAID_DARK = {
+  darkMode: true,
+  background: '#0B1026',
+  primaryColor: '#182044',
+  primaryTextColor: '#E8EBFA',
+  primaryBorderColor: '#5B9BFF',
+  secondaryColor: '#212A55',
+  secondaryBorderColor: '#A3B0EC',
+  tertiaryColor: '#231025',
+  tertiaryBorderColor: '#E09BE6',
+  lineColor: '#8189B0',
+  textColor: '#E8EBFA',
+  noteBkgColor: '#2A1A00',
+  noteTextColor: '#FFD08A',
+  noteBorderColor: '#FFC062',
+};
+
+const MERMAID_LIGHT = {
+  darkMode: false,
+  background: '#FFFFFF',
+  primaryColor: '#EEF4FF',
+  primaryTextColor: '#0E1330',
+  primaryBorderColor: '#0062DB',
+  secondaryColor: '#EFF1FC',
+  secondaryBorderColor: '#4357BE',
+  tertiaryColor: '#FBEFFC',
+  tertiaryBorderColor: '#8E4394',
+  lineColor: '#5F6689',
+  textColor: '#0E1330',
+  noteBkgColor: '#FFF6E5',
+  noteTextColor: '#0E1330',
+  noteBorderColor: '#8F5600',
+};
+
 interface MermaidViewerProps {
   code: string;
 }
@@ -35,7 +70,8 @@ const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
         mermaid.initialize({
           startOnLoad: false,
           suppressErrorRendering: true,
-          theme: isDark ? 'dark' : 'default',
+          theme: 'base',
+          themeVariables: isDark ? MERMAID_DARK : MERMAID_LIGHT,
           securityLevel: 'loose',
           fontFamily: 'inherit',
         });
@@ -104,7 +140,7 @@ const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
             className="absolute top-2 right-2 p-1 rounded bg-background/80 hover:bg-background text-muted-foreground hover:text-foreground transition-colors"
             title="Copy code"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
           <pre className="overflow-x-auto rounded bg-background/50 p-2 font-mono text-[11px] text-foreground">
             <code>{code}</code>
@@ -123,7 +159,7 @@ const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
           className="p-1.5 rounded bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           title="Copy diagram code"
         >
-          {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
         </button>
       </div>
 

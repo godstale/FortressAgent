@@ -19,4 +19,5 @@ export interface WorkspaceTab {
   type: WorkspaceTabType;
   title: string;
   meta?: Record<string, unknown>;
+  pane?: 'primary' | 'secondary';
 }

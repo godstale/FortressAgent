@@ -65,12 +65,13 @@ import {
   clearMonitoringSnapshots,
 } from '@/lib/db/repositories/monitoringRepo';
 import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
+import { listModels } from '@/lib/llm/ollamaClient';
 
 const CHART_COLORS = {
-  gpu: '#10b981', // 선명한 에메랄드 녹색 (GPU 점유율)
-  vram: '#8b5cf6', // 뚜렷이 대비되는 바이올렛 보라색 (VRAM 메모리)
-  prefill: '#f59e0b', // 앰버 황색 (Prefill 속도 및 시간)
-  decoding: '#06b6d4', // 시안 청록색 (디코딩 속도 및 시간)
+  gpu: 'hsl(var(--chart-3))', // 선명한 에메랄드 녹색 (GPU 점유율)
+  vram: 'hsl(var(--chart-2))', // 뚜렷이 대비되는 바이올렛 보라색 (VRAM 메모리)
+  prefill: 'hsl(var(--chart-4))', // 앰버 황색 (Prefill 속도 및 시간)
+  decoding: 'hsl(var(--chart-5))', // 시안 청록색 (디코딩 속도 및 시간)
 } as const;
 
 const INTERVAL_OPTIONS = [
@@ -162,13 +163,25 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
   const [snapshots, setSnapshots] = useState<AgentMonitoringSnapshot[]>([]);
   const [currentSnapshot, setCurrentSnapshot] = useState<AgentMonitoringSnapshot | null>(null);
-  const [isCollecting, setIsCollecting] = useState(true);
+  const [isCollecting, setIsCollecting] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [ollamaErrorDialogOpen, setOllamaErrorDialogOpen] = useState(false);
+  const [ollamaErrorMessage, setOllamaErrorMessage] = useState('');
   const [intervalMs, setIntervalMs] = useState(3000);
   const [selectedSnapshot, setSelectedSnapshot] = useState<AgentMonitoringSnapshot | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [timelineOffset, setTimelineOffset] = useState(0);
+
+  // Stop collector immediately when tab unmounts or agent changes
+  useEffect(() => {
+    return () => {
+      if (agentId) {
+        monitoringCollector.stop(agentId);
+      }
+    };
+  }, [agentId]);
 
   // Initial load of historical snapshots
   useEffect(() => {
@@ -215,17 +228,34 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
     return () => {
       unsubscribe();
+      // Ensure collector is stopped if tab unmounts while collecting
+      if (agent.id) {
+        monitoringCollector.stop(agent.id);
+      }
     };
   }, [agent, settings.ollamaBaseUrl, isCollecting, intervalMs, workspaceRoot]);
 
-  const handleToggleCollecting = () => {
+  const handleToggleCollecting = async () => {
     if (!agent) return;
     if (isCollecting) {
       monitoringCollector.stop(agent.id);
       setIsCollecting(false);
     } else {
-      monitoringCollector.start(agent, settings.ollamaBaseUrl, intervalMs, workspaceRoot);
-      setIsCollecting(true);
+      setIsStarting(true);
+      try {
+        // Verify Ollama connectivity before starting periodic monitoring
+        await listModels(settings.ollamaBaseUrl);
+        monitoringCollector.start(agent, settings.ollamaBaseUrl, intervalMs, workspaceRoot);
+        setIsCollecting(true);
+      } catch (err) {
+        const errMsg =
+          err instanceof Error ? err.message : 'Ollama 서버에 연결할 수 없습니다.';
+        setOllamaErrorMessage(errMsg);
+        setOllamaErrorDialogOpen(true);
+        setIsCollecting(false);
+      } finally {
+        setIsStarting(false);
+      }
     }
   };
 
@@ -240,11 +270,17 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     if (!agent) return;
     setManualRefreshing(true);
     try {
+      await listModels(settings.ollamaBaseUrl);
       const snap = await monitoringCollector.collectNow(agent, settings.ollamaBaseUrl, workspaceRoot);
       if (snap) {
         setCurrentSnapshot(snap);
-        setSnapshots((prev) => [snap, ...prev.filter((s) => s.id !== snap.id)].slice(0, 60));
+        setSnapshots((prev) => [snap, ...prev.filter((s) => s.id !== snap.id)].slice(0, 100));
       }
+    } catch (err) {
+      const errMsg =
+        err instanceof Error ? err.message : 'Ollama 서버에 연결할 수 없습니다.';
+      setOllamaErrorMessage(errMsg);
+      setOllamaErrorDialogOpen(true);
     } finally {
       setManualRefreshing(false);
     }
@@ -343,23 +379,23 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       case 'generating':
         return {
           label: 'LLM 추론/답변 생성 중',
-          className: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 animate-pulse',
+          className: 'bg-success/20 text-success border-success/30 animate-pulse',
         };
       case 'executing_tool':
         return {
           label: '도구(Tool) 실행 중',
-          className: 'bg-amber-500/20 text-amber-400 border-amber-500/30 animate-pulse',
+          className: 'bg-warning/20 text-warning border-warning/30 animate-pulse',
         };
       case 'waiting_approval':
         return {
           label: '사용자 승인 대기',
-          className: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+          className: 'bg-destructive/20 text-destructive border-destructive/30',
         };
       case 'idle':
       default:
         return {
           label: '대기 중 (유휴 상태)',
-          className: 'bg-zinc-700/40 text-zinc-300 border-zinc-600/40',
+          className: 'bg-muted text-foreground border-border',
         };
     }
   };
@@ -381,10 +417,12 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   {agent.name} 실시간 리소스 모니터링
                 </h2>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border flex items-center gap-1.5 ${statusBadge.className}`}
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border flex items-center gap-1.5 ${
+                    isCollecting ? statusBadge.className : 'bg-muted text-muted-foreground border-border'
+                  }`}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                  {statusBadge.label}
+                  <span className={`w-1.5 h-1.5 rounded-full ${isCollecting ? 'bg-current' : 'bg-subtle'}`} />
+                  {isCollecting ? statusBadge.label : '모니터링 대기 중'}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -425,17 +463,23 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             variant={isCollecting ? 'secondary' : 'default'}
             size="sm"
             onClick={handleToggleCollecting}
+            disabled={isStarting}
             className="h-8 text-xs gap-1.5 cursor-pointer"
           >
-            {isCollecting ? (
+            {isStarting ? (
               <>
-                <Pause className="h-3.5 w-3.5 text-amber-400" />
-                <span>수집 일시정지</span>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                <span>연결 확인 중...</span>
+              </>
+            ) : isCollecting ? (
+              <>
+                <Pause className="h-3.5 w-3.5 text-warning" />
+                <span>모니터링 일시정지</span>
               </>
             ) : (
               <>
-                <Play className="h-3.5 w-3.5 text-emerald-400" />
-                <span>수집 재개</span>
+                <Play className="h-3.5 w-3.5 text-success" />
+                <span>모니터링 시작</span>
               </>
             )}
           </Button>
@@ -472,7 +516,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             size="sm"
             onClick={() => setClearConfirmOpen(true)}
             disabled={snapshots.length === 0}
-            className="h-8 text-xs gap-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 cursor-pointer"
+            className="h-8 text-xs gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
             title="수집된 모니터링 기록 비우기"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -487,7 +531,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <HardDrive className="h-3.5 w-3.5 text-emerald-400" />
+              <HardDrive className="h-3.5 w-3.5 text-success" />
               <span>GPU 사용률</span>
               <KpiCardHelp
                 title="GPU 사용률 & 칩셋 온도"
@@ -496,7 +540,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               />
             </span>
             {currentSnapshot && currentSnapshot.gpuTemperatureC > 0 && (
-              <span className="flex items-center text-[10px] text-amber-400">
+              <span className="flex items-center text-[10px] text-warning">
                 <Thermometer className="h-3 w-3 mr-0.5" />
                 {currentSnapshot.gpuTemperatureC}°C
               </span>
@@ -507,7 +551,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
           <div className="flex items-center justify-between text-xs pt-1">
             <span className="text-muted-foreground text-[10px]">GPU 점유율</span>
-            <span className="font-mono font-semibold text-emerald-400">
+            <span className="font-mono font-semibold text-success">
               {currentSnapshot ? `${currentSnapshot.gpuUtilizationPct}%` : '0%'}
             </span>
           </div>
@@ -526,7 +570,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Cpu className="h-3.5 w-3.5 text-violet-400" />
+              <Cpu className="h-3.5 w-3.5 text-tertiary" />
               <span>VRAM 메모리</span>
               <KpiCardHelp
                 title="VRAM (비디오 메모리) 사용량"
@@ -534,7 +578,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 guide="가중치 + KV 캐시가 전용 VRAM 안에 100% 들어갈 때 최고 속도가 나옵니다. 여유 메모리가 고갈되면 시스템 RAM으로 스왑되어 속도가 급감합니다."
               />
             </span>
-            <span className="text-[10px] font-mono text-violet-400 font-semibold">{vramPercent}%</span>
+            <span className="text-[10px] font-mono text-tertiary font-semibold">{vramPercent}%</span>
           </div>
           <div className="text-base font-bold text-foreground">
             {currentSnapshot && currentSnapshot.gpuVramTotalMb > 0
@@ -546,7 +590,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
           <div className="flex items-center justify-between text-xs pt-1">
             <span className="text-muted-foreground text-[10px]">여유 메모리</span>
-            <span className="font-mono text-[10px] text-emerald-400 font-semibold">
+            <span className="font-mono text-[10px] text-success font-semibold">
               {currentSnapshot ? `${(currentSnapshot.gpuVramFreeMb / 1024).toFixed(1)} GB Free` : '—'}
             </span>
           </div>
@@ -565,7 +609,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Gauge className="h-3.5 w-3.5 text-amber-400" />
+              <Gauge className="h-3.5 w-3.5 text-warning" />
               <span>Prefill 속도 / 시간</span>
               <KpiCardHelp
                 title="Prefill (입력 평가) 속도 & 소요 시간"
@@ -575,7 +619,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </span>
           </div>
           <div className="text-base font-bold text-foreground flex items-baseline gap-1">
-            <span className="font-mono text-amber-400">
+            <span className="font-mono text-warning">
               {currentSnapshot?.prefillSpeed ? `${currentSnapshot.prefillSpeed.toFixed(1)}` : '0.0'}
             </span>
             <span className="text-[10px] text-muted-foreground">token/s</span>
@@ -597,7 +641,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Timer className="h-3.5 w-3.5 text-cyan-400" />
+              <Timer className="h-3.5 w-3.5 text-primary" />
               <span>디코딩 속도 / 시간</span>
               <KpiCardHelp
                 title="디코딩 (답변 생성) 속도 & 소요 시간"
@@ -607,7 +651,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </span>
           </div>
           <div className="text-base font-bold text-foreground flex items-baseline gap-1">
-            <span className="font-mono text-cyan-400">
+            <span className="font-mono text-primary">
               {currentSnapshot?.decodingSpeed ? `${currentSnapshot.decodingSpeed.toFixed(1)}` : '0.0'}
             </span>
             <span className="text-[10px] text-muted-foreground">token/s</span>
@@ -629,7 +673,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Server className="h-3.5 w-3.5 text-purple-400" />
+              <Server className="h-3.5 w-3.5 text-info" />
               <span>LLM 아키텍처</span>
               <KpiCardHelp
                 title="LLM 신경망 구조 & 파라미터"
@@ -643,7 +687,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
           <div className="flex items-center justify-between text-xs pt-1">
             <span className="text-muted-foreground text-[10px]">파라미터</span>
-            <span className="font-mono text-[10px] font-semibold text-purple-300 truncate">
+            <span className="font-mono text-[10px] font-semibold text-info truncate">
               {currentSnapshot?.llmParameterSize || '—'} (
               {rawDetails.quantizationLevel ? String(rawDetails.quantizationLevel) : 'Q4_K'})
             </span>
@@ -657,7 +701,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Layers className="h-3.5 w-3.5 text-sky-400" />
+              <Layers className="h-3.5 w-3.5 text-info" />
               <span>컨텍스트 & KV</span>
               <KpiCardHelp
                 title="컨텍스트 크기 & KV 캐시 메모리"
@@ -667,7 +711,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </span>
           </div>
           <div className="text-base font-bold text-foreground flex items-baseline gap-1.5">
-            <span className="font-mono text-sky-400">
+            <span className="font-mono text-info">
               {formatContextTokenSize(currentSnapshot?.contextSize)}
             </span>
             <span className="text-xs font-normal text-muted-foreground">
@@ -681,7 +725,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             <span className="text-muted-foreground text-[10px]" title="설정된 최대 컨텍스트(64k) 전체 소모 시 필요한 예상 KV 캐시 크기">
               KV 캐시 (최대)
             </span>
-            <span className="font-mono text-[10px] text-sky-400 font-semibold" title="최대 컨텍스트 도달 시 필요한 VRAM 메모리">
+            <span className="font-mono text-[10px] text-info font-semibold" title="최대 컨텍스트 도달 시 필요한 VRAM 메모리">
               {currentSnapshot && currentSnapshot.kvCacheBytes > 0
                 ? formatMemoryBytes(currentSnapshot.kvCacheBytes)
                 : '계산 중...'}
@@ -696,7 +740,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Zap className="h-3.5 w-3.5 text-amber-400" />
+              <Zap className="h-3.5 w-3.5 text-warning" />
               <span>GPU 오프로딩</span>
               <KpiCardHelp
                 title="GPU 가중치 오프로딩 비율"
@@ -707,7 +751,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
           <div className="text-base font-bold text-foreground flex items-center gap-1.5">
             <span>{currentSnapshot ? `${currentSnapshot.gpuOffloadPct}%` : '0%'}</span>
-            <span className="text-[10px] font-medium text-amber-400 truncate">
+            <span className="text-[10px] font-medium text-warning truncate">
               {currentSnapshot && currentSnapshot.gpuOffloadPct >= 100
                 ? 'Full GPU'
                 : currentSnapshot && currentSnapshot.gpuOffloadPct > 0
@@ -717,7 +761,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
           <div className="flex items-center justify-between text-xs pt-1">
             <span className="text-muted-foreground text-[10px]">VRAM 로드</span>
-            <span className="font-mono text-[10px] font-semibold text-emerald-400">
+            <span className="font-mono text-[10px] font-semibold text-success">
               {currentSnapshot && currentSnapshot.vramAllocatedBytes > 0
                 ? `${(currentSnapshot.vramAllocatedBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
                 : '0 GB'}
@@ -725,7 +769,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
           <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full bg-amber-400 transition-all duration-300"
+              className="h-full bg-warning transition-all duration-300"
               style={{ width: `${currentSnapshot?.gpuOffloadPct || 0}%` }}
             />
           </div>
@@ -735,7 +779,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
-              <Radio className="h-3.5 w-3.5 text-emerald-400" />
+              <Radio className="h-3.5 w-3.5 text-success" />
               <span>현재 작업 상태</span>
               <KpiCardHelp
                 title="에이전트 실시간 동작 상태"
@@ -765,7 +809,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="lg:col-span-2 p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-emerald-400" />
+              <Activity className="h-4 w-4 text-success" />
               <h3 className="text-xs font-semibold text-foreground">
                 실시간 GPU 사용률 & VRAM 추이 ({timeSeriesData.length}개 표본)
               </h3>
@@ -776,14 +820,14 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.gpu }}
                 />
-                <span className="text-emerald-400 font-medium">GPU 점유율 (%)</span>
+                <span className="text-success font-medium">GPU 점유율 (%)</span>
               </span>
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <span
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.vram }}
                 />
-                <span className="text-violet-400 font-medium">VRAM 사용량 (MB)</span>
+                <span className="text-tertiary font-medium">VRAM 사용량 (MB)</span>
               </span>
             </div>
           </div>
@@ -791,7 +835,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           <div className="w-full h-64">
             {timeSeriesData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                수집된 실시간 데이터가 없습니다. 상단의 수집 시작 버튼을 확인해주세요.
+                수집된 실시간 데이터가 없습니다. 상단의 '모니터링 시작' 버튼을 눌러 측정을 시작해주세요.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -815,8 +859,9 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#18181b',
-                      border: '1px solid #27272a',
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
                       borderRadius: '8px',
                       fontSize: '11px',
                     }}
@@ -849,7 +894,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-violet-400" />
+              <Cpu className="h-4 w-4 text-tertiary" />
               <h3 className="text-xs font-semibold text-foreground">VRAM 메모리 분배 상세</h3>
             </div>
             <span className="text-[10px] text-muted-foreground font-mono">단위: MB</span>
@@ -868,17 +913,18 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   <YAxis tick={{ fontSize: 10 }} unit="MB" />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#18181b',
-                      border: '1px solid #27272a',
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
                       borderRadius: '8px',
                       fontSize: '11px',
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: '10px' }} />
-                  <Bar dataKey="모델 가중치(Weights)" stackId="a" fill="#8b5cf6" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="KV 캐시(추정)" stackId="a" fill="#38bdf8" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="기타 사용량" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="여유 공간(Free)" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="모델 가중치(Weights)" stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="KV 캐시(추정)" stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="기타 사용량" stackId="a" fill="hsl(var(--chart-4))" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="여유 공간(Free)" stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -892,7 +938,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Gauge className="h-4 w-4 text-amber-400" />
+              <Gauge className="h-4 w-4 text-warning" />
               <h3 className="text-xs font-semibold text-foreground">
                 실시간 토큰 생성 속도 추이 (Prefill vs 디코딩 Speed)
               </h3>
@@ -903,14 +949,14 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.prefill }}
                 />
-                <span className="text-amber-400 font-medium">Prefill 속도 (t/s)</span>
+                <span className="text-warning font-medium">Prefill 속도 (t/s)</span>
               </span>
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <span
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.decoding }}
                 />
-                <span className="text-cyan-400 font-medium">디코딩 속도 (t/s)</span>
+                <span className="text-primary font-medium">디코딩 속도 (t/s)</span>
               </span>
             </div>
           </div>
@@ -928,8 +974,9 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   <YAxis tick={{ fontSize: 10 }} unit=" t/s" />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#18181b',
-                      border: '1px solid #27272a',
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
                       borderRadius: '8px',
                       fontSize: '11px',
                     }}
@@ -962,7 +1009,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Timer className="h-4 w-4 text-cyan-400" />
+              <Timer className="h-4 w-4 text-primary" />
               <h3 className="text-xs font-semibold text-foreground">
                 실시간 추론 소요 시간 추이 (Prefill & 디코딩 Latency)
               </h3>
@@ -973,14 +1020,14 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.prefill }}
                 />
-                <span className="text-amber-400 font-medium">Prefill 시간 (ms)</span>
+                <span className="text-warning font-medium">Prefill 시간 (ms)</span>
               </span>
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <span
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.decoding }}
                 />
-                <span className="text-cyan-400 font-medium">디코딩 시간 (ms)</span>
+                <span className="text-primary font-medium">디코딩 시간 (ms)</span>
               </span>
             </div>
           </div>
@@ -998,8 +1045,9 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   <YAxis tick={{ fontSize: 10 }} unit=" ms" />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: '#18181b',
-                      border: '1px solid #27272a',
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
                       borderRadius: '8px',
                       fontSize: '11px',
                     }}
@@ -1035,7 +1083,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Server className="h-4 w-4 text-purple-400" />
+              <Server className="h-4 w-4 text-info" />
               <h3 className="text-xs font-semibold text-foreground">
                 LLM 모델 아키텍처 상세 사양
               </h3>
@@ -1094,7 +1142,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         <div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-amber-400" />
+              <Zap className="h-4 w-4 text-warning" />
               <h3 className="text-xs font-semibold text-foreground">
                 시스템 자원 및 CPU/GPU 오프로딩 상태
               </h3>
@@ -1109,18 +1157,18 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             <div className="space-y-1">
               <div className="flex justify-between text-[11px]">
                 <span className="text-muted-foreground">GPU 레이어 오프로딩 비율</span>
-                <span className="font-mono font-bold text-amber-400">
+                <span className="font-mono font-bold text-warning">
                   {currentSnapshot ? `${currentSnapshot.gpuOffloadPct}%` : '0%'}
                 </span>
               </div>
               <div className="w-full h-2 bg-muted rounded-full overflow-hidden flex">
                 <div
-                  className="h-full bg-amber-400"
+                  className="h-full bg-warning"
                   style={{ width: `${currentSnapshot?.gpuOffloadPct || 0}%` }}
                   title="GPU 오프로드"
                 />
                 <div
-                  className="h-full bg-blue-500"
+                  className="h-full bg-primary"
                   style={{ width: `${Math.max(0, 100 - (currentSnapshot?.gpuOffloadPct || 0))}%` }}
                   title="CPU 연산"
                 />
@@ -1149,13 +1197,13 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <span className="flex items-center gap-1.5 font-sans text-xs">
                 {rawDetails.isModelLoadedInMemory ? (
                   <>
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    <span className="text-emerald-400 font-medium">메모리에 활성화됨</span>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                    <span className="text-success font-medium">메모리에 활성화됨</span>
                   </>
                 ) : (
                   <>
-                    <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="text-amber-400 font-medium">대기 상태 (요청 시 즉시 로드)</span>
+                    <AlertCircle className="h-3.5 w-3.5 text-warning" />
+                    <span className="text-warning font-medium">대기 상태 (요청 시 즉시 로드)</span>
                   </>
                 )}
               </span>
@@ -1272,7 +1320,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
                       {/* Slider Input */}
                       <div className="flex items-center gap-2.5 pt-0.5">
-                        <span className="text-[10px] font-mono text-emerald-400 font-semibold shrink-0">
+                        <span className="text-[10px] font-mono text-success font-semibold shrink-0">
                           [최신 #1]
                         </span>
                         <input
@@ -1323,38 +1371,38 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                                   <span>{new Date(snap.timestamp).toLocaleTimeString()}</span>
                                 </div>
                               </td>
-                      <td className="p-2.5 font-semibold text-emerald-400">
+                      <td className="p-2.5 font-semibold text-success">
                         {snap.gpuUtilizationPct}%
                       </td>
-                      <td className="p-2.5 font-medium text-violet-400">
+                      <td className="p-2.5 font-medium text-tertiary">
                         {snap.gpuVramUsedMb.toLocaleString()} MB
                       </td>
-                      <td className="p-2.5 text-amber-400">
+                      <td className="p-2.5 text-warning">
                         {snap.prefillSpeed !== undefined && snap.prefillSpeed > 0
                           ? `${snap.prefillSpeed.toFixed(1)} t/s (${snap.prefillDurationMs ?? 0}ms)`
                           : '—'}
                       </td>
-                      <td className="p-2.5 text-cyan-400">
+                      <td className="p-2.5 text-primary">
                         {snap.decodingSpeed !== undefined && snap.decodingSpeed > 0
                           ? `${snap.decodingSpeed.toFixed(1)} t/s (${snap.decodingDurationMs ?? 0}ms)`
                           : '—'}
                       </td>
-                      <td className="p-2.5 text-sky-400 font-medium">
+                      <td className="p-2.5 text-info font-medium">
                         {snap.kvCacheBytes > 0
                           ? formatMemoryBytes(snap.kvCacheBytes)
                           : '—'}
                       </td>
-                      <td className="p-2.5 text-amber-400 font-medium">
+                      <td className="p-2.5 text-warning font-medium">
                         {snap.gpuOffloadPct}%
                       </td>
                       <td className="p-2.5">
                         <span
                           className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-sans font-medium ${
                             snap.agentStatus === 'generating'
-                              ? 'bg-emerald-500/15 text-emerald-400'
+                              ? 'bg-success/15 text-success'
                               : snap.agentStatus === 'executing_tool'
-                              ? 'bg-amber-500/15 text-amber-400'
-                              : 'bg-zinc-800 text-zinc-400'
+                              ? 'bg-warning/15 text-warning'
+                              : 'bg-muted text-muted-foreground'
                           }`}
                         >
                           {snap.agentStatus}
@@ -1404,7 +1452,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 >
                   {copiedId === selectedSnapshot.id ? (
                     <>
-                      <Check className="h-3 w-3 text-emerald-400" />
+                      <Check className="h-3 w-3 text-success" />
                       <span>복사됨!</span>
                     </>
                   ) : (
@@ -1421,7 +1469,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto p-3 rounded-lg bg-zinc-950 border border-border/80 font-mono text-xs text-emerald-400 max-h-96 select-text whitespace-pre-wrap">
+          <div className="flex-1 overflow-y-auto p-3 rounded-lg bg-code border border-border/80 font-mono text-xs text-code-foreground max-h-96 select-text whitespace-pre-wrap">
             {selectedSnapshot ? JSON.stringify(selectedSnapshot, null, 2) : ''}
           </div>
 
@@ -1447,7 +1495,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-2">
               정말로 <strong className="text-foreground font-medium">"{agent.name}"</strong>의 수집된
               모니터링 스냅샷 기록을 모두 삭제하시겠습니까?
-              <span className="block mt-1 text-rose-400">
+              <span className="block mt-1 text-destructive">
                 * 삭제된 데이터는 AI 에이전트 성능 분석 시 참조할 수 없게 됩니다.
               </span>
             </DialogDescription>
@@ -1471,6 +1519,41 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               className="text-xs"
             >
               삭제
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ollama Connection Error Dialog */}
+      <Dialog open={ollamaErrorDialogOpen} onOpenChange={setOllamaErrorDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertCircle className="h-5 w-5 shrink-0" />
+              <DialogTitle className="text-sm font-semibold text-foreground">
+                Ollama 연결 실패
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-2">
+              Ollama 서버에 연결할 수 없어 모니터링을 시작할 수 없습니다.
+              <br />
+              Ollama 서비스가 실행 중인지 확인하고 기본 URL 설정을 확인해주세요.
+              <span className="block mt-2 font-mono text-[11px] p-2 bg-destructive/10 text-destructive rounded border border-destructive/20 break-all">
+                URL: {settings.ollamaBaseUrl}
+                {ollamaErrorMessage ? `\n오류: ${ollamaErrorMessage}` : ''}
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              onClick={() => setOllamaErrorDialogOpen(false)}
+              className="text-xs cursor-pointer"
+            >
+              확인
             </Button>
           </DialogFooter>
         </DialogContent>

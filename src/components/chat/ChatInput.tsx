@@ -345,7 +345,7 @@ export function ChatInput({
                   className={`p-1 rounded-md shrink-0 mt-0.5 ${
                     opt.type === 'command'
                       ? 'bg-primary/10 text-primary'
-                      : 'bg-amber-500/10 text-amber-500'
+                      : 'bg-warning/10 text-warning'
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -416,7 +416,7 @@ export function ChatInput({
             {/* YOLO Mode Badge */}
             {yoloMode && (
               <div
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-semibold animate-pulse"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/20 text-destructive border border-destructive/30 text-[10px] font-semibold animate-pulse"
                 title="YOLO 모드 활성화됨: 셸을 제외한 모든 도구 호출이 자동 승인됩니다."
               >
                 <Zap className="h-3 w-3 fill-current" />

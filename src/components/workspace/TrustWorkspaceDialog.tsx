@@ -25,7 +25,7 @@ export function TrustWorkspaceDialog() {
     <Dialog open={trustModalOpen} onOpenChange={setTrustModalOpen}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <div className="flex items-center gap-2 text-amber-500 mb-1">
+          <div className="flex items-center gap-2 text-warning mb-1">
             <ShieldAlert className="h-5 w-5" />
             <DialogTitle className="text-base font-semibold text-foreground">
               워크스페이스 신뢰 확인

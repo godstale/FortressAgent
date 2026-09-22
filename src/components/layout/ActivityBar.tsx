@@ -59,12 +59,9 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
                       isItemDisabled
                         ? 'text-muted-foreground/30 cursor-not-allowed hover:bg-transparent'
                         : 'text-muted-foreground hover:text-foreground hover:bg-sidebar-accent cursor-pointer',
-                      isActive && 'text-primary bg-sidebar-accent font-medium',
+                      isActive && 'text-primary bg-primary/10 hover:text-primary hover:bg-primary/15 font-medium',
                     )}
                   >
-                    {isActive && (
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 bg-primary rounded-r-full" />
-                    )}
                     <Icon className="h-5 w-5" />
                   </button>
                 </TooltipTrigger>

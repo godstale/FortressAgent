@@ -25,13 +25,13 @@ interface RechartsViewerProps {
 }
 
 const DEFAULT_COLORS = [
-  '#3b82f6', // blue
-  '#10b981', // emerald
-  '#f59e0b', // amber
-  '#ef4444', // red
-  '#8b5cf6', // purple
-  '#06b6d4', // cyan
-  '#ec4899', // pink
+  'hsl(var(--chart-1))',
+  'hsl(var(--chart-2))',
+  'hsl(var(--chart-3))',
+  'hsl(var(--chart-4))',
+  'hsl(var(--chart-5))',
+  'hsl(var(--destructive))',
+  'hsl(var(--subtle-foreground))',
 ];
 
 export const RechartsViewer: React.FC<RechartsViewerProps> = ({ code, initialParsed }) => {
@@ -73,7 +73,7 @@ export const RechartsViewer: React.FC<RechartsViewerProps> = ({ code, initialPar
             className="absolute top-2 right-2 p-1 rounded bg-background/80 hover:bg-background text-muted-foreground hover:text-foreground transition-colors"
             title="Copy code"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
           <pre className="overflow-x-auto rounded bg-background/50 p-2 font-mono text-[11px] text-foreground">
             <code>{code}</code>
@@ -93,7 +93,7 @@ export const RechartsViewer: React.FC<RechartsViewerProps> = ({ code, initialPar
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             {xKey && <XAxis dataKey={xKey} tick={{ fontSize: 12 }} />}
             <YAxis tick={{ fontSize: 12 }} />
-            <Tooltip contentStyle={{ backgroundColor: 'var(--card)', borderRadius: '6px', fontSize: '12px' }} />
+            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--popover))', color: 'hsl(var(--popover-foreground))', border: '1px solid hsl(var(--border))', borderRadius: '6px', fontSize: '12px' }} />
             <Legend wrapperStyle={{ fontSize: '12px' }} />
             {series.map((s, idx) => (
               <Bar
@@ -113,7 +113,7 @@ export const RechartsViewer: React.FC<RechartsViewerProps> = ({ code, initialPar
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             {xKey && <XAxis dataKey={xKey} tick={{ fontSize: 12 }} />}
             <YAxis tick={{ fontSize: 12 }} />
-            <Tooltip contentStyle={{ backgroundColor: 'var(--card)', borderRadius: '6px', fontSize: '12px' }} />
+            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--popover))', color: 'hsl(var(--popover-foreground))', border: '1px solid hsl(var(--border))', borderRadius: '6px', fontSize: '12px' }} />
             <Legend wrapperStyle={{ fontSize: '12px' }} />
             {series.map((s, idx) => (
               <Line
@@ -135,7 +135,7 @@ export const RechartsViewer: React.FC<RechartsViewerProps> = ({ code, initialPar
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
             {xKey && <XAxis dataKey={xKey} tick={{ fontSize: 12 }} />}
             <YAxis tick={{ fontSize: 12 }} />
-            <Tooltip contentStyle={{ backgroundColor: 'var(--card)', borderRadius: '6px', fontSize: '12px' }} />
+            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--popover))', color: 'hsl(var(--popover-foreground))', border: '1px solid hsl(var(--border))', borderRadius: '6px', fontSize: '12px' }} />
             <Legend wrapperStyle={{ fontSize: '12px' }} />
             {series.map((s, idx) => {
               const color = s.color || DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
@@ -160,7 +160,7 @@ export const RechartsViewer: React.FC<RechartsViewerProps> = ({ code, initialPar
         const nameKey = xKey || 'name';
         return (
           <PieChart margin={{ top: 10, right: 20, left: 20, bottom: 10 }}>
-            <Tooltip contentStyle={{ backgroundColor: 'var(--card)', borderRadius: '6px', fontSize: '12px' }} />
+            <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--popover))', color: 'hsl(var(--popover-foreground))', border: '1px solid hsl(var(--border))', borderRadius: '6px', fontSize: '12px' }} />
             <Legend wrapperStyle={{ fontSize: '12px' }} />
             {valueKey && (
               <Pie
@@ -205,7 +205,7 @@ export const RechartsViewer: React.FC<RechartsViewerProps> = ({ code, initialPar
           className="p-1.5 rounded bg-muted/80 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           title="Copy chart JSON"
         >
-          {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied ? <Check className="w-3.5 h-3.5 text-success" /> : <Copy className="w-3.5 h-3.5" />}
         </button>
       </div>
 

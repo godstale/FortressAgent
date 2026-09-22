@@ -93,7 +93,7 @@ export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
         </div>
 
         <div className="p-3 rounded-lg bg-card border border-border flex items-center gap-3">
-          <div className="p-2 rounded-md bg-sky-500/10 text-sky-500">
+          <div className="p-2 rounded-md bg-primary/10 text-primary">
             <MessageSquare className="h-4 w-4" />
           </div>
           <div>
@@ -123,7 +123,7 @@ export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
                     fontSize: '11px',
                   }}
                 />
-                <Bar dataKey="messages" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="messages" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

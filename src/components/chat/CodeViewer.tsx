@@ -122,9 +122,9 @@ export function CodeViewer({
   const lines = useMemo(() => code.split('\n'), [code]);
 
   return (
-    <div className="relative my-3 rounded-xl border border-border/80 bg-zinc-950 dark:bg-zinc-950 text-zinc-100 overflow-hidden shadow-xs select-text">
+    <div className="relative my-3 rounded-xl border border-border/80 bg-code text-code-foreground overflow-hidden shadow-xs select-text">
       {/* Code Header Bar */}
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-zinc-900/90 border-b border-zinc-800 text-xs select-none">
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-white/5 border-b border-white/10 text-xs select-none">
         <div className="flex items-center gap-2 min-w-0">
           <Code2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           {filename ? (

@@ -96,7 +96,7 @@ export function SkillViewerTab({ tab }: SkillViewerTabProps) {
       {/* Header bar */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-card/40 text-xs shrink-0">
         <div className="flex items-center gap-2 font-medium min-w-0">
-          <Puzzle className="h-4 w-4 text-purple-400 shrink-0" />
+          <Puzzle className="h-4 w-4 text-tertiary shrink-0" />
           <span className="font-semibold text-foreground truncate">{skillName}</span>
           <span className="text-[11px] text-muted-foreground font-mono truncate">
             ({filePath})
@@ -141,9 +141,9 @@ export function SkillViewerTab({ tab }: SkillViewerTabProps) {
                   className="flex items-center gap-2 p-2 rounded-md bg-muted/20 border border-border/40 text-xs font-mono text-muted-foreground"
                 >
                   {file.is_dir ? (
-                    <Folder className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                    <Folder className="h-3.5 w-3.5 text-primary shrink-0" />
                   ) : (
-                    <FileCode className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                    <FileCode className="h-3.5 w-3.5 text-success shrink-0" />
                   )}
                   <span className="truncate">{file.name}</span>
                   {!file.is_dir && (

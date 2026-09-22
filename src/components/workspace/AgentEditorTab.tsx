@@ -59,7 +59,7 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
 
         <div className="flex items-center gap-2">
           {saveFeedback && (
-            <span className="flex items-center gap-1 text-xs text-emerald-500 font-medium animate-fade-in">
+            <span className="flex items-center gap-1 text-xs text-success font-medium animate-fade-in">
               <CheckCircle2 className="h-3.5 w-3.5" />
               <span>저장되었습니다</span>
             </span>

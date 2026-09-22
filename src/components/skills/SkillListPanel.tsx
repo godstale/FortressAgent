@@ -41,7 +41,7 @@ export function SkillListPanel() {
       {/* Panel Header */}
       <div className="flex items-center justify-between p-3 border-b border-border shrink-0">
         <div className="flex items-center gap-1.5">
-          <Puzzle className="h-4 w-4 text-purple-400" />
+          <Puzzle className="h-4 w-4 text-tertiary" />
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             스킬 ({skills.length})
           </span>
@@ -61,7 +61,7 @@ export function SkillListPanel() {
 
       {/* Diagnostics collapsible banner */}
       {diagnostics.length > 0 && (
-        <div className="p-2 border-b border-border bg-amber-500/10 text-amber-500 text-xs shrink-0">
+        <div className="p-2 border-b border-border bg-warning/10 text-warning text-xs shrink-0">
           <button
             type="button"
             onClick={() => setShowDiagnostics((prev) => !prev)}
@@ -83,9 +83,9 @@ export function SkillListPanel() {
               {diagnostics.map((d, idx) => (
                 <div
                   key={idx}
-                  className="p-1.5 rounded bg-background/80 border border-amber-500/20 text-[10px] text-muted-foreground leading-relaxed"
+                  className="p-1.5 rounded bg-background/80 border border-warning/20 text-[10px] text-muted-foreground leading-relaxed"
                 >
-                  <span className="font-semibold text-amber-500 uppercase mr-1">
+                  <span className="font-semibold text-warning uppercase mr-1">
                     [{d.level}]
                   </span>
                   <span>{d.message}</span>
@@ -134,8 +134,8 @@ export function SkillListPanel() {
                         className={cn(
                           'text-[9px] px-1.5 py-0.2 rounded-full font-medium',
                           skill.source === 'global'
-                            ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                            : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+                            ? 'bg-primary/10 text-primary border border-primary/20'
+                            : 'bg-success/10 text-success border border-success/20',
                         )}
                       >
                         {skill.source === 'global' ? '전역' : '워크스페이스'}

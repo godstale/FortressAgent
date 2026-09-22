@@ -27,21 +27,21 @@ export interface ToolCallCardProps {
 function getToolIcon(name: string) {
   switch (name) {
     case 'read':
-      return <FileText className="h-3.5 w-3.5 text-blue-400" />;
+      return <FileText className="h-3.5 w-3.5 text-primary" />;
     case 'write':
     case 'edit':
-      return <Edit3 className="h-3.5 w-3.5 text-amber-400" />;
+      return <Edit3 className="h-3.5 w-3.5 text-warning" />;
     case 'ls':
-      return <Folder className="h-3.5 w-3.5 text-emerald-400" />;
+      return <Folder className="h-3.5 w-3.5 text-success" />;
     case 'grep':
     case 'find':
-      return <Search className="h-3.5 w-3.5 text-purple-400" />;
+      return <Search className="h-3.5 w-3.5 text-tertiary" />;
     case 'shell':
-      return <Terminal className="h-3.5 w-3.5 text-red-400" />;
+      return <Terminal className="h-3.5 w-3.5 text-destructive" />;
     case 'web_search':
-      return <Globe className="h-3.5 w-3.5 text-cyan-400" />;
+      return <Globe className="h-3.5 w-3.5 text-info" />;
     case 'web_fetch':
-      return <Compass className="h-3.5 w-3.5 text-sky-400" />;
+      return <Compass className="h-3.5 w-3.5 text-primary" />;
     default:
       return <Terminal className="h-3.5 w-3.5 text-muted-foreground" />;
   }
@@ -99,7 +99,7 @@ export function ToolCallCard({
               <span>실패</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1 text-emerald-500 text-[11px]">
+            <div className="flex items-center gap-1 text-success text-[11px]">
               <CheckCircle2 className="h-3.5 w-3.5" />
               <span>완료</span>
             </div>
