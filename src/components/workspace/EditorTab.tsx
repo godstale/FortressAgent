@@ -39,33 +39,33 @@ export interface EditorTabProps {
  */
 const darkHighlightStyle = HighlightStyle.define([
   // Markdown Headings
-  { tag: t.heading1, color: '#8AB6FF', fontWeight: 'bold', fontSize: '1.25em' },
-  { tag: t.heading2, color: '#5B9BFF', fontWeight: 'bold', fontSize: '1.15em' },
-  { tag: t.heading3, color: '#A3B0EC', fontWeight: 'bold', fontSize: '1.05em' },
-  { tag: [t.heading4, t.heading5, t.heading6], color: '#E09BE6', fontWeight: 'bold' },
+  { tag: t.heading1, color: '#8FB3F2', fontWeight: 'bold', fontSize: '1.25em' },
+  { tag: t.heading2, color: '#6F9EF0', fontWeight: 'bold', fontSize: '1.15em' },
+  { tag: t.heading3, color: '#9FA8D6', fontWeight: 'bold', fontSize: '1.05em' },
+  { tag: [t.heading4, t.heading5, t.heading6], color: '#C99BCC', fontWeight: 'bold' },
 
   // Markdown Formatting
-  { tag: t.strong, fontWeight: 'bold', color: '#F5F6FB' },
-  { tag: t.emphasis, fontStyle: 'italic', color: '#E8EBFA' },
-  { tag: t.link, color: '#8AB6FF', textDecoration: 'underline' },
-  { tag: t.url, color: '#A3B0EC' },
-  { tag: t.quote, color: '#A6ADCF', fontStyle: 'italic' },
+  { tag: t.strong, fontWeight: 'bold', color: '#E6E7EC' },
+  { tag: t.emphasis, fontStyle: 'italic', color: '#D9DBE1' },
+  { tag: t.link, color: '#8FB3F2', textDecoration: 'underline' },
+  { tag: t.url, color: '#9FA8D6' },
+  { tag: t.quote, color: '#9DA1AC', fontStyle: 'italic' },
   { tag: t.strikethrough, textDecoration: 'line-through', opacity: '0.6' },
 
   // Code & Tokens
-  { tag: t.monospace, color: '#E09BE6', backgroundColor: 'rgba(224, 155, 230, 0.10)' },
-  { tag: t.keyword, color: '#E09BE6', fontWeight: '600' },
-  { tag: [t.string, t.special(t.string)], color: '#4FD39A' },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: '#8189B0', fontStyle: 'italic' },
-  { tag: [t.number, t.integer, t.float], color: '#FFC062' },
-  { tag: [t.bool, t.null], color: '#FF8A80', fontWeight: '600' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#8AB6FF' },
-  { tag: [t.typeName, t.className], color: '#FFC062', fontWeight: '500' },
-  { tag: [t.propertyName, t.attributeName], color: '#B3CCFF' },
-  { tag: [t.variableName, t.definition(t.variableName)], color: '#E8EBFA' },
-  { tag: t.operator, color: '#B3B9D2' },
-  { tag: [t.meta, t.documentMeta], color: '#DE92E3' },
-  { tag: t.tagName, color: '#FF8A80', fontWeight: '500' },
+  { tag: t.monospace, color: '#C99BCC', backgroundColor: 'rgba(201, 155, 204, 0.10)' },
+  { tag: t.keyword, color: '#C99BCC', fontWeight: '600' },
+  { tag: [t.string, t.special(t.string)], color: '#6CC49A' },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: '#8C909B', fontStyle: 'italic' },
+  { tag: [t.number, t.integer, t.float], color: '#E0B26A' },
+  { tag: [t.bool, t.null], color: '#E8837A', fontWeight: '600' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#8FB3F2' },
+  { tag: [t.typeName, t.className], color: '#E0B26A', fontWeight: '500' },
+  { tag: [t.propertyName, t.attributeName], color: '#A9C2EE' },
+  { tag: [t.variableName, t.definition(t.variableName)], color: '#D9DBE1' },
+  { tag: t.operator, color: '#AEB1BA' },
+  { tag: [t.meta, t.documentMeta], color: '#C99BCC' },
+  { tag: t.tagName, color: '#E8837A', fontWeight: '500' },
 ]);
 
 /**
@@ -110,12 +110,12 @@ const EDITOR_FONT = "'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Me
 const darkEditorTheme = EditorView.theme({
   '&': {
     height: '100%',
-    color: '#E8EBFA',
-    backgroundColor: '#0B1026',
+    color: '#D9DBE1',
+    backgroundColor: '#18191C',
     fontSize: 'var(--editor-font-size, 13px)',
   },
   '.cm-content': {
-    caretColor: '#8AB6FF',
+    caretColor: '#8FB3F2',
     fontFamily: EDITOR_FONT,
     lineHeight: '1.65',
     padding: '12px 4px',
@@ -124,47 +124,47 @@ const darkEditorTheme = EditorView.theme({
     overflow: 'auto',
   },
   '.cm-cursor, .cm-dropCursor': {
-    borderLeftColor: '#8AB6FF',
+    borderLeftColor: '#8FB3F2',
     borderLeftWidth: '2px',
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'rgba(91, 155, 255, 0.28) !important',
+    backgroundColor: 'rgba(111, 158, 240, 0.28) !important',
   },
   '.cm-panels': {
-    backgroundColor: '#111733',
-    color: '#E8EBFA',
+    backgroundColor: '#1F2024',
+    color: '#D9DBE1',
   },
   '.cm-panels.cm-panels-top': {
-    borderBottom: '1px solid #2A3360',
+    borderBottom: '1px solid #34363D',
   },
   '.cm-panels.cm-panels-bottom': {
-    borderTop: '1px solid #2A3360',
+    borderTop: '1px solid #34363D',
   },
   '.cm-gutters': {
-    backgroundColor: '#0B1026',
-    color: '#8189B0',
-    borderRight: '1px solid #2A3360',
+    backgroundColor: '#18191C',
+    color: '#8C909B',
+    borderRight: '1px solid #34363D',
     minWidth: '38px',
     paddingRight: '8px',
   },
   '.cm-activeLine': {
-    backgroundColor: 'rgba(91, 155, 255, 0.06)',
+    backgroundColor: 'rgba(111, 158, 240, 0.06)',
   },
   '.cm-activeLineGutter': {
-    backgroundColor: 'rgba(91, 155, 255, 0.10)',
-    color: '#E8EBFA',
+    backgroundColor: 'rgba(111, 158, 240, 0.10)',
+    color: '#D9DBE1',
     fontWeight: '600',
   },
   '.cm-foldPlaceholder': {
-    backgroundColor: '#212A55',
+    backgroundColor: '#2C2E34',
     border: 'none',
-    color: '#A6ADCF',
+    color: '#9DA1AC',
     borderRadius: '3px',
     padding: '0 4px',
   },
   '.cm-matchingBracket': {
-    backgroundColor: 'rgba(91, 155, 255, 0.2)',
-    outline: '1px solid rgba(91, 155, 255, 0.45)',
+    backgroundColor: 'rgba(111, 158, 240, 0.2)',
+    outline: '1px solid rgba(111, 158, 240, 0.45)',
   },
 });
 

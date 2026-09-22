@@ -14,19 +14,25 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const isUserScrolledUpRef = useRef(false);
+  const isProgrammaticScrollRef = useRef(false);
 
-  const scrollToBottom = (smooth = true) => {
+  const scrollToBottom = (smooth = false) => {
     if (containerRef.current) {
+      isProgrammaticScrollRef.current = true;
       containerRef.current.scrollTo({
         top: containerRef.current.scrollHeight,
         behavior: smooth ? 'smooth' : 'auto',
       });
       isUserScrolledUpRef.current = false;
       setShowScrollBottom(false);
+      requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false;
+      });
     }
   };
 
   const handleScroll = (e: UIEvent<HTMLDivElement>) => {
+    if (isProgrammaticScrollRef.current) return;
     const target = e.currentTarget;
     const distanceToBottom =
       target.scrollHeight - target.scrollTop - target.clientHeight;
@@ -64,7 +70,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="h-full overflow-y-auto px-4 py-4 space-y-2 scroll-smooth"
+        className="h-full overflow-y-auto overscroll-contain px-4 py-4 space-y-2"
       >
         {messages.map((msg, index) => {
           if (

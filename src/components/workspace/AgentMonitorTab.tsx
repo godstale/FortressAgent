@@ -76,6 +76,7 @@ const CHART_COLORS = {
 
 const INTERVAL_OPTIONS = [
   { label: '1초 간격', value: 1000 },
+  { label: '2초 간격', value: 2000 },
   { label: '3초 간격', value: 3000 },
   { label: '5초 간격', value: 5000 },
   { label: '10초 간격', value: 10000 },
@@ -109,6 +110,31 @@ function formatContextTokenSize(tokens?: number): string {
     return val >= 10 ? `${Math.round(val)}k` : `${val.toFixed(1)}k`;
   }
   return `${tokens}`;
+}
+
+function computeDynamicMax(maxValue: number, defaultMin: number): number {
+  if (!maxValue || maxValue <= 0) return defaultMin;
+  const target = maxValue * 1.25; // 상단 25% 여유 공간 확보
+  if (target <= defaultMin) return defaultMin;
+  if (target < 50) return Math.ceil(target / 10) * 10;
+  if (target < 200) return Math.ceil(target / 25) * 25;
+  if (target < 1000) return Math.ceil(target / 50) * 50;
+  if (target < 5000) return Math.ceil(target / 250) * 250;
+  return Math.ceil(target / 500) * 500;
+}
+
+function formatAxisNumber(val: number): string {
+  if (val === 0) return '0';
+  const absVal = Math.abs(val);
+  if (absVal >= 1_000_000) {
+    const formatted = (val / 1_000_000).toFixed(1).replace(/\.0$/, '');
+    return `${formatted}M`;
+  }
+  if (absVal >= 1_000) {
+    const formatted = (val / 1_000).toFixed(1).replace(/\.0$/, '');
+    return `${formatted}k`;
+  }
+  return Number.isInteger(val) ? `${val}` : `${val.toFixed(1)}`;
 }
 
 interface KpiCardHelpProps {
@@ -327,6 +353,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       time: new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       gpuUtilization: s.gpuUtilizationPct,
       vramUsedMb: s.gpuVramUsedMb,
+      vramUsedGb: Number((s.gpuVramUsedMb / 1024).toFixed(2)),
       gpuTemp: s.gpuTemperatureC,
       gpuOffloadPct: s.gpuOffloadPct,
       prefillSpeed: s.prefillSpeed ?? 0,
@@ -340,21 +367,52 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     }));
   }, [snapshots]);
 
-  // Memory breakdown bar data
+  // Compute dynamic scale upper bounds for dual Y-axis charts with comfortable headroom
+  const {
+    prefillSpeedMax,
+    decodingSpeedMax,
+    prefillDurationMax,
+    decodingDurationMax,
+  } = useMemo(() => {
+    let maxPrefillSpeed = 0;
+    let maxDecodingSpeed = 0;
+    let maxPrefillDuration = 0;
+    let maxDecodingDuration = 0;
+
+    for (const d of timeSeriesData) {
+      if (d.prefillSpeed > maxPrefillSpeed) maxPrefillSpeed = d.prefillSpeed;
+      if (d.decodingSpeed > maxDecodingSpeed) maxDecodingSpeed = d.decodingSpeed;
+      if (d.prefillDurationMs > maxPrefillDuration) maxPrefillDuration = d.prefillDurationMs;
+      if (d.decodingDurationMs > maxDecodingDuration) maxDecodingDuration = d.decodingDurationMs;
+    }
+
+    return {
+      prefillSpeedMax: computeDynamicMax(maxPrefillSpeed, 100),
+      decodingSpeedMax: computeDynamicMax(maxDecodingSpeed, 40),
+      prefillDurationMax: computeDynamicMax(maxPrefillDuration, 200),
+      decodingDurationMax: computeDynamicMax(maxDecodingDuration, 1000),
+    };
+  }, [timeSeriesData]);
+
+  // Memory breakdown bar data (converted to GB)
   const memoryBreakdownData = useMemo(() => {
     if (!currentSnapshot) return [];
-    const modelWeightMb = Math.round(currentSnapshot.modelWeightBytes / (1024 * 1024));
-    const kvCacheMb = Math.round(currentSnapshot.kvCacheBytes / (1024 * 1024));
-    const freeVramMb = Math.max(0, currentSnapshot.gpuVramFreeMb);
-    const otherVramMb = Math.max(0, currentSnapshot.gpuVramUsedMb - modelWeightMb);
+    const modelWeightGb = Number((currentSnapshot.modelWeightBytes / (1024 * 1024 * 1024)).toFixed(2));
+    const kvCacheGb = Number((currentSnapshot.kvCacheBytes / (1024 * 1024 * 1024)).toFixed(2));
+    const freeVramGb = Number((Math.max(0, currentSnapshot.gpuVramFreeMb) / 1024).toFixed(2));
+    const otherVramMb = Math.max(
+      0,
+      currentSnapshot.gpuVramUsedMb - Math.round(currentSnapshot.modelWeightBytes / (1024 * 1024)),
+    );
+    const otherVramGb = Number((otherVramMb / 1024).toFixed(2));
 
     return [
       {
         name: 'VRAM 메모리 분배',
-        '모델 가중치(Weights)': modelWeightMb,
-        'KV 캐시(추정)': kvCacheMb,
-        '기타 사용량': otherVramMb,
-        '여유 공간(Free)': freeVramMb,
+        '모델 가중치(Weights)': modelWeightGb,
+        'KV 캐시(추정)': kvCacheGb,
+        '기타 사용량': otherVramGb,
+        '여유 공간(Free)': freeVramGb,
       },
     ];
   }, [currentSnapshot]);
@@ -373,6 +431,19 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       : 0;
 
   const rawDetails = (currentSnapshot?.details || {}) as Record<string, unknown>;
+  const lastCompleted = rawDetails.lastCompletedInference as
+    | {
+        prefillSpeed?: number;
+        decodingSpeed?: number;
+        prefillDurationMs?: number;
+        decodingDurationMs?: number;
+        prefillTokens?: number;
+        decodingTokens?: number;
+        totalDurationMs?: number;
+        completedAt?: number;
+      }
+    | null
+    | undefined;
 
   const getStatusBadge = (status: AgentMonitoringSnapshot['agentStatus']) => {
     switch (status) {
@@ -473,12 +544,12 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               </>
             ) : isCollecting ? (
               <>
-                <Pause className="h-3.5 w-3.5 text-warning" />
+                <Pause className="h-3.5 w-3.5 fill-current text-amber-500 dark:text-amber-400" />
                 <span>모니터링 일시정지</span>
               </>
             ) : (
               <>
-                <Play className="h-3.5 w-3.5 text-success" />
+                <Play className="h-3.5 w-3.5 fill-current text-primary-foreground" />
                 <span>모니터링 시작</span>
               </>
             )}
@@ -614,26 +685,44 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <KpiCardHelp
                 title="Prefill (입력 평가) 속도 & 소요 시간"
                 description="사용자의 질문, 시스템 프롬프트, 도구 실행 결과 등 입력 토큰들을 모델이 처음에 한꺼번에 읽고 병렬 연산하는 속도(token/s)와 소요 시간입니다."
-                guide="GPU 병렬 연산으로 처리되어 디코딩보다 5~10배 빠릅니다(150~400+ token/s). 입력 문서나 대화 기록이 길어질수록 소요 시간이 비례하여 증가합니다."
+                guide="GPU 병렬 연산으로 처리되어 디코딩보다 5~10배 빠릅니다(150~400+ token/s). 대기 중에는 실시간 값이 0.0 t/s로 유지되며, 하단에 최근 완료된 추론의 성능 지표가 표시됩니다."
               />
             </span>
+            {Boolean(currentSnapshot?.prefillSpeed && currentSnapshot.prefillSpeed > 0) && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-warning/20 text-warning font-semibold animate-pulse">
+                입력 처리 중
+              </span>
+            )}
           </div>
           <div className="text-base font-bold text-foreground flex items-baseline gap-1">
             <span className="font-mono text-warning">
-              {currentSnapshot?.prefillSpeed ? `${currentSnapshot.prefillSpeed.toFixed(1)}` : '0.0'}
+              {currentSnapshot?.prefillSpeed && currentSnapshot.prefillSpeed > 0
+                ? `${currentSnapshot.prefillSpeed.toFixed(1)}`
+                : '0.0'}
             </span>
             <span className="text-[10px] text-muted-foreground">token/s</span>
+            {Boolean(!currentSnapshot?.prefillSpeed && lastCompleted?.prefillSpeed && lastCompleted.prefillSpeed > 0) && lastCompleted && (
+              <span className="text-[10px] font-mono text-muted-foreground ml-auto" title="직전 완료 추론 속도">
+                최근: {lastCompleted.prefillSpeed?.toFixed(1)} t/s
+              </span>
+            )}
           </div>
           <div className="flex items-center justify-between text-xs pt-1">
             <span className="text-muted-foreground text-[10px]">소요 시간</span>
             <span className="font-mono text-[10px] text-foreground font-semibold">
-              {currentSnapshot?.prefillDurationMs
+              {currentSnapshot?.prefillDurationMs && currentSnapshot.prefillDurationMs > 0
                 ? `${(currentSnapshot.prefillDurationMs / 1000).toFixed(2)}s (${currentSnapshot.prefillDurationMs}ms)`
+                : lastCompleted?.prefillDurationMs
+                ? `최근 ${(lastCompleted.prefillDurationMs / 1000).toFixed(2)}s (${lastCompleted.prefillDurationMs}ms)`
                 : '—'}
             </span>
           </div>
           <div className="text-[10px] text-muted-foreground truncate">
-            입력 토큰: {currentSnapshot?.prefillTokens ? `${currentSnapshot.prefillTokens.toLocaleString()} tokens` : '—'}
+            입력 토큰: {currentSnapshot?.prefillTokens && currentSnapshot.prefillTokens > 0
+              ? `${currentSnapshot.prefillTokens.toLocaleString()} tokens`
+              : lastCompleted?.prefillTokens
+              ? `최근 ${lastCompleted.prefillTokens.toLocaleString()} tokens`
+              : '—'}
           </div>
         </div>
 
@@ -646,26 +735,44 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <KpiCardHelp
                 title="디코딩 (답변 생성) 속도 & 소요 시간"
                 description="모델이 답변 텍스트를 한 토큰씩 순차적으로 출력하는 속도(token/s)와 소요 시간입니다. 사용자가 체감하는 실시간 AI 타자 속도입니다."
-                guide="VRAM 메모리 대역폭의 영향을 직접 받습니다. RTX 4070 SUPER 기준 8B 모델은 35~50+ token/s가 정상 최적 성능입니다."
+                guide="VRAM 메모리 대역폭의 영향을 직접 받습니다. RTX 4070 SUPER 기준 8B 모델은 35~50+ token/s가 정상 최적 성능입니다. 대기 중에는 실시간 0.0 t/s로 유지되며 하단에 최근 완료된 수치가 표시됩니다."
               />
             </span>
+            {Boolean(currentSnapshot?.decodingSpeed && currentSnapshot.decodingSpeed > 0) && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-semibold animate-pulse">
+                답변 생성 중
+              </span>
+            )}
           </div>
           <div className="text-base font-bold text-foreground flex items-baseline gap-1">
             <span className="font-mono text-primary">
-              {currentSnapshot?.decodingSpeed ? `${currentSnapshot.decodingSpeed.toFixed(1)}` : '0.0'}
+              {currentSnapshot?.decodingSpeed && currentSnapshot.decodingSpeed > 0
+                ? `${currentSnapshot.decodingSpeed.toFixed(1)}`
+                : '0.0'}
             </span>
             <span className="text-[10px] text-muted-foreground">token/s</span>
+            {Boolean(!currentSnapshot?.decodingSpeed && lastCompleted?.decodingSpeed && lastCompleted.decodingSpeed > 0) && lastCompleted && (
+              <span className="text-[10px] font-mono text-muted-foreground ml-auto" title="직전 완료 추론 속도">
+                최근: {lastCompleted.decodingSpeed?.toFixed(1)} t/s
+              </span>
+            )}
           </div>
           <div className="flex items-center justify-between text-xs pt-1">
             <span className="text-muted-foreground text-[10px]">소요 시간</span>
             <span className="font-mono text-[10px] text-foreground font-semibold">
-              {currentSnapshot?.decodingDurationMs
+              {currentSnapshot?.decodingDurationMs && currentSnapshot.decodingDurationMs > 0
                 ? `${(currentSnapshot.decodingDurationMs / 1000).toFixed(2)}s (${currentSnapshot.decodingDurationMs}ms)`
+                : lastCompleted?.decodingDurationMs
+                ? `최근 ${(lastCompleted.decodingDurationMs / 1000).toFixed(2)}s (${lastCompleted.decodingDurationMs}ms)`
                 : '—'}
             </span>
           </div>
           <div className="text-[10px] text-muted-foreground truncate">
-            생성 토큰: {currentSnapshot?.decodingTokens ? `${currentSnapshot.decodingTokens.toLocaleString()} tokens` : '—'}
+            생성 토큰: {currentSnapshot?.decodingTokens && currentSnapshot.decodingTokens > 0
+              ? `${currentSnapshot.decodingTokens.toLocaleString()} tokens`
+              : lastCompleted?.decodingTokens
+              ? `최근 ${lastCompleted.decodingTokens.toLocaleString()} tokens`
+              : '—'}
           </div>
         </div>
 
@@ -827,7 +934,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.vram }}
                 />
-                <span className="text-tertiary font-medium">VRAM 사용량 (MB)</span>
+                <span className="text-tertiary font-medium">VRAM 사용량 (GB)</span>
               </span>
             </div>
           </div>
@@ -839,7 +946,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timeSeriesData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <AreaChart data={timeSeriesData} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                   <XAxis dataKey="time" tick={{ fontSize: 10 }} />
                   <YAxis
@@ -849,13 +956,15 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                     stroke={CHART_COLORS.gpu}
                     tick={{ fontSize: 10 }}
                     unit="%"
+                    width={38}
                   />
                   <YAxis
                     yAxisId="right"
                     orientation="right"
                     stroke={CHART_COLORS.vram}
                     tick={{ fontSize: 10 }}
-                    unit="MB"
+                    unit=" GB"
+                    width={44}
                   />
                   <Tooltip
                     contentStyle={{
@@ -874,15 +983,18 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                     stroke={CHART_COLORS.gpu}
                     fill={CHART_COLORS.gpu}
                     fillOpacity={0.2}
+                    isAnimationActive={false}
                   />
                   <Area
                     yAxisId="right"
                     type="monotone"
-                    dataKey="vramUsedMb"
+                    dataKey="vramUsedGb"
                     name="VRAM 사용량"
                     stroke={CHART_COLORS.vram}
                     fill={CHART_COLORS.vram}
                     fillOpacity={0.18}
+                    unit=" GB"
+                    isAnimationActive={false}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -897,7 +1009,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <Cpu className="h-4 w-4 text-tertiary" />
               <h3 className="text-xs font-semibold text-foreground">VRAM 메모리 분배 상세</h3>
             </div>
-            <span className="text-[10px] text-muted-foreground font-mono">단위: MB</span>
+            <span className="text-[10px] text-muted-foreground font-mono">단위: GB</span>
           </div>
 
           <div className="w-full h-64">
@@ -910,7 +1022,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 <BarChart data={memoryBreakdownData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                   <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} unit="MB" />
+                  <YAxis tick={{ fontSize: 10 }} unit=" GB" />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: 'hsl(var(--popover))',
@@ -921,156 +1033,11 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: '10px' }} />
-                  <Bar dataKey="모델 가중치(Weights)" stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="KV 캐시(추정)" stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="기타 사용량" stackId="a" fill="hsl(var(--chart-4))" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="여유 공간(Free)" stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="모델 가중치(Weights)" stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey="KV 캐시(추정)" stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey="기타 사용량" stackId="a" fill="hsl(var(--chart-4))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey="여유 공간(Free)" stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} unit=" GB" isAnimationActive={false} />
                 </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Real-time Inference Performance Charts (Prefill & Decoding) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Token Generation Speed Chart (Prefill & Decoding Speed) */}
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Gauge className="h-4 w-4 text-warning" />
-              <h3 className="text-xs font-semibold text-foreground">
-                실시간 토큰 생성 속도 추이 (Prefill vs 디코딩 Speed)
-              </h3>
-            </div>
-            <div className="flex items-center gap-4 text-[11px] font-mono">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.prefill }}
-                />
-                <span className="text-warning font-medium">Prefill 속도 (t/s)</span>
-              </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.decoding }}
-                />
-                <span className="text-primary font-medium">디코딩 속도 (t/s)</span>
-              </span>
-            </div>
-          </div>
-
-          <div className="w-full h-60">
-            {timeSeriesData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                수집된 추론 속도 데이터가 없습니다.
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timeSeriesData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="time" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} unit=" t/s" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      color: 'hsl(var(--popover-foreground))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="prefillSpeed"
-                    name="Prefill 속도"
-                    stroke={CHART_COLORS.prefill}
-                    fill={CHART_COLORS.prefill}
-                    fillOpacity={0.2}
-                    unit=" token/s"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="decodingSpeed"
-                    name="디코딩 속도"
-                    stroke={CHART_COLORS.decoding}
-                    fill={CHART_COLORS.decoding}
-                    fillOpacity={0.2}
-                    unit=" token/s"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* Inference Latency / Duration Chart (Prefill & Decoding Duration) */}
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Timer className="h-4 w-4 text-primary" />
-              <h3 className="text-xs font-semibold text-foreground">
-                실시간 추론 소요 시간 추이 (Prefill & 디코딩 Latency)
-              </h3>
-            </div>
-            <div className="flex items-center gap-4 text-[11px] font-mono">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.prefill }}
-                />
-                <span className="text-warning font-medium">Prefill 시간 (ms)</span>
-              </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.decoding }}
-                />
-                <span className="text-primary font-medium">디코딩 시간 (ms)</span>
-              </span>
-            </div>
-          </div>
-
-          <div className="w-full h-60">
-            {timeSeriesData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                수집된 추론 소요 시간 데이터가 없습니다.
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timeSeriesData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="time" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} unit=" ms" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      color: 'hsl(var(--popover-foreground))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="prefillDurationMs"
-                    name="Prefill 소요 시간"
-                    stroke={CHART_COLORS.prefill}
-                    fill={CHART_COLORS.prefill}
-                    fillOpacity={0.2}
-                    unit=" ms"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="decodingDurationMs"
-                    name="디코딩 소요 시간"
-                    stroke={CHART_COLORS.decoding}
-                    fill={CHART_COLORS.decoding}
-                    fillOpacity={0.2}
-                    unit=" ms"
-                  />
-                </AreaChart>
               </ResponsiveContainer>
             )}
           </div>
@@ -1087,6 +1054,11 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <h3 className="text-xs font-semibold text-foreground">
                 LLM 모델 아키텍처 상세 사양
               </h3>
+              <KpiCardHelp
+                title="LLM 모델 아키텍처 상세 사양"
+                description="로컬에서 실행 중인 LLM 신경망(Transformer)의 내부 구조 설계 파라미터입니다. 레이어 깊이, 어텐션 헤드 수, 임베딩 차원 등이 모델의 추론 능력과 VRAM/KV 캐시 소비량을 결정합니다."
+                guide="GQA(Grouped-Query Attention) 비율과 레이어 수는 컨텍스트 길이에 따른 VRAM 계산(KV 캐시)에 결정적인 영향을 줍니다."
+              />
             </div>
             <span className="text-[11px] font-mono text-muted-foreground">
               {currentSnapshot?.llmModel}
@@ -1095,42 +1067,84 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs font-mono">
             <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
-              <div className="text-[10px] text-muted-foreground font-sans">아키텍처 종류</div>
-              <div className="font-bold text-foreground uppercase mt-0.5">
+              <div className="text-[10px] text-muted-foreground font-sans flex items-center justify-between">
+                <span>아키텍처 종류</span>
+                <KpiCardHelp
+                  title="아키텍처 종류 (Architecture)"
+                  description="LLM의 근간이 되는 트랜스포머 신경망 설계 모델군(예: Qwen2, Llama, Gemma 등)입니다. 각 패밀리마다 어텐션 연산(RoPE, GQA), 활성화 함수(SwiGLU 등), 정규화 레이어 설계가 다릅니다."
+                  guide="최신 오픈소스 모델들은 대부분 RoPE(회전 위치 임베딩)와 RMSNorm, SwiGLU를 결합한 디코더 전용(Decoder-only) 트랜스포머 구조를 채택하고 있습니다."
+                />
+              </div>
+              <div className="font-bold text-foreground uppercase mt-0.5 truncate">
                 {currentSnapshot?.llmArchitecture || '—'}
               </div>
             </div>
 
             <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
-              <div className="text-[10px] text-muted-foreground font-sans">블록/레이어 수</div>
+              <div className="text-[10px] text-muted-foreground font-sans flex items-center justify-between">
+                <span>블록/레이어 수</span>
+                <KpiCardHelp
+                  title="블록/레이어 수 (Layers / Blocks)"
+                  description="트랜스포머 디코더 신경망이 수직으로 쌓인 깊이(Depth)입니다. 각 블록은 Self-Attention, Feed-Forward Network(FFN), 정규화 및 잔차 연결로 구성된 하나의 독립적인 계층입니다."
+                  guide="레이어가 많을수록 깊은 논리 추론과 복잡한 문제 해결 능력이 뛰어나지만, 연산 지연 시간(FLOPs)과 레이어마다 적재되는 KV 캐시 VRAM 사용량이 레이어 수에 정비례하여 증가합니다."
+                />
+              </div>
               <div className="font-bold text-foreground mt-0.5">
                 {rawDetails.blockCount ? `${rawDetails.blockCount}개` : '—'}
               </div>
             </div>
 
             <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
-              <div className="text-[10px] text-muted-foreground font-sans">임베딩 차원 (Dim)</div>
+              <div className="text-[10px] text-muted-foreground font-sans flex items-center justify-between">
+                <span>임베딩 차원 (Dim)</span>
+                <KpiCardHelp
+                  title="임베딩 차원 (Hidden Dimension / d_model)"
+                  description="토큰이 신경망 내부를 통과할 때 의미 정보를 표현하는 고차원 벡터의 크기(Hidden State Size)입니다. 단어의 의미적·문맥적 뉘앙스를 담는 정보 공간의 폭(Width)에 해당합니다."
+                  guide="임베딩 차원이 클수록 단어 간 미세한 의미와 문맥을 풍부하게 표현하지만, 각 토큰 벡터의 크기가 커져 VRAM 메모리 대역폭 요구량과 모델 파일 크기가 증가합니다."
+                />
+              </div>
               <div className="font-bold text-foreground mt-0.5">
                 {rawDetails.embeddingLength ? `${rawDetails.embeddingLength}` : '—'}
               </div>
             </div>
 
             <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
-              <div className="text-[10px] text-muted-foreground font-sans">어텐션 헤드 수</div>
+              <div className="text-[10px] text-muted-foreground font-sans flex items-center justify-between">
+                <span>어텐션 헤드 수</span>
+                <KpiCardHelp
+                  title="어텐션 헤드 수 (Query Heads)"
+                  description="Self-Attention 메커니즘에서 문맥 정보를 다각도(문법 구조, 인과 관계, 대명사 참조 등)로 동시에 분할 분석하는 독립적인 연산 채널(Query Heads)의 총 개수입니다."
+                  guide="전체 임베딩 차원을 헤드 수로 나눈 크기(Head Dim = Dim / Heads, 보통 128)로 각 헤드가 독립적인 어텐션을 수행하며, 다양한 의미적 상호관계를 동시에 포착합니다."
+                />
+              </div>
               <div className="font-bold text-foreground mt-0.5">
                 {rawDetails.headCount ? `${rawDetails.headCount} Heads` : '—'}
               </div>
             </div>
 
             <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
-              <div className="text-[10px] text-muted-foreground font-sans">KV 어텐션 헤드 수</div>
+              <div className="text-[10px] text-muted-foreground font-sans flex items-center justify-between">
+                <span>KV 어텐션 헤드 수</span>
+                <KpiCardHelp
+                  title="KV 어텐션 헤드 수 (KV Heads / GQA)"
+                  description="KV 캐시에 저장되는 Key와 Value 프로젝션의 헤드 개수입니다. Query 헤드 수와 같으면 전통적인 MHA 구조, 더 적으면 GQA(Grouped-Query Attention) 구조입니다."
+                  guide="Query 헤드보다 KV 헤드가 적은 경우(예: 32 Query / 8 KV = 4:1 그룹화), 모델 추론 품질은 유지하면서도 긴 대화 시 누적되는 KV 캐시 VRAM을 1/4로 대폭 절감합니다."
+                />
+              </div>
               <div className="font-bold text-foreground mt-0.5">
                 {rawDetails.headCountKv ? `${rawDetails.headCountKv} KV Heads` : '—'}
               </div>
             </div>
 
             <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
-              <div className="text-[10px] text-muted-foreground font-sans">FFN 확장 차원</div>
+              <div className="text-[10px] text-muted-foreground font-sans flex items-center justify-between">
+                <span>FFN 확장 차원</span>
+                <KpiCardHelp
+                  title="FFN 확장 차원 (Intermediate / Feed-Forward Size)"
+                  description="어텐션 연산 후 각 토큰의 표현을 비선형 변환하는 2계층 피드포워드 신경망(MLP)의 중간 은닉층 차원 크기입니다."
+                  guide="통상 은닉 임베딩 차원의 약 2.7~3.5배(SwiGLU 기준)로 크게 확장되며, 모델이 사전 학습 과정에서 습득한 방대한 사실(Facts)과 지식을 보관하고 인출하는 저장소 역할을 합니다."
+                />
+              </div>
               <div className="font-bold text-foreground mt-0.5">
                 {rawDetails.feedForwardLength ? `${rawDetails.feedForwardLength}` : '—'}
               </div>
@@ -1146,6 +1160,11 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <h3 className="text-xs font-semibold text-foreground">
                 시스템 자원 및 CPU/GPU 오프로딩 상태
               </h3>
+              <KpiCardHelp
+                title="시스템 자원 및 CPU/GPU 오프로딩 상태"
+                description="현재 PC 호스트의 전체 물리 RAM 및 잔여 메모리, GPU 가속 레이어 비율, 그리고 로컬 LLM의 메모리 적재 상태를 종합적으로 모니터링합니다."
+                guide="GPU VRAM이 부족해지면 시스템 RAM이 백업 버퍼로 사용되며, 100% Full GPU 가속 시 최고 추론 속도가 보장됩니다."
+              />
             </div>
             <span className="text-[11px] font-mono text-muted-foreground">
               {currentSnapshot?.gpuName}
@@ -1155,8 +1174,15 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           <div className="space-y-3 text-xs">
             {/* GPU Offload Ratio Bar */}
             <div className="space-y-1">
-              <div className="flex justify-between text-[11px]">
-                <span className="text-muted-foreground">GPU 레이어 오프로딩 비율</span>
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <span>GPU 레이어 오프로딩 비율</span>
+                  <KpiCardHelp
+                    title="GPU 레이어 오프로딩 비율"
+                    description="모델의 전체 트랜스포머 레이어 중 몇 %가 전용 VRAM에 로드되어 하드웨어 가속되는지 나타냅니다."
+                    guide="100%일 때 순수 GPU로만 연산되어 최고 속도를 발휘하며, VRAM 부족 시 일부 레이어가 CPU(시스템 RAM)로 분배됩니다."
+                  />
+                </span>
                 <span className="font-mono font-bold text-warning">
                   {currentSnapshot ? `${currentSnapshot.gpuOffloadPct}%` : '0%'}
                 </span>
@@ -1179,9 +1205,52 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               </div>
             </div>
 
-            {/* System RAM */}
+            {/* GPU VRAM Status (corresponding to GPU offload acceleration) */}
             <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between font-mono">
-              <span className="text-[11px] text-muted-foreground font-sans">호스트 시스템 RAM</span>
+              <span className="text-[11px] text-muted-foreground font-sans flex items-center gap-1">
+                <span>GPU VRAM 사용 상태</span>
+                <KpiCardHelp
+                  title="GPU VRAM 사용 상태 (비디오 메모리)"
+                  description="GPU 그래픽 카드 전용 비디오 메모리(VRAM)의 총 용량과 현재 모델 가중치 및 KV 캐시 등이 적재되고 남은 여유(Free) 메모리 크기입니다."
+                  guide="표시 형식은 '총 전용 VRAM (여유 공간)'입니다. 모델 가중치 및 KV 캐시가 VRAM에 100% 로드될 때 최대 추론 속도를 발휘하며, VRAM 부족 시 초과 레이어가 아래의 '호스트 시스템 RAM(CPU)'으로 오프로드됩니다."
+                />
+              </span>
+              <div className="flex items-center gap-2">
+                {rawDetails.isModelLoadedInMemory ? (
+                  <span className="text-[10px] font-sans px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/30 flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" />
+                    <span>
+                      {currentSnapshot && currentSnapshot.vramAllocatedBytes > 0
+                        ? `${(currentSnapshot.vramAllocatedBytes / (1024 * 1024 * 1024)).toFixed(1)} GB 로드됨`
+                        : '활성화됨'}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-sans px-1.5 py-0.5 rounded bg-warning/15 text-warning border border-warning/30 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    <span>대기 상태</span>
+                  </span>
+                )}
+                <span className="font-semibold text-foreground">
+                  {currentSnapshot && currentSnapshot.gpuVramTotalMb > 0
+                    ? `${(currentSnapshot.gpuVramTotalMb / 1024).toFixed(1)} GB (여유: ${(
+                        currentSnapshot.gpuVramFreeMb / 1024
+                      ).toFixed(1)} GB)`
+                    : 'N/A'}
+                </span>
+              </div>
+            </div>
+
+            {/* Host System RAM (corresponding to CPU offload distribution) */}
+            <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between font-mono">
+              <span className="text-[11px] text-muted-foreground font-sans flex items-center gap-1">
+                <span>호스트 시스템 RAM</span>
+                <KpiCardHelp
+                  title="호스트 시스템 RAM (물리 메모리)"
+                  description="PC 본체에 장착된 전체 물리 RAM 용량과 현재 운영체제 및 실행 중인 프로그램들이 사용하고 남은 여유(Free) 메모리 크기입니다."
+                  guide="표시 형식은 '총 OS 인식 물리 메모리 (여유 공간)'입니다. 대형 모델이나 장문 컨텍스트 구동 시 VRAM 부족분을 시스템 RAM이 스왑 버퍼로 흡수하므로 충분한 여유 공간 확보가 중요합니다."
+                />
+              </span>
               <span className="font-semibold text-foreground">
                 {currentSnapshot && currentSnapshot.systemMemoryTotalMb > 0
                   ? `${(currentSnapshot.systemMemoryTotalMb / 1024).toFixed(1)} GB (여유: ${(
@@ -1190,24 +1259,209 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   : 'N/A'}
               </span>
             </div>
+          </div>
+        </div>
+      </div>
 
-            {/* Model Weight Status in Memory */}
-            <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between font-mono">
-              <span className="text-[11px] text-muted-foreground font-sans">Ollama 메모리 로드 상태</span>
-              <span className="flex items-center gap-1.5 font-sans text-xs">
-                {rawDetails.isModelLoadedInMemory ? (
-                  <>
-                    <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                    <span className="text-success font-medium">메모리에 활성화됨</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="h-3.5 w-3.5 text-warning" />
-                    <span className="text-warning font-medium">대기 상태 (요청 시 즉시 로드)</span>
-                  </>
-                )}
+      {/* Real-time Inference Performance Charts (Prefill & Decoding) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Token Generation Speed Chart (Prefill & Decoding Speed) */}
+        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Gauge className="h-4 w-4 text-warning" />
+              <h3 className="text-xs font-semibold text-foreground">
+                실시간 토큰 생성 속도 추이 (Prefill vs 디코딩 Speed)
+              </h3>
+            </div>
+            <div className="flex items-center gap-4 text-[11px] font-mono">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shadow-sm"
+                  style={{ backgroundColor: CHART_COLORS.prefill }}
+                />
+                <span className="text-warning font-medium">좌측: Prefill 속도 (t/s)</span>
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shadow-sm"
+                  style={{ backgroundColor: CHART_COLORS.decoding }}
+                />
+                <span className="text-primary font-medium">우측: 디코딩 속도 (t/s)</span>
               </span>
             </div>
+          </div>
+
+          <div className="w-full h-60">
+            {timeSeriesData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                수집된 추론 속도 데이터가 없습니다.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timeSeriesData} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="time" tick={{ fontSize: 10 }} />
+                  <YAxis
+                    yAxisId="left"
+                    orientation="left"
+                    domain={[0, prefillSpeedMax]}
+                    stroke={CHART_COLORS.prefill}
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={formatAxisNumber}
+                    unit=" t/s"
+                    width={44}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    domain={[0, decodingSpeedMax]}
+                    stroke={CHART_COLORS.decoding}
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={formatAxisNumber}
+                    unit=" t/s"
+                    width={42}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="prefillSpeed"
+                    name="Prefill 속도"
+                    stroke={CHART_COLORS.prefill}
+                    strokeWidth={2}
+                    fill={CHART_COLORS.prefill}
+                    fillOpacity={0.15}
+                    dot={{ r: 3, fill: CHART_COLORS.prefill, strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                    unit=" token/s"
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="decodingSpeed"
+                    name="디코딩 속도"
+                    stroke={CHART_COLORS.decoding}
+                    strokeWidth={2.5}
+                    fill={CHART_COLORS.decoding}
+                    fillOpacity={0.25}
+                    dot={{ r: 3.5, fill: CHART_COLORS.decoding, strokeWidth: 0 }}
+                    activeDot={{ r: 5.5 }}
+                    unit=" token/s"
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* Inference Latency / Duration Chart (Prefill & Decoding Duration) */}
+        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Timer className="h-4 w-4 text-primary" />
+              <h3 className="text-xs font-semibold text-foreground">
+                실시간 추론 소요 시간 추이 (Prefill & 디코딩 Latency)
+              </h3>
+            </div>
+            <div className="flex items-center gap-4 text-[11px] font-mono">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shadow-sm"
+                  style={{ backgroundColor: CHART_COLORS.prefill }}
+                />
+                <span className="text-warning font-medium">좌측: Prefill 시간 (ms)</span>
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shadow-sm"
+                  style={{ backgroundColor: CHART_COLORS.decoding }}
+                />
+                <span className="text-primary font-medium">우측: 디코딩 시간 (ms)</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="w-full h-60">
+            {timeSeriesData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                수집된 추론 소요 시간 데이터가 없습니다.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timeSeriesData} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="time" tick={{ fontSize: 10 }} />
+                  <YAxis
+                    yAxisId="left"
+                    orientation="left"
+                    domain={[0, prefillDurationMax]}
+                    stroke={CHART_COLORS.prefill}
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={formatAxisNumber}
+                    unit=" ms"
+                    width={44}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    domain={[0, decodingDurationMax]}
+                    stroke={CHART_COLORS.decoding}
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={formatAxisNumber}
+                    unit=" ms"
+                    width={44}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <Area
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="prefillDurationMs"
+                    name="Prefill 소요 시간"
+                    stroke={CHART_COLORS.prefill}
+                    strokeWidth={2}
+                    fill={CHART_COLORS.prefill}
+                    fillOpacity={0.15}
+                    dot={{ r: 3, fill: CHART_COLORS.prefill, strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                    unit=" ms"
+                    isAnimationActive={false}
+                  />
+                  <Area
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="decodingDurationMs"
+                    name="디코딩 소요 시간"
+                    stroke={CHART_COLORS.decoding}
+                    strokeWidth={2.5}
+                    fill={CHART_COLORS.decoding}
+                    fillOpacity={0.25}
+                    dot={{ r: 3.5, fill: CHART_COLORS.decoding, strokeWidth: 0 }}
+                    activeDot={{ r: 5.5 }}
+                    unit=" ms"
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       </div>

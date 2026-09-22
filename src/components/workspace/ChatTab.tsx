@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Bot, Cpu, Sparkles, MessageSquare, Terminal, Zap, Layers } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import { useAgents } from '@/lib/context/AgentsContext';
@@ -7,6 +7,8 @@ import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
 import { useChat } from '@/hooks/useChat';
+import { useChatQueue, chatQueueManager } from '@/lib/agent/chatQueueManager';
+import { ChatQueueFloatingDock } from '@/components/chat/ChatQueueFloatingDock';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { ChatExecutionLog } from '@/components/chat/ChatExecutionLog';
@@ -32,8 +34,30 @@ export function ChatTab({ tab }: ChatTabProps) {
   const { getAgent, defaultAgent } = useAgents();
   const { updateTab, openTab } = useWorkspaceTabs();
   const { workspaceRoot } = useWorkspace();
-  const { refreshSessions, updateSessionTitle } = useChatSessions();
+  const { sessions, refreshSessions, updateSessionTitle } = useChatSessions();
   const skillsCtx = useSafeSkills();
+
+  const sessionId = (tab.meta?.sessionId as string) || (tab.id.startsWith('chat:') ? tab.id.slice(5) : tab.id);
+
+  const {
+    queue: queuedItems,
+    isPaused,
+    busySessionId,
+    isLockedByOtherSession,
+    isThisSessionBusy,
+    enqueue,
+    removeItem,
+    clearQueue,
+    dequeueItem,
+    resumeQueue,
+    pauseQueue,
+  } = useChatQueue(sessionId);
+
+  const busySession = useMemo(() => {
+    if (!busySessionId) return null;
+    return sessions.find((s) => s.id === busySessionId);
+  }, [sessions, busySessionId]);
+  const busySessionTitle = busySession?.title || '다른 대화창';
 
   const tabAgentId = tab.meta?.agentId as string | undefined;
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
@@ -87,7 +111,6 @@ export function ChatTab({ tab }: ChatTabProps) {
   };
 
   const activeAgent = getAgent(selectedAgentId) || defaultAgent;
-  const sessionId = (tab.meta?.sessionId as string) || (tab.id.startsWith('chat:') ? tab.id.slice(5) : tab.id);
 
   // Ensure session record exists in SQLite for stats and persistence tracking
   useEffect(() => {
@@ -139,6 +162,7 @@ export function ChatTab({ tab }: ChatTabProps) {
 
   const handleSendMessage = useCallback(
     async (text: string) => {
+      chatQueueManager.setSessionBusy(sessionId);
       const isFirstUserMessage = messages.filter((m) => m.role === 'user').length === 0;
 
       // Ensure session in DB and context
@@ -301,6 +325,113 @@ export function ChatTab({ tab }: ChatTabProps) {
     }
   };
 
+  // Queue processing logic: sequentially execute queued items in FIFO order
+  const isProcessingQueueRef = useRef(false);
+
+  const processNextQueueItem = useCallback(async () => {
+    if (isStreaming || isProcessingQueueRef.current) return;
+    const nextItem = chatQueueManager.peek(sessionId);
+    if (!nextItem) {
+      chatQueueManager.setSessionIdle(sessionId);
+      return;
+    }
+
+    isProcessingQueueRef.current = true;
+    const item = chatQueueManager.dequeue(sessionId);
+    if (!item) {
+      isProcessingQueueRef.current = false;
+      return;
+    }
+
+    try {
+      if (item.type === 'slash_command' && item.commandName) {
+        await handleSlashCommand(item.commandName, item.commandArgs);
+      } else {
+        await handleSendMessage(item.text);
+      }
+    } catch (err) {
+      console.error('Error executing queued item:', err);
+    } finally {
+      isProcessingQueueRef.current = false;
+    }
+  }, [isStreaming, sessionId, handleSlashCommand, handleSendMessage]);
+
+  // Synchronize LLM streaming execution state with ChatQueueManager
+  // Ensures any session running LLM inference immediately locks all other chat sessions even with 0 queued items
+  useEffect(() => {
+    chatQueueManager.setSessionRunning(sessionId, isStreaming);
+  }, [sessionId, isStreaming]);
+
+  // When error halts LLM execution and queued items remain, pause queue for user decision
+  useEffect(() => {
+    if (error && queuedItems.length > 0) {
+      pauseQueue();
+    }
+  }, [error, queuedItems.length, pauseQueue]);
+
+  useEffect(() => {
+    if (!isStreaming && queuedItems.length > 0) {
+      // If queue is paused, wait for user intervention!
+      if (isPaused) return;
+
+      const timer = setTimeout(() => {
+        void processNextQueueItem();
+      }, 0);
+      return () => clearTimeout(timer);
+    } else if (!isStreaming && queuedItems.length === 0) {
+      if (chatQueueManager.getBusySessionId() === sessionId) {
+        chatQueueManager.setSessionIdle(sessionId);
+      }
+    }
+  }, [isStreaming, queuedItems.length, isPaused, processNextQueueItem, sessionId]);
+
+  const handleStop = useCallback(() => {
+    stop();
+    chatQueueManager.setSessionRunning(sessionId, false);
+    if (queuedItems.length > 0) {
+      pauseQueue();
+    } else {
+      chatQueueManager.setSessionIdle(sessionId);
+    }
+  }, [stop, sessionId, queuedItems.length, pauseQueue]);
+
+  const handleResumeQueue = useCallback(async () => {
+    resumeQueue();
+    const timer = setTimeout(() => {
+      void processNextQueueItem();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [resumeQueue, processNextQueueItem]);
+
+  const handleRunItem = useCallback(
+    async (itemId: string) => {
+      resumeQueue();
+      const item = dequeueItem(itemId);
+      if (!item) return;
+
+      try {
+        if (item.type === 'slash_command' && item.commandName) {
+          await handleSlashCommand(item.commandName, item.commandArgs);
+        } else {
+          await handleSendMessage(item.text);
+        }
+      } catch (err) {
+        console.error('Error running selected queued item:', err);
+      }
+    },
+    [resumeQueue, dequeueItem, handleSlashCommand, handleSendMessage],
+  );
+
+  useEffect(() => {
+    return () => {
+      chatQueueManager.setSessionRunning(sessionId, false);
+      if (chatQueueManager.getBusySessionId() === sessionId) {
+        chatQueueManager.clearQueue(sessionId);
+        chatQueueManager.setSessionIdle(sessionId);
+      }
+    };
+  }, [sessionId]);
+
   return (
     <div className="flex flex-col h-full w-full bg-background overflow-hidden">
       {/* Header bar */}
@@ -365,6 +496,16 @@ export function ChatTab({ tab }: ChatTabProps) {
         )}
       </div>
 
+      {/* Floating Queue UI Dock when there are queued items */}
+      <ChatQueueFloatingDock
+        items={queuedItems}
+        isPaused={isPaused}
+        onRemoveItem={removeItem}
+        onClearQueue={clearQueue}
+        onResumeQueue={handleResumeQueue}
+        onRunItem={handleRunItem}
+      />
+
       {/* Resizable handle for Chat Input Area */}
       <div
         role="separator"
@@ -390,11 +531,15 @@ export function ChatTab({ tab }: ChatTabProps) {
         <ChatInput
           onSend={handleSendMessage}
           onSteer={steer}
-          onStop={stop}
+          onStop={handleStop}
           onCompact={compact}
           onOpenCompactDialog={() => setCompactDialogOpen(true)}
           onSlashCommand={handleSlashCommand}
+          onQueue={enqueue}
           isStreaming={isStreaming}
+          isLockedByOtherSession={isLockedByOtherSession}
+          isThisSessionBusy={isThisSessionBusy || isStreaming || queuedItems.length > 0}
+          busySessionTitle={busySessionTitle}
           selectedAgentId={selectedAgentId}
           onSelectAgent={handleSelectAgent}
           isAgentLocked={messages.length > 0}

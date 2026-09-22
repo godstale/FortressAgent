@@ -197,7 +197,7 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
       </div>
 
       {/* Log list */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-1.5 min-h-0 select-text">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-1.5 min-h-0 select-text">
         {filteredLogs.length === 0 ? (
           <div className="py-12 text-center text-muted-foreground text-xs font-sans space-y-1">
             <Filter className="h-6 w-6 mx-auto opacity-40 mb-2" />

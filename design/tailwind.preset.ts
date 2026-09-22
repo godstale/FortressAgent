@@ -59,6 +59,7 @@ const fortressPreset = {
           foreground: 'hsl(var(--code-foreground))',
         },
         subtle: 'hsl(var(--subtle-foreground))',
+        brand: 'hsl(var(--brand))',
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',

@@ -31,7 +31,8 @@ import { useSidePanel } from '@/lib/context/SidePanelContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { FortressMark } from '@/components/brand/FortressMark';
 
 export function TopMenuBar() {
   const { workspaceRoot, setWorkspaceRoot, recentWorkspaces = [] } = useWorkspace();
@@ -162,9 +163,7 @@ export function TopMenuBar() {
       {/* Left: App title & Dropdown Menus */}
       <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <div className="flex items-center gap-1.5 px-2 font-semibold text-foreground tracking-wide mr-1">
-          <div className="h-3.5 w-3.5 rounded bg-primary flex items-center justify-center text-[9px] text-primary-foreground font-black">
-            F
-          </div>
+          <FortressMark compact className="h-4 w-4 text-brand" />
           <span className="text-[11px]">Fortress</span>
         </div>
 

@@ -74,8 +74,13 @@ function WorkspaceContent() {
     }
   };
 
+  // Prevent any residual window-level scroll offsets in desktop webview
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground">
+    <div className="flex flex-col h-full w-full overflow-hidden bg-background text-foreground">
       <TopMenuBar />
       <div className="flex flex-1 min-h-0 w-full overflow-hidden">
         <ActivityBar

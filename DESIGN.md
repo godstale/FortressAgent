@@ -1,17 +1,19 @@
 # DESIGN.md — Fortress "Midnight Rampart" 디자인 시스템
 
 > Fortress의 라이트/다크 테마, 색상 토큰, 타이포그래피, 컴포넌트 패턴을 정의하고 **다른 앱으로 그대로 포팅**하는 방법을 담은 문서입니다.
-> 디자인 캔버스(워크스페이스·모니터·토큰 시안): <https://claude.ai/artifact/CeN5zCXrfbW9FDoajL3KSQ>
-> 원본 팔레트 참고 이미지: `Docs/screenshot/color-palette-01.png`
+> 디자인 캔버스(워크스페이스·모니터·토큰·브랜드 시안): <https://claude.ai/artifact/CeN5zCXrfbW9FDoajL3KSQ>
+> 참고 이미지: 팔레트 `Docs/screenshot/color-palette-01.png`, 다크 테마 톤 `Docs/screenshot/dark-theme-01.png`
 
 ---
 
 ## 1. 컨셉
 
-**Midnight Rampart(한밤의 성벽)** — 완전 로컬에서 동작하는 AI 에이전트 워크스테이션이라는 성격에 맞춰 "깊은 남색 성벽 위의 선명한 신호등"을 콘셉트로 잡았습니다.
+**Midnight Rampart(한밤의 성벽)** — Fortress는 화려한 AI 제품이 아니라 *내 PC에 맞는 로컬 LLM을 직접 시험하고 측정하는 작업대*입니다. 그래서 "직접 세운 목책 요새 위의 선명한 계기판"을 콘셉트로 잡았습니다. 브랜드(로고)는 투박하고 기본적으로, UI는 조용한 바탕 위에 수치와 상태만 또렷하게 보이도록 합니다. 라이트는 남색 기운의 밝은 중립, 다크는 **눈부심을 줄인 차콜 중립**입니다.
 
+- **투박한 브랜드, 정직한 계기판.** 로고는 통나무 말뚝과 결속목만으로 된 목책입니다(§9). 장식·그라디언트·광택을 쓰지 않습니다.
 - **바탕은 조용하게, 신호는 선명하게.** 표면은 채도 낮은 남색 중립(Neutral) 계열이고, 색은 *의미가 있을 때만* 씁니다.
 - **색 = 의미.** 파랑은 액션, 인디고는 도구 호출, 마젠타는 모델의 사고/실행 중, 앰버는 사람의 승인이 필요한 순간(HITL)입니다. 같은 색을 다른 의미로 쓰지 않습니다.
+- **다크는 편안하게(v1.1).** 어두운 환경에서 오래 봐도 눈이 덜 피로하도록 다크 테마는 순수 검정·채도 높은 남색 대신 약간 푸른 기운의 차콜(`#18191C`~`#2C2E34`)을 쓰고, 본문은 순백 대신 `#D9DBE1`(대비 11.8:1), 강조색은 채도를 낮춘 파스텔 톤으로 맞췄습니다. 대비는 AA를 넉넉히 넘기되 7:1~12:1 범위에 머물게 해 번쩍임을 피합니다.
 - **시인성 우선.** 모든 텍스트 토큰은 각 테마의 `card`·`muted` 표면 위에서 **WCAG AA(4.5:1) 이상**입니다(`node design/build-theme.mjs`가 매번 검증).
 - **로컬 퍼스트.** 폰트는 CDN이 아니라 `@fontsource` 패키지로 번들합니다. 오프라인에서도 동일하게 보입니다.
 
@@ -23,6 +25,9 @@
 | `design/build-theme.mjs` | `tokens.json` → `design/theme.css` 생성 + 대비율 리포트(AA 미달 시 exit 1). 의존성 없음. |
 | `design/theme.css` | 생성물. shadcn/ui 규약의 HSL CSS 변수(`:root` = 다크, `.light` = 라이트). 어떤 앱에도 복사 가능. |
 | `design/tailwind.preset.ts` | Tailwind v3 프리셋. 색상 유틸리티(`bg-success`, `text-info`…), 폰트, 라운드. 이 앱의 `tailwind.config.ts`도 이 프리셋을 사용합니다. |
+| `design/brand/` | 로고 패밀리 SVG(마크·앱 아이콘·워드마크·README 배너)와 생성기 `build-brand.mjs`. §9 참고. |
+| `public/favicon.svg` | 파비콘(간소화 5-말뚝 마크, 차콜 타일). |
+| `src/components/brand/FortressMark.tsx` | 앱 내 로고 컴포넌트(`currentColor`, `compact` 옵션). |
 | `src/index.css` | 앱 적용본. `design/theme.css`의 변수 블록 + 폰트 import + base 스타일. |
 | `src/lib/context/ThemeContext.tsx` | `light` / `dark` / `system` 전환. `<html>`에 `.light` 또는 `.dark` 클래스를 토글. |
 | `src/components/workspace/EditorTab.tsx` | CodeMirror 다크/라이트 테마(팔레트 hex). |
@@ -49,23 +54,24 @@
 
 | 토큰 | Dark | Light | 용도 |
 | :--- | :--- | :--- | :--- |
-| `background` | `#0B1026` | `#F4F6FB` | 앱 바탕 |
-| `card` | `#111733` | `#FFFFFF` | 패널, 카드 |
-| `popover` | `#182044` | `#FFFFFF` | 메뉴, 툴팁, 다이얼로그 |
-| `muted` | `#182044` | `#EEF1F8` | 보조 표면, 입력 배경 |
-| `secondary` / `accent` | `#212A55` | `#E3E7F2` | 중립 버튼 / hover 표면 |
-| `border` / `input` | `#2A3360` | `#D3D8E8` | 테두리 |
-| `foreground` | `#E8EBFA` (14.8) | `#0E1330` (18.2) | 본문 텍스트 |
-| `muted-foreground` | `#A6ADCF` (7.95) | `#4A5173` (7.73) | 보조 텍스트, 라벨 |
-| ★`subtle-foreground` | `#8189B0` (5.14) | `#5F6689` (5.60) | 메타 정보(시간, 경로). Tailwind: `text-subtle` |
-| `primary` | `#5B9BFF` | `#0062DB` | 주요 버튼, 선택, 링크 |
-| `ring` | `#8AB6FF` | `#0062DB` | 포커스 링 |
-| ★`info` | `#A3B0EC` | `#4357BE` | 도구 호출 배지, 보조 데이터 |
-| ★`tertiary` | `#E09BE6` | `#8E4394` | Thinking 블록, 실행 중(RUN) 상태 |
-| ★`success` | `#4FD39A` | `#0B7A4B` | 연결됨, 완료, 추가(+) |
-| ★`warning` | `#FFC062` | `#8F5600` | **HITL 승인 요청**, 경고, 임계치 근접 |
-| `destructive` | `#FF8A80` | `#C4302B` | 오류, 거부, 삭제(−) |
-| ★`code` | `#070B1C` | `#111733` | 코드 블록/로그 배경 — **두 테마 모두 어둡게 유지** |
+| `background` | `#18191C` | `#F4F6FB` | 앱 바탕 |
+| `card` | `#1F2024` | `#FFFFFF` | 패널, 카드 |
+| `popover` | `#26282D` | `#FFFFFF` | 메뉴, 툴팁, 다이얼로그 |
+| `muted` | `#232429` | `#EEF1F8` | 보조 표면, 입력 배경 |
+| `secondary` / `accent` | `#2C2E34` | `#E3E7F2` | 중립 버튼 / hover 표면 |
+| `border` / `input` | `#34363D` | `#D3D8E8` | 테두리 |
+| `foreground` | `#D9DBE1` (11.8) | `#0E1330` (18.2) | 본문 텍스트 |
+| `muted-foreground` | `#9DA1AC` (6.30) | `#4A5173` (7.73) | 보조 텍스트, 라벨 |
+| ★`subtle-foreground` | `#8C909B` (5.10) | `#5F6689` (5.60) | 메타 정보(시간, 경로). Tailwind: `text-subtle` |
+| `primary` | `#6F9EF0` | `#0062DB` | 주요 버튼, 선택, 링크 |
+| `ring` | `#7FA8F2` | `#0062DB` | 포커스 링 |
+| ★`info` | `#9FA8D6` | `#4357BE` | 도구 호출 배지, 보조 데이터 |
+| ★`tertiary` | `#C99BCC` | `#8E4394` | Thinking 블록, 실행 중(RUN) 상태 |
+| ★`success` | `#6CC49A` | `#0B7A4B` | 연결됨, 완료, 추가(+) |
+| ★`warning` | `#E0B26A` | `#8F5600` | **HITL 승인 요청**, 경고, 임계치 근접 |
+| `destructive` | `#E8837A` | `#C4302B` | 오류, 거부, 삭제(−) |
+| ★`brand` | `#D4A262` | `#9A6630` | **로고 전용**(목책 통나무색). 텍스트·상태 표시에 쓰지 않음. Tailwind: `text-brand` |
+| ★`code` | `#141518` | `#111733` | 코드 블록/로그 배경 — **두 테마 모두 어둡게 유지** |
 | `chart-1…5` | primary · tertiary · success · warning · info | 동일 순서 | Recharts 시리즈 |
 
 모든 색 토큰에는 `-foreground` 짝이 있어 채운 배경 위 글자색으로 씁니다(`bg-warning text-warning-foreground`).
@@ -158,3 +164,53 @@
 2. `node design/build-theme.mjs` — `design/theme.css`가 재생성되고, 대비율이 AA 미만인 쌍이 있으면 ✗ 표시와 함께 실패합니다.
 3. 생성된 `:root` / `.light` 블록을 `src/index.css`에 반영합니다.
 4. hex를 직접 쓰는 곳(`MermaidViewer.tsx`, `EditorTab.tsx`)도 함께 맞춥니다.
+
+## 9. 브랜드 — 목책 요새(Palisade)
+
+### 9.1 로고
+
+끝을 깎은 통나무 말뚝 7개를 촘촘히 세우고, 결속목 한 줄로 묶고, 가운데 아래에 아치형 성문을 뚫은 모양입니다. 양 끝 말뚝을 가장 높게 두어 망루처럼 보이게 했고, 높이는 일부러 들쭉날쭉하게 해서 손으로 세운 느낌을 냅니다. 말뚝 사이를 0.8u로 좁힌 이유는, 간격이 넓으면 요새가 아니라 정원 울타리처럼 보이기 때문입니다.
+
+| 요소 | 규격(64u 그리드) |
+| :--- | :--- |
+| 말뚝 | 7개 × 폭 7.4u, 간격 0.8u, 뾰족한 끝(어깨 = 꼭짓점 + 7u), 밑단 y=58 |
+| 꼭짓점 높이 | 5 · 12 · 10 · 8 · 10 · 12 · 5 (양 끝이 가장 높음) |
+| 결속목 | y=23, 두께 3.5u, 좌우 1.5u씩 돌출 |
+| 성문 | 폭 15u 아치(반지름 7.5u), 마스크로 뚫음 |
+| 간소화 마크(≤ 24px) | 말뚝 5개 × 폭 10u, 간격 1.6u, 결속목 4.5u |
+
+### 9.2 색
+
+| 이름 | 값 | 용도 |
+| :--- | :--- | :--- |
+| Timber | `#D4A262` | 다크 배경 위 말뚝(`--brand` 다크, 대비 7.1:1) |
+| Timber Deep | `#9A6630` | 라이트 배경 위 말뚝(`--brand` 라이트, 4.5:1) |
+| Lashing | `#8C5E34` / `#6B4420` | 2도 인쇄 시 결속목(다크 / 라이트) |
+| Charcoal | `#1F2024` | 앱 아이콘 타일 |
+
+브랜드 색은 **로고에만** 씁니다. UI의 경고(`warning`)와 색상이 비슷하므로 텍스트나 상태 표시에 쓰면 의미가 섞입니다.
+
+### 9.3 파일
+
+| 파일 | 용도 |
+| :--- | :--- |
+| `design/brand/fortress-mark.svg` | 단색 마크(`currentColor`) — 아이콘 폰트·인라인 사용 |
+| `design/brand/fortress-mark-small.svg` | 단색 간소화 마크(≤ 24px) |
+| `design/brand/fortress-app-icon.svg` | 앱 아이콘 원본(차콜 타일 + 2도 마크). `pnpm tauri icon`의 입력 |
+| `design/brand/fortress-app-icon-light.svg` | 라이트 배경용 앱 아이콘 |
+| `design/brand/fortress-wordmark-dark.svg` / `-light.svg` | 마크 + "Fortress" 워드마크(어두운/밝은 배경용) |
+| `design/brand/fortress-banner.svg` | README·소개용 배너(1280 × 320) |
+| `public/favicon.svg` | 브라우저 탭·웹 프리뷰 파비콘 |
+| `src-tauri/icons/*` | 데스크탑 앱 아이콘(ico/icns/png), 앱 아이콘 SVG에서 생성 |
+
+### 9.4 수정·재생성
+
+1. 형태나 색을 바꿀 때는 `design/brand/build-brand.mjs`의 `LOGS`·`BRAND` 값을 고칩니다. 앱 내 컴포넌트 `FortressMark.tsx`도 같은 값을 쓰므로 함께 맞춥니다.
+2. `node design/brand/build-brand.mjs` — `design/brand/*.svg`와 `public/favicon.svg`를 다시 만듭니다.
+3. `pnpm tauri icon design/brand/fortress-app-icon.svg` — 데스크탑 아이콘을 다시 만듭니다. 모바일 타깃을 쓰지 않으므로 생성된 `src-tauri/icons/android`, `ios` 폴더는 지웁니다.
+
+### 9.5 사용 규칙
+
+- 여백은 마크 높이의 1/4 이상 둡니다. 최소 크기는 16px이며, 24px 이하에서는 간소화 마크를 씁니다.
+- 앱 안에서는 `<FortressMark className="text-brand" />`처럼 `text-brand`로 칠합니다(메뉴바는 `compact`).
+- 말뚝을 둥글게 하거나, 그라디언트·그림자·광택을 넣거나, 성·방패 같은 다른 상징과 합치지 않습니다.

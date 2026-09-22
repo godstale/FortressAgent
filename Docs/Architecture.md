@@ -88,6 +88,8 @@ Fortress/
 ├── tailwind.config.ts             # design/tailwind.preset.ts 를 preset으로 사용
 ├── DESIGN.md                      # 디자인 시스템(색·타이포·포팅 가이드)
 ├── design/                        # tokens.json(단일 진실 공급원), build-theme.mjs, theme.css, tailwind.preset.ts
+│   └── brand/                     # 로고 SVG 패밀리 + build-brand.mjs (DESIGN.md §9)
+├── public/favicon.svg
 ├── postcss.config.mjs
 ├── components.json                # shadcn/ui 설정
 ├── index.html
@@ -116,6 +118,8 @@ Fortress/
 │   │       ├── SettingsModel.tsx       # Ollama 연결, 기본 모델, contextSize, 압축 임계값
 │   │       └── SettingsApproval.tsx    # HITL 승인 모드 기본값
 │   ├── components/
+│   │   ├── brand/
+│   │   │   └── FortressMark.tsx         # 목책 요새 로고(인라인 SVG, currentColor)
 │   │   ├── layout/
 │   │   │   ├── ActivityBar.tsx          # 좌측 아이콘 사이드바
 │   │   │   ├── WorkspaceLayout.tsx      # 좌/우 리사이저블 스플릿

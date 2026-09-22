@@ -8,19 +8,19 @@ import { RechartsViewer } from './RechartsViewer';
 // Mermaid derives shades from hex inputs, so it cannot read the CSS variables; values mirror design/tokens.json.
 const MERMAID_DARK = {
   darkMode: true,
-  background: '#0B1026',
-  primaryColor: '#182044',
-  primaryTextColor: '#E8EBFA',
-  primaryBorderColor: '#5B9BFF',
-  secondaryColor: '#212A55',
-  secondaryBorderColor: '#A3B0EC',
-  tertiaryColor: '#231025',
-  tertiaryBorderColor: '#E09BE6',
-  lineColor: '#8189B0',
-  textColor: '#E8EBFA',
-  noteBkgColor: '#2A1A00',
-  noteTextColor: '#FFD08A',
-  noteBorderColor: '#FFC062',
+  background: '#18191C',
+  primaryColor: '#26282D',
+  primaryTextColor: '#D9DBE1',
+  primaryBorderColor: '#6F9EF0',
+  secondaryColor: '#2C2E34',
+  secondaryBorderColor: '#9FA8D6',
+  tertiaryColor: '#2A2130',
+  tertiaryBorderColor: '#C99BCC',
+  lineColor: '#8C909B',
+  textColor: '#D9DBE1',
+  noteBkgColor: '#2E2618',
+  noteTextColor: '#E8C48A',
+  noteBorderColor: '#E0B26A',
 };
 
 const MERMAID_LIGHT = {

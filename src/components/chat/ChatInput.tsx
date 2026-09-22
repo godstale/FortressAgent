@@ -14,6 +14,7 @@ import {
   Folder,
   Layers,
   Info,
+  Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { SkillManifest } from '@/lib/types/skill';
@@ -52,7 +53,16 @@ export interface ChatInputProps {
   onCompact?: (instructions?: string) => Promise<void> | void;
   onOpenCompactDialog?: () => void;
   onSlashCommand?: (command: string, args?: string) => boolean | Promise<boolean>;
+  onQueue?: (item: {
+    text: string;
+    type: 'message' | 'slash_command' | 'skill';
+    commandName?: string;
+    commandArgs?: string;
+  }) => void;
   isStreaming: boolean;
+  isLockedByOtherSession?: boolean;
+  isThisSessionBusy?: boolean;
+  busySessionTitle?: string;
   placeholder?: string;
   skills?: SkillManifest[];
   selectedAgentId?: string;
@@ -71,7 +81,11 @@ export function ChatInput({
   onCompact,
   onOpenCompactDialog,
   onSlashCommand,
+  onQueue,
   isStreaming,
+  isLockedByOtherSession = false,
+  isThisSessionBusy = false,
+  busySessionTitle,
   placeholder,
   skills: skillsProp,
   selectedAgentId,
@@ -176,10 +190,60 @@ export function ChatInput({
   };
 
   const handleSubmit = async () => {
+    if (isLockedByOtherSession) return;
     const trimmed = text.trim();
     if (!trimmed) return;
 
     setErrorMessage(null);
+
+    // If this session is busy (running LLM or has pending queue items) and onQueue is available,
+    // enqueue the request instead of executing immediately or overwriting
+    if ((isThisSessionBusy || isStreaming) && onQueue) {
+      // 1. Check if slash command
+      const slashMatch = trimmed.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
+      if (slashMatch) {
+        const commandName = slashMatch[1].toLowerCase();
+        const args = slashMatch[2]?.trim();
+        onQueue({
+          text: trimmed,
+          type: 'slash_command',
+          commandName,
+          commandArgs: args,
+        });
+        setText('');
+        setAutocompleteDismissed(false);
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+        }
+        return;
+      }
+
+      // 2. Check if skill command
+      if (parseSkillCommand(trimmed)) {
+        onQueue({
+          text: trimmed,
+          type: 'skill',
+        });
+        setText('');
+        setAutocompleteDismissed(false);
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+        }
+        return;
+      }
+
+      // 3. Normal user message
+      onQueue({
+        text: trimmed,
+        type: 'message',
+      });
+      setText('');
+      setAutocompleteDismissed(false);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+      return;
+    }
 
     // Check built-in slash commands
     const slashMatch = trimmed.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
@@ -298,8 +362,10 @@ export function ChatInput({
     }
   };
 
-  const defaultPlaceholder = isStreaming
-    ? '스트리밍 중입니다 (입력 후 Enter시 지시 주입 — Steering)...'
+  const defaultPlaceholder = isLockedByOtherSession
+    ? '🔒 다른 대화창에서 작업 진행 중 (대기 큐 완료 후 입력 가능)...'
+    : isThisSessionBusy || isStreaming
+    ? '에이전트 작업 중입니다 (Enter 입력 시 대기 큐에 추가)...'
     : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈, /: 슬래시 명령어, /skill: 스킬)...';
 
   return (
@@ -384,6 +450,18 @@ export function ChatInput({
         </div>
       )}
 
+      {/* Lock banner when another session is busy */}
+      {isLockedByOtherSession && (
+        <div className="flex items-center gap-2 px-3.5 py-1.5 text-xs text-amber-500 bg-amber-500/10 border-b border-amber-500/20 font-medium select-none">
+          <Lock className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">
+            {busySessionTitle
+              ? `대화창 "${busySessionTitle}"에서 에이전트 작업/대기 큐가 진행 중입니다. 완료 후 입력할 수 있습니다.`
+              : '다른 대화창에서 에이전트 작업/대기 큐가 진행 중입니다. 완료 후 입력할 수 있습니다.'}
+          </span>
+        </div>
+      )}
+
       {/* Agent Selector / Lock Bar */}
       {agentsCtx && agentsCtx.agents.length > 0 && (
         <div className="flex items-center justify-between px-3.5 pt-2 pb-1 text-[11px] text-muted-foreground border-b border-border/30 shrink-0">
@@ -444,10 +522,12 @@ export function ChatInput({
           value={text}
           onChange={(e) => handleTextChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          disabled={isLockedByOtherSession}
           placeholder={placeholder || defaultPlaceholder}
           style={customHeight ? undefined : { maxHeight: `${maxHeight}px` }}
           className={cn(
             'w-full resize-none bg-transparent px-3.5 py-2.5 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 border-0 outline-none focus:outline-none focus:ring-0 shadow-none leading-normal font-sans',
+            isLockedByOtherSession && 'opacity-60 cursor-not-allowed',
             customHeight
               ? 'flex-1 min-h-0 h-full overflow-y-auto'
               : 'min-h-[38px] overflow-y-auto',
@@ -472,11 +552,17 @@ export function ChatInput({
             type="button"
             size="icon"
             onClick={() => void handleSubmit()}
-            disabled={!text.trim()}
+            disabled={isLockedByOtherSession || !text.trim()}
             className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-            title={isStreaming ? '지시 주입 (Steer)' : '전송'}
+            title={
+              isLockedByOtherSession
+                ? '다른 대화창 작업 중'
+                : isThisSessionBusy || isStreaming
+                ? '대기 큐에 추가 (Queue)'
+                : '전송'
+            }
           >
-            {isStreaming ? (
+            {isThisSessionBusy || isStreaming ? (
               <CornerDownLeft className="h-4 w-4" />
             ) : (
               <Send className="h-4 w-4" />

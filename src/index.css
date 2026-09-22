@@ -12,49 +12,50 @@
 @layer base {
   /* Midnight Rampart theme — synced from design/theme.css (see DESIGN.md). */
   :root {
-    --background: 228.9 55.1% 9.6%; /* #0B1026 */
-    --foreground: 230 64.3% 94.5%; /* #E8EBFA */
-    --card: 229.4 50% 13.3%; /* #111733 */
-    --card-foreground: 230 64.3% 94.5%; /* #E8EBFA */
-    --popover: 229.1 47.8% 18%; /* #182044 */
-    --popover-foreground: 230 64.3% 94.5%; /* #E8EBFA */
-    --primary: 216.6 100% 67.8%; /* #5B9BFF */
-    --primary-foreground: 220 84% 9.8%; /* #04122E */
-    --secondary: 229.6 44.1% 23.1%; /* #212A55 */
-    --secondary-foreground: 230 64.3% 94.5%; /* #E8EBFA */
-    --muted: 229.1 47.8% 18%; /* #182044 */
-    --muted-foreground: 229.8 29.9% 73.1%; /* #A6ADCF */
-    --subtle-foreground: 229.8 22.9% 59.8%; /* #8189B0 */
-    --accent: 229.6 44.1% 23.1%; /* #212A55 */
-    --accent-foreground: 230 64.3% 94.5%; /* #E8EBFA */
-    --destructive: 4.7 100% 75.1%; /* #FF8A80 */
-    --destructive-foreground: 1.6 78.7% 9.2%; /* #2A0605 */
-    --success: 154.1 60% 56.9%; /* #4FD39A */
-    --success-foreground: 159.4 85.4% 8%; /* #03261A */
-    --warning: 35.9 100% 69.2%; /* #FFC062 */
-    --warning-foreground: 37.1 100% 8.2%; /* #2A1A00 */
-    --info: 229.3 65.8% 78.2%; /* #A3B0EC */
-    --info-foreground: 230.3 49.2% 12.4%; /* #10152F */
-    --tertiary: 295.2 60% 75.5%; /* #E09BE6 */
-    --tertiary-foreground: 294.3 39.6% 10.4%; /* #231025 */
-    --border: 230 39.1% 27.1%; /* #2A3360 */
-    --input: 230 39.1% 27.1%; /* #2A3360 */
-    --ring: 217.4 100% 77.1%; /* #8AB6FF */
-    --code: 228.6 60% 6.9%; /* #070B1C */
-    --code-foreground: 230 64.3% 94.5%; /* #E8EBFA */
-    --chart-1: 216.6 100% 67.8%; /* #5B9BFF */
-    --chart-2: 295.2 60% 75.5%; /* #E09BE6 */
-    --chart-3: 154.1 60% 56.9%; /* #4FD39A */
-    --chart-4: 35.9 100% 69.2%; /* #FFC062 */
-    --chart-5: 229.3 65.8% 78.2%; /* #A3B0EC */
-    --sidebar: 229.4 50% 13.3%; /* #111733 */
-    --sidebar-foreground: 230 64.3% 94.5%; /* #E8EBFA */
-    --sidebar-primary: 216.6 100% 67.8%; /* #5B9BFF */
-    --sidebar-primary-foreground: 220 84% 9.8%; /* #04122E */
-    --sidebar-accent: 229.6 44.1% 23.1%; /* #212A55 */
-    --sidebar-accent-foreground: 230 64.3% 94.5%; /* #E8EBFA */
-    --sidebar-border: 230 39.1% 27.1%; /* #2A3360 */
-    --sidebar-ring: 217.4 100% 77.1%; /* #8AB6FF */
+    --background: 225 7.7% 10.2%; /* #18191C */
+    --foreground: 225 11.8% 86.7%; /* #D9DBE1 */
+    --card: 228 7.5% 13.1%; /* #1F2024 */
+    --card-foreground: 225 11.8% 86.7%; /* #D9DBE1 */
+    --popover: 222.9 8.4% 16.3%; /* #26282D */
+    --popover-foreground: 225 11.8% 86.7%; /* #D9DBE1 */
+    --primary: 218.1 81.1% 68.8%; /* #6F9EF0 */
+    --primary-foreground: 222 41.7% 9.4%; /* #0E1422 */
+    --secondary: 225 8.3% 18.8%; /* #2C2E34 */
+    --secondary-foreground: 225 11.8% 86.7%; /* #D9DBE1 */
+    --muted: 230 7.9% 14.9%; /* #232429 */
+    --muted-foreground: 224 8.3% 64.5%; /* #9DA1AC */
+    --subtle-foreground: 224 7% 57.8%; /* #8C909B */
+    --accent: 225 8.3% 18.8%; /* #2C2E34 */
+    --accent-foreground: 225 11.8% 86.7%; /* #D9DBE1 */
+    --destructive: 4.9 70.5% 69.4%; /* #E8837A */
+    --destructive-foreground: 5.3 68% 9.8%; /* #2A0B08 */
+    --success: 151.4 42.7% 59.6%; /* #6CC49A */
+    --success-foreground: 153.6 53.2% 9.2%; /* #0B2419 */
+    --warning: 36.6 65.6% 64.7%; /* #E0B26A */
+    --warning-foreground: 36.7 75% 9.4%; /* #2A1C06 */
+    --info: 230.2 40.1% 73.1%; /* #9FA8D6 */
+    --info-foreground: 230 35.3% 13.3%; /* #161A2E */
+    --tertiary: 296.3 32.5% 70.4%; /* #C99BCC */
+    --tertiary-foreground: 288.6 33.3% 12.4%; /* #26152A */
+    --border: 226.7 8% 22.2%; /* #34363D */
+    --input: 226.7 8% 22.2%; /* #34363D */
+    --ring: 218.6 81.6% 72.4%; /* #7FA8F2 */
+    --code: 225 9.1% 8.6%; /* #141518 */
+    --code-foreground: 225 11.8% 86.7%; /* #D9DBE1 */
+    --chart-1: 218.1 81.1% 68.8%; /* #6F9EF0 */
+    --chart-2: 296.3 32.5% 70.4%; /* #C99BCC */
+    --chart-3: 151.4 42.7% 59.6%; /* #6CC49A */
+    --chart-4: 36.6 65.6% 64.7%; /* #E0B26A */
+    --chart-5: 230.2 40.1% 73.1%; /* #9FA8D6 */
+    --sidebar: 228 7.5% 13.1%; /* #1F2024 */
+    --sidebar-foreground: 225 11.8% 86.7%; /* #D9DBE1 */
+    --sidebar-primary: 218.1 81.1% 68.8%; /* #6F9EF0 */
+    --sidebar-primary-foreground: 222 41.7% 9.4%; /* #0E1422 */
+    --sidebar-accent: 225 8.3% 18.8%; /* #2C2E34 */
+    --sidebar-accent-foreground: 225 11.8% 86.7%; /* #D9DBE1 */
+    --sidebar-border: 226.7 8% 22.2%; /* #34363D */
+    --sidebar-ring: 218.6 81.6% 72.4%; /* #7FA8F2 */
+    --brand: 33.7 57% 60.8%; /* #D4A262 */
     --radius: 0.5rem;
     color-scheme: dark;
   }
@@ -103,11 +104,22 @@
     --sidebar-accent-foreground: 231.2 54.8% 12.2%; /* #0E1330 */
     --sidebar-border: 225.7 31.3% 86.9%; /* #D3D8E8 */
     --sidebar-ring: 213.2 100% 42.9%; /* #0062DB */
+    --brand: 30.6 52.5% 39.6%; /* #9A6630 */
     color-scheme: light;
   }
 
   * {
     @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;
