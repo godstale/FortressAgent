@@ -4,6 +4,7 @@ import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { approvalBus } from '@/lib/approval/approvalBus';
 import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface KeyboardShortcutHandlers {
   onNewChat?: () => void;
@@ -24,6 +25,7 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
   const { tabs, activeTabId, closeTab, openTab } = useWorkspaceTabs();
   const { createSession } = useChatSessions();
   const workspace = useSafeWorkspace();
+  const { t } = useLanguage();
   const hasWorkspace = workspace === null || Boolean(workspace.workspaceRoot);
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
         } else if (hasWorkspace) {
           void (async () => {
             try {
-              const session = await createSession({ title: '새 채팅' });
+              const session = await createSession({ title: t('shortcuts.newChat') });
               openTab({
                 id: `chat:${session.id}`,
                 type: 'chat',
@@ -50,7 +52,7 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
               openTab({
                 id: `chat:${fallbackId}`,
                 type: 'chat',
-                title: '새 채팅',
+                title: t('shortcuts.newChat'),
                 meta: { sessionId: fallbackId },
               });
             }
@@ -90,7 +92,7 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
           if (pending.length > 0) {
             approvalBus.resolve(pending[0].id, {
               approved: false,
-              reason: '사용자가 ESC 키로 승인을 취소했습니다.',
+              reason: t('shortcuts.escReject'),
             });
           }
         }
@@ -110,5 +112,6 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
     openTab,
     createSession,
     hasWorkspace,
+    t,
   ]);
 }

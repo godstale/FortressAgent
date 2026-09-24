@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { getFileIcon } from '@/lib/fileIcons';
 import { CodeViewer } from '@/components/chat/CodeViewer';
 import { useTheme } from '@/lib/context/ThemeContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface EditorTabProps {
   tab: WorkspaceTab;
@@ -266,6 +267,7 @@ async function resolveLanguageExtension(filePath: string): Promise<Extension> {
 
 export function EditorTab({ tab }: EditorTabProps) {
   const { isDark } = useTheme();
+  const { t } = useLanguage();
   const filePath = (tab.meta?.filePath as string) || tab.id.replace(/^editor:/, '');
   const fileName = filePath.split(/[\\/]/).pop() ?? filePath;
   const isMarkdown = filePath.endsWith('.md') || filePath.endsWith('.markdown');
@@ -424,7 +426,7 @@ export function EditorTab({ tab }: EditorTabProps) {
             {fileName}
           </span>
           <span className="text-[11px] text-muted-foreground font-mono hidden sm:inline opacity-70">
-            {lineCount}줄 • {charCount.toLocaleString()}자
+            {t('editor.meta', { lines: lineCount, chars: charCount })}
           </span>
         </div>
 
@@ -436,7 +438,7 @@ export function EditorTab({ tab }: EditorTabProps) {
               type="button"
               onClick={() => setFontSize((f) => Math.max(10, f - 1))}
               className="p-1 text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted"
-              title="글꼴 축소"
+              title={t('editor.fontDown')}
             >
               <ZoomOut className="h-3 w-3" />
             </button>
@@ -447,7 +449,7 @@ export function EditorTab({ tab }: EditorTabProps) {
               type="button"
               onClick={() => setFontSize((f) => Math.min(22, f + 1))}
               className="p-1 text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted"
-              title="글꼴 확대"
+              title={t('editor.fontUp')}
             >
               <ZoomIn className="h-3 w-3" />
             </button>
@@ -465,10 +467,10 @@ export function EditorTab({ tab }: EditorTabProps) {
                     ? 'bg-accent text-foreground font-medium shadow-xs'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
                 )}
-                title="편집기 전용"
+                title={t('editor.editOnlyTitle')}
               >
                 <Code2 className="h-3 w-3" />
-                <span>편집</span>
+                <span>{t('editor.edit')}</span>
               </button>
               <button
                 type="button"
@@ -479,10 +481,10 @@ export function EditorTab({ tab }: EditorTabProps) {
                     ? 'bg-accent text-foreground font-medium shadow-xs'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
                 )}
-                title="나란히 보기 (분할)"
+                title={t('editor.splitTitle')}
               >
                 <Columns2 className="h-3 w-3" />
-                <span>분할</span>
+                <span>{t('editor.split')}</span>
               </button>
               <button
                 type="button"
@@ -493,10 +495,10 @@ export function EditorTab({ tab }: EditorTabProps) {
                     ? 'bg-accent text-foreground font-medium shadow-xs'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
                 )}
-                title="미리보기 전용"
+                title={t('editor.previewTitle')}
               >
                 <Eye className="h-3 w-3" />
-                <span>미리보기</span>
+                <span>{t('editor.preview')}</span>
               </button>
             </div>
           )}
@@ -506,17 +508,17 @@ export function EditorTab({ tab }: EditorTabProps) {
             {saveStatus === 'saving' && (
               <>
                 <Loader2 className="h-3 w-3 animate-spin text-warning" />
-                <span className="text-warning">저장 중...</span>
+                <span className="text-warning">{t('editor.saving')}</span>
               </>
             )}
             {saveStatus === 'saved' && (
               <>
                 <Check className="h-3 w-3 text-success" />
-                <span className="text-success">저장됨</span>
+                <span className="text-success">{t('editor.saved')}</span>
               </>
             )}
             {saveStatus === 'error' && (
-              <span className="text-destructive font-semibold">저장 실패</span>
+              <span className="text-destructive font-semibold">{t('editor.saveFailed')}</span>
             )}
           </div>
         </div>
@@ -527,12 +529,12 @@ export function EditorTab({ tab }: EditorTabProps) {
         {loading ? (
           <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin mr-2 text-primary" />
-            <span>파일을 불러오는 중...</span>
+            <span>{t('editor.loading')}</span>
           </div>
         ) : readError ? (
           <div className="flex-1 flex flex-col items-center justify-center text-xs text-destructive p-4 gap-2">
             <AlertTriangle className="h-6 w-6" />
-            <span>파일을 읽을 수 없습니다: {readError}</span>
+            <span>{t('editor.loadFailed', { err: readError })}</span>
           </div>
         ) : (
           <div className="flex-1 min-h-0 flex overflow-hidden">

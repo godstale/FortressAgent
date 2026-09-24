@@ -4,6 +4,7 @@ import { render, screen, fireEvent, act, cleanup } from '@testing-library/react'
 import { CenterWorkspace } from './CenterWorkspace';
 import { WorkspaceTabsProvider, useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { WorkspaceProvider } from '@/lib/context/WorkspaceContext';
+import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn(),
@@ -53,12 +54,14 @@ describe('CenterWorkspace tab header', () => {
 
   const renderComponent = () => {
     return render(
-      <WorkspaceProvider>
-        <WorkspaceTabsProvider>
-          <TabInitializer />
-          <CenterWorkspace />
-        </WorkspaceTabsProvider>
-      </WorkspaceProvider>,
+      <LanguageProvider>
+        <WorkspaceProvider>
+          <WorkspaceTabsProvider>
+            <TabInitializer />
+            <CenterWorkspace />
+          </WorkspaceTabsProvider>
+        </WorkspaceProvider>
+      </LanguageProvider>,
     );
   };
 

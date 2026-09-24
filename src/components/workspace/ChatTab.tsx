@@ -24,6 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import * as sessionsRepo from '@/lib/db/repositories/sessionsRepo';
 import { setActiveApprovalMode } from '@/lib/approval/register';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { cn } from '@/lib/utils';
 
 export interface ChatTabProps {
@@ -31,6 +32,7 @@ export interface ChatTabProps {
 }
 
 export function ChatTab({ tab }: ChatTabProps) {
+  const { t } = useLanguage();
   const { getAgent, defaultAgent } = useAgents();
   const { updateTab, openTab } = useWorkspaceTabs();
   const { workspaceRoot } = useWorkspace();
@@ -57,7 +59,7 @@ export function ChatTab({ tab }: ChatTabProps) {
     if (!busySessionId) return null;
     return sessions.find((s) => s.id === busySessionId);
   }, [sessions, busySessionId]);
-  const busySessionTitle = busySession?.title || '다른 대화창';
+  const busySessionTitle = busySession?.title || t('chatTab.otherSession');
 
   const tabAgentId = tab.meta?.agentId as string | undefined;
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
@@ -122,7 +124,7 @@ export function ChatTab({ tab }: ChatTabProps) {
             id: sessionId,
             agentId: activeAgent.id,
             workspaceRoot: workspaceRoot ?? null,
-            title: tab.title || '새 대화',
+            title: tab.title || t('chatTab.newChat'),
           });
           await refreshSessions();
         } else if (existing.workspaceRoot) {
@@ -132,7 +134,7 @@ export function ChatTab({ tab }: ChatTabProps) {
         console.error('Failed to ensure session exists in DB:', err);
       }
     })();
-  }, [sessionId, activeAgent.id, workspaceRoot, tab.title, refreshSessions]);
+  }, [sessionId, activeAgent.id, workspaceRoot, tab.title, refreshSessions, t]);
 
   const effectiveCwd = workspaceRoot ?? sessionWorkspaceRoot ?? undefined;
 
@@ -173,7 +175,7 @@ export function ChatTab({ tab }: ChatTabProps) {
             id: sessionId,
             agentId: activeAgent.id,
             workspaceRoot: workspaceRoot ?? null,
-            title: tab.title || '새 대화',
+            title: tab.title || t('chatTab.newChat'),
           });
           await refreshSessions();
         }
@@ -198,7 +200,7 @@ export function ChatTab({ tab }: ChatTabProps) {
         }
       }
     },
-    [messages, sessionId, activeAgent.id, workspaceRoot, tab.title, tab.id, sendMessage, updateSessionTitle, updateTab, refreshSessions],
+    [messages, sessionId, activeAgent.id, workspaceRoot, tab.title, tab.id, sendMessage, updateSessionTitle, updateTab, refreshSessions, t],
   );
 
   const handleSlashCommand = useCallback(
@@ -206,7 +208,7 @@ export function ChatTab({ tab }: ChatTabProps) {
       switch (command) {
         case 'clear':
           await clearChat();
-          injectInfoMessage('🧹 대화 및 컨텍스트가 초기화되었습니다.');
+          injectInfoMessage(t('chatTab.cleared'));
           return true;
 
         case 'usage': {
@@ -217,23 +219,23 @@ export function ChatTab({ tab }: ChatTabProps) {
           const assistantCount = messages.filter((m) => m.role === 'assistant').length;
 
           injectInfoMessage(
-            `### 📊 세션 사용량 및 통계\n` +
-            `- **컨텍스트 토큰 사용량**: \`${tokens.toLocaleString()} / ${limit.toLocaleString()}\` (${pct}%)\n` +
-            `- **사용자 턴 수**: \`${userCount}\`회\n` +
-            `- **어시스턴트 응답 수**: \`${assistantCount}\`회\n` +
-            `- **활성 모델**: \`${activeAgent.model}\``,
+            `### 📊 ${t('chatTab.usageTitle')}\n` +
+            `- **${t('chatTab.usageTokens')}**: \`${tokens.toLocaleString()} / ${limit.toLocaleString()}\` (${pct}%)\n` +
+            `- **${t('chatTab.userTurns', { n: userCount })}**\n` +
+            `- **${t('chatTab.assistantTurns', { n: assistantCount })}**\n` +
+            `- **${t('chatTab.activeModel')}**: \`${activeAgent.model}\``,
           );
           return true;
         }
 
         case 'agent':
           injectInfoMessage(
-            `### 🤖 현재 에이전트 설정 (\`${activeAgent.name}\`)\n` +
-            `- **모델 ID**: \`${activeAgent.model}\`\n` +
-            `- **도구 승인 모드**: \`${yoloMode ? 'never (YOLO)' : activeAgent.approvalMode}\`\n` +
-            `- **컨텍스트 크기**: \`${(activeAgent.contextSize || 8192).toLocaleString()} tokens\`\n` +
-            `- **추론 온도 (Temperature)**: \`${activeAgent.temperature ?? 0.7}\`\n` +
-            `- **활성화된 도구**: \`${(activeAgent.enabledBuiltinTools || []).join(', ')}\``,
+            `### 🤖 ${t('chatTab.agentTitle')} (\`${activeAgent.name}\`)\n` +
+            `- **${t('chatTab.modelId')}**: \`${activeAgent.model}\`\n` +
+            `- **${t('chatTab.approvalMode')}**: \`${yoloMode ? 'never (YOLO)' : activeAgent.approvalMode}\`\n` +
+            `- **${t('chatTab.contextSize')}**: \`${(activeAgent.contextSize || 8192).toLocaleString()} tokens\`\n` +
+            `- **${t('chatTab.temperature')}**: \`${activeAgent.temperature ?? 0.7}\`\n` +
+            `- **${t('chatTab.enabledTools')}**: \`${(activeAgent.enabledBuiltinTools || []).join(', ')}\``,
           );
           return true;
 
@@ -243,8 +245,8 @@ export function ChatTab({ tab }: ChatTabProps) {
           setActiveApprovalMode(next ? 'never' : activeAgent.approvalMode);
           injectInfoMessage(
             next
-              ? `⚡ **YOLO 모드가 활성화되었습니다!**\n셸 도구를 제외한 파일 쓰기/편집 도구가 사용자 확인 없이 자동 실행됩니다.`
-              : `🛡️ **YOLO 모드가 해제되었습니다.**\n에이전트의 원래 승인 정책(\`${activeAgent.approvalMode}\`)으로 복원되었습니다.`,
+              ? t('chatTab.yoloOn')
+              : t('chatTab.yoloOff'),
           );
           return true;
         }
@@ -253,7 +255,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           openTab({
             id: `agent-editor:${activeAgent.id}`,
             type: 'agent-editor',
-            title: `${activeAgent.name} 편집`,
+            title: t('chatTab.editAgent', { name: activeAgent.name }),
             meta: { agentId: activeAgent.id },
           });
           return true;
@@ -261,19 +263,19 @@ export function ChatTab({ tab }: ChatTabProps) {
         case 'skills': {
           const skillsList = skillsCtx?.skills || [];
           if (skillsList.length === 0) {
-            injectInfoMessage('🧩 현재 설치되거나 로드된 스킬이 없습니다.');
+            injectInfoMessage(t('chatTab.noSkills'));
           } else {
             const skillLines = skillsList
-              .map((s) => `- **/skill:${s.name}**: ${s.description} (${s.source === 'workspace' ? '워크스페이스' : '전역'})`)
+              .map((s) => `- **/skill:${s.name}**: ${s.description} (${s.source === 'workspace' ? t('chatInput.sourceWorkspace') : t('chatInput.sourceGlobal')})`)
               .join('\n');
-            injectInfoMessage(`### 🧩 설치된 스킬 목록 (${skillsList.length})\n${skillLines}`);
+            injectInfoMessage(`### 🧩 ${t('chatTab.skillsHeader', { n: skillsList.length })}\n${skillLines}`);
           }
           return true;
         }
 
         case 'pwd':
           injectInfoMessage(
-            `📁 **현재 작업 디렉토리**:\n\`${workspaceRoot || '(프로젝트 폴더가 선택되지 않았습니다)'}\``,
+            t('chatTab.pwd', { dir: workspaceRoot || t('chatTab.pwdEmpty') }),
           );
           return true;
 
@@ -286,11 +288,11 @@ export function ChatTab({ tab }: ChatTabProps) {
 
         case 'status':
           injectInfoMessage(
-            `### 🏰 Fortress 애플리케이션 정보\n` +
-            `- **버전**: \`0.1.0\` (Tauri 2 + React 19)\n` +
-            `- **Ollama 엔드포인트**: \`http://localhost:11434\`\n` +
-            `- **작업 공간**: \`${workspaceRoot || '지정되지 않음'}\`\n` +
-            `- **승인 정책**: \`${yoloMode ? 'never (YOLO)' : activeAgent.approvalMode}\``,
+            `### 🏰 ${t('chatTab.appInfo')}\n` +
+            `- **${t('chatTab.version')}**: \`0.1.0\` (Tauri 2 + React 19)\n` +
+            `- **${t('chatTab.endpoint')}**: \`http://localhost:11434\`\n` +
+            `- **${t('chatTab.workspace', { value: workspaceRoot || t('chatTab.workspaceEmpty') })}**\n` +
+            `- **${t('chatTab.approvalPolicy')}**: \`${yoloMode ? 'never (YOLO)' : activeAgent.approvalMode}\``,
           );
           return true;
 
@@ -308,6 +310,7 @@ export function ChatTab({ tab }: ChatTabProps) {
       openTab,
       skillsCtx?.skills,
       workspaceRoot,
+      t,
     ],
   );
 
@@ -317,7 +320,7 @@ export function ChatTab({ tab }: ChatTabProps) {
       await compact(compactCustomInstruction.trim() || undefined);
       setCompactDialogOpen(false);
       setCompactCustomInstruction('');
-      injectInfoMessage('🗜️ 컨텍스트 압축이 성공적으로 완료되었습니다.');
+      injectInfoMessage(t('chatTab.compactDone'));
     } catch (err) {
       console.error('Compaction dialog error:', err);
     } finally {
@@ -467,7 +470,7 @@ export function ChatTab({ tab }: ChatTabProps) {
             }`}
           >
             <MessageSquare className="h-3.5 w-3.5" />
-            <span>대화</span>
+            <span>{t('chatTab.viewChat')}</span>
           </button>
           <button
             type="button"
@@ -479,7 +482,7 @@ export function ChatTab({ tab }: ChatTabProps) {
             }`}
           >
             <Terminal className="h-3.5 w-3.5" />
-            <span>상세 로그</span>
+            <span>{t('chatTab.viewLog')}</span>
           </button>
         </div>
       </div>
@@ -510,11 +513,11 @@ export function ChatTab({ tab }: ChatTabProps) {
       <div
         role="separator"
         aria-orientation="horizontal"
-        aria-label="채팅 입력창 크기 조절"
+        aria-label={t('chatTab.resizeLabel')}
         onMouseDown={handleResizeStart}
         onDoubleClick={handleResetInputHeight}
         className="group relative h-2 -my-1 z-10 cursor-row-resize flex items-center justify-center hover:bg-primary/20 transition-colors select-none"
-        title="드래그하여 크기 조절 (더블 클릭 시 자동 크기로 초기화)"
+        title={t('chatTab.resizeTitle')}
       >
         <div className="w-10 h-1 rounded-full bg-border/80 group-hover:bg-primary transition-colors" />
       </div>
@@ -555,37 +558,36 @@ export function ChatTab({ tab }: ChatTabProps) {
           <DialogHeader>
             <div className="flex items-center gap-2 mb-1">
               <Layers className="h-5 w-5 text-primary" />
-              <DialogTitle className="text-base font-semibold">컨텍스트 수동 압축 (Compact)</DialogTitle>
+              <DialogTitle className="text-base font-semibold">{t('chatTab.compactTitle')}</DialogTitle>
             </div>
             <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
-              이전 대화 내역을 구조화된 요약본으로 압축하여 컨텍스트 윈도우 여유 공간을 확보합니다.
-              최신 대화는 그대로 보존됩니다.
+              {t('chatTab.compactDesc')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-2 text-xs">
             <div className="p-3 rounded-lg bg-muted/40 border border-border/70 space-y-1.5 font-mono text-[11px]">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">현재 컨텍스트:</span>
+                <span className="text-muted-foreground">{t('chatTab.currentContext')}</span>
                 <span className="font-semibold text-foreground">
                   {contextUsage?.tokens.toLocaleString() || 0} / {contextUsage?.limit.toLocaleString() || 8192} tokens
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">대화 메시지 수:</span>
-                <span className="font-semibold text-foreground">{messages.length}건</span>
+                <span className="text-muted-foreground">{t('chatTab.messageCount')}</span>
+                <span className="font-semibold text-foreground">{t('chatTab.messageUnit', { n: messages.length })}</span>
               </div>
             </div>
 
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-muted-foreground">
-                압축 시 특별 지시 사항 (선택 사항):
+                {t('chatTab.customLabel')}
               </label>
               <input
                 type="text"
                 value={compactCustomInstruction}
                 onChange={(e) => setCompactCustomInstruction(e.target.value)}
-                placeholder="예: 파일 변경 내역과 작성한 SQL 쿼리는 반드시 포함해줘"
+                placeholder={t('chatTab.customPlaceholder')}
                 className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -599,7 +601,7 @@ export function ChatTab({ tab }: ChatTabProps) {
               onClick={() => setCompactDialogOpen(false)}
               disabled={isCompacting}
             >
-              취소
+              {t('chatTab.cancel')}
             </Button>
             <Button
               type="button"
@@ -609,11 +611,11 @@ export function ChatTab({ tab }: ChatTabProps) {
               className="gap-1.5 bg-primary text-primary-foreground"
             >
               {isCompacting ? (
-                <span>압축 수행 중...</span>
+                <span>{t('chatTab.compacting')}</span>
               ) : (
                 <>
                   <Layers className="h-3.5 w-3.5" />
-                  <span>압축 실행</span>
+                  <span>{t('chatTab.compactRun')}</span>
                 </>
               )}
             </Button>

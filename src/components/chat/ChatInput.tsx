@@ -23,6 +23,7 @@ import { AgentsContext } from '@/lib/context/AgentsContext';
 import { resolveSkillInvocation, parseSkillCommand } from '@/lib/skills/invokeSkill';
 
 import { ContextGauge } from './ContextGauge';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { cn } from '@/lib/utils';
 
 export interface SlashCommandOption {
@@ -35,15 +36,15 @@ export interface SlashCommandOption {
 }
 
 const BUILTIN_SLASH_COMMANDS: SlashCommandOption[] = [
-  { type: 'command', name: 'clear', syntax: '/clear', description: '대화창을 초기화 (컨텍스트 초기화)', icon: RotateCcw },
-  { type: 'command', name: 'usage', syntax: '/usage', description: 'context 사용량을 표시, 기본적인 agent 사용 통계를 표시', icon: BarChart2 },
-  { type: 'command', name: 'agent', syntax: '/agent', description: '현재 설정된 agent 설정을 표시', icon: Bot },
-  { type: 'command', name: 'yolo', syntax: '/yolo', description: '최대 허용 모드로 실행 (채팅창 상단에 현재 모드 표시)', icon: Zap },
-  { type: 'command', name: 'settings', syntax: '/settings', description: 'agent 설정 화면으로 전환', icon: Settings },
-  { type: 'command', name: 'skills', syntax: '/skills', description: '설치된 skill 들을 보여줌', icon: Puzzle },
-  { type: 'command', name: 'pwd', syntax: '/pwd', description: '현재 작업 디렉토리 경로를 출력', icon: Folder },
-  { type: 'command', name: 'compact', syntax: '/compact', description: 'context 압축 작업을 실행', icon: Layers },
-  { type: 'command', name: 'status', syntax: '/status', description: 'Fortress 앱 정보를 표시', icon: Info },
+  { type: 'command', name: 'clear', syntax: '/clear', description: 'chatInput.clearDesc', icon: RotateCcw },
+  { type: 'command', name: 'usage', syntax: '/usage', description: 'chatInput.usageDesc', icon: BarChart2 },
+  { type: 'command', name: 'agent', syntax: '/agent', description: 'chatInput.agentDesc', icon: Bot },
+  { type: 'command', name: 'yolo', syntax: '/yolo', description: 'chatInput.yoloDesc', icon: Zap },
+  { type: 'command', name: 'settings', syntax: '/settings', description: 'chatInput.settingsDesc', icon: Settings },
+  { type: 'command', name: 'skills', syntax: '/skills', description: 'chatInput.skillsDesc', icon: Puzzle },
+  { type: 'command', name: 'pwd', syntax: '/pwd', description: 'chatInput.pwdDesc', icon: Folder },
+  { type: 'command', name: 'compact', syntax: '/compact', description: 'chatInput.compactDesc', icon: Layers },
+  { type: 'command', name: 'status', syntax: '/status', description: 'chatInput.statusDesc', icon: Info },
 ];
 
 export interface ChatInputProps {
@@ -96,6 +97,7 @@ export function ChatInput({
   customHeight,
   maxHeight = 180,
 }: ChatInputProps) {
+  const { t } = useLanguage();
   const safeSkillsCtx = useSafeSkills();
   const availableSkills = useMemo(() => {
     return skillsProp ?? safeSkillsCtx?.skills ?? [];
@@ -263,7 +265,7 @@ export function ChatInput({
             return;
           } catch (err) {
             setErrorMessage(
-              err instanceof Error ? err.message : '수동 압축에 실패했습니다.',
+              err instanceof Error ? err.message : t('chatInput.compactFailed'),
             );
             return;
           }
@@ -293,7 +295,7 @@ export function ChatInput({
         }
       } catch (err) {
         setErrorMessage(
-          err instanceof Error ? err.message : '스킬 호출에 실패했습니다.',
+          err instanceof Error ? err.message : t('chatInput.skillFailed'),
         );
         return;
       }
@@ -363,10 +365,10 @@ export function ChatInput({
   };
 
   const defaultPlaceholder = isLockedByOtherSession
-    ? '🔒 다른 대화창에서 작업 진행 중 (대기 큐 완료 후 입력 가능)...'
+    ? t('chatInput.lockedOther')
     : isThisSessionBusy || isStreaming
-    ? '에이전트 작업 중입니다 (Enter 입력 시 대기 큐에 추가)...'
-    : '메시지를 입력하세요 (Enter 전송, Shift+Enter 줄바꿈, /: 슬래시 명령어, /skill: 스킬)...';
+    ? t('chatInput.busySelf')
+    : t('chatInput.placeholder');
 
   return (
     <div
@@ -381,13 +383,13 @@ export function ChatInput({
         <div
           ref={listRef}
           role="listbox"
-          aria-label="명령어 및 스킬 자동완성 목록"
+          aria-label={t('chatInput.autocompleteLabel')}
           className="absolute bottom-full left-0 right-0 mb-2 max-h-64 overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg z-50 animate-in fade-in slide-in-from-bottom-2 duration-150"
         >
           <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center justify-between">
-            <span>사용 가능한 슬래시 명령 / 스킬 ({filteredOptions.length})</span>
+            <span>{t('chatInput.autocompleteHeader', { n: filteredOptions.length })}</span>
             <span className="text-[10px] text-muted-foreground/70 lowercase font-normal">
-              ↑↓ 탐색, Enter 선택
+              {t('chatInput.autocompleteHint')}
             </span>
           </div>
           {filteredOptions.map((opt, idx) => {
@@ -423,17 +425,17 @@ export function ChatInput({
                     </span>
                     {opt.type === 'skill' && (
                       <span className="text-[10px] px-1.5 py-0.2 rounded-sm bg-muted text-muted-foreground">
-                        {opt.source === 'workspace' ? '워크스페이스' : '전역'}
+                        {opt.source === 'workspace' ? t('chatInput.sourceWorkspace') : t('chatInput.sourceGlobal')}
                       </span>
                     )}
                     {opt.type === 'command' && (
                       <span className="text-[10px] px-1.5 py-0.2 rounded-sm bg-primary/10 text-primary font-mono">
-                        내장 명령
+                        {t('chatInput.builtin')}
                       </span>
                     )}
                   </div>
                   <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
-                    {opt.description}
+                    {opt.type === 'command' ? t(opt.description) : opt.description}
                   </p>
                 </div>
               </button>
@@ -456,8 +458,8 @@ export function ChatInput({
           <Lock className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">
             {busySessionTitle
-              ? `대화창 "${busySessionTitle}"에서 에이전트 작업/대기 큐가 진행 중입니다. 완료 후 입력할 수 있습니다.`
-              : '다른 대화창에서 에이전트 작업/대기 큐가 진행 중입니다. 완료 후 입력할 수 있습니다.'}
+              ? t('chatInput.lockedBannerWith', { title: busySessionTitle })
+              : t('chatInput.lockedBanner')}
           </span>
         </div>
       )}
@@ -469,7 +471,7 @@ export function ChatInput({
             <div className="flex items-center gap-1.5 min-w-0">
               <Bot className="h-3.5 w-3.5 text-primary shrink-0" />
               <span className="text-[10px] uppercase font-mono tracking-wider text-muted-foreground/70 shrink-0">
-                에이전트:
+                {t('chatInput.agentLabel')}
               </span>
               {isAgentLocked ? (
                 <span className="font-semibold text-foreground truncate">
@@ -480,7 +482,7 @@ export function ChatInput({
                   value={currentAgent?.id}
                   onChange={(e) => onSelectAgent?.(e.target.value)}
                   className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none pr-2 focus:ring-0 text-xs"
-                  title="대화할 에이전트 선택"
+                  title={t('chatInput.agentTitle')}
                 >
                   {agentsCtx.agents.map((a) => (
                     <option key={a.id} value={a.id} className="bg-card text-foreground">
@@ -495,10 +497,10 @@ export function ChatInput({
             {yoloMode && (
               <div
                 className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/20 text-destructive border border-destructive/30 text-[10px] font-semibold animate-pulse"
-                title="YOLO 모드 활성화됨: 셸을 제외한 모든 도구 호출이 자동 승인됩니다."
+                title={t('chatInput.yoloBadge')}
               >
                 <Zap className="h-3 w-3 fill-current" />
-                <span>YOLO MODE ON</span>
+                <span>{t('chatInput.yoloShort')}</span>
               </div>
             )}
           </div>
@@ -542,7 +544,7 @@ export function ChatInput({
               variant="ghost"
               onClick={onStop}
               className="h-8 w-8 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive transition-colors"
-              title="중지"
+              title={t('chatInput.stop')}
             >
               <Square className="h-4 w-4 fill-current" />
             </Button>
@@ -556,10 +558,10 @@ export function ChatInput({
             className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:pointer-events-none"
             title={
               isLockedByOtherSession
-                ? '다른 대화창 작업 중'
+                ? t('chatInput.sendLocked')
                 : isThisSessionBusy || isStreaming
-                ? '대기 큐에 추가 (Queue)'
-                : '전송'
+                ? t('chatInput.sendQueue')
+                : t('chatInput.send')
             }
           >
             {isThisSessionBusy || isStreaming ? (

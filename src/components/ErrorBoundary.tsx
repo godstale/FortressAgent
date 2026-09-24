@@ -1,6 +1,16 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertOctagon, RotateCcw, Home, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { translate } from '@/lib/i18n';
+import { LOCALE_STORAGE_KEY, normalizeLocale } from '@/lib/i18n/types';
+
+function t(key: string): string {
+  const saved =
+    typeof window !== 'undefined'
+      ? window.localStorage.getItem(LOCALE_STORAGE_KEY)
+      : null;
+  return translate(normalizeLocale(saved), key);
+}
 
 interface Props {
   children: ReactNode;
@@ -59,7 +69,7 @@ export class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback;
       }
 
-      const errorMessage = this.state.error?.message || '알 수 없는 오류가 발생했습니다.';
+      const errorMessage = this.state.error?.message || t('errorBoundary.unknown');
       const componentStack = this.state.errorInfo?.componentStack || '';
 
       return (
@@ -71,10 +81,10 @@ export class ErrorBoundary extends Component<Props, State> {
               </div>
               <div>
                 <h2 className="text-base font-bold text-foreground">
-                  예기치 않은 문제가 발생했습니다
+                  {t('errorBoundary.title')}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  화면을 렌더링하는 도중 오류가 발생했습니다.
+                  {t('errorBoundary.desc')}
                 </p>
               </div>
             </div>
@@ -93,7 +103,7 @@ export class ErrorBoundary extends Component<Props, State> {
                   }
                   className="w-full flex items-center justify-between px-3 py-2 bg-muted/40 hover:bg-muted/70 text-muted-foreground hover:text-foreground text-[11px]"
                 >
-                  <span>기술 상세 정보 (스택 추적)</span>
+                  <span>{t('errorBoundary.stack')}</span>
                   {this.state.showDetails ? (
                     <ChevronDown className="h-3.5 w-3.5" />
                   ) : (
@@ -119,7 +129,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 className="text-xs flex items-center gap-1"
               >
                 <Home className="h-3.5 w-3.5" />
-                <span>홈으로</span>
+                <span>{t('errorBoundary.home')}</span>
               </Button>
               <Button
                 type="button"
@@ -129,7 +139,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 className="text-xs flex items-center gap-1"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
-                <span>다시 시도</span>
+                <span>{t('errorBoundary.retry')}</span>
               </Button>
               <Button
                 type="button"
@@ -137,7 +147,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 onClick={this.handleReload}
                 className="text-xs bg-primary text-primary-foreground"
               >
-                새로고침
+                {t('errorBoundary.reload')}
               </Button>
             </div>
           </div>

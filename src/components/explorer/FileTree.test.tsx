@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FileTree } from './FileTree';
 import { WorkspaceTabsProvider } from '@/lib/context/WorkspaceTabsContext';
+import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 
 const mockInvoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({
@@ -50,9 +51,11 @@ describe('FileTree Context Menus', () => {
 
   const renderComponent = () => {
     return render(
-      <WorkspaceTabsProvider>
-        <FileTree />
-      </WorkspaceTabsProvider>,
+      <LanguageProvider>
+        <WorkspaceTabsProvider>
+          <FileTree />
+        </WorkspaceTabsProvider>
+      </LanguageProvider>,
     );
   };
 
@@ -76,13 +79,13 @@ describe('FileTree Context Menus', () => {
     const fileItem = screen.getByText('sample.txt');
     fireEvent.contextMenu(fileItem);
 
-    expect(screen.getByRole('button', { name: /Open/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Copy/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Cut/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Paste/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Rename/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Delete/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Reveal in file explorer/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '열기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '복사' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '잘라내기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '붙여넣기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '이름 변경' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '삭제' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '탐색기에서 보기' })).toBeInTheDocument();
   });
 
   it('renders empty space context menu items on right clicking empty space', async () => {
@@ -96,11 +99,11 @@ describe('FileTree Context Menus', () => {
     const explorerContainer = container.firstElementChild!;
     fireEvent.contextMenu(explorerContainer);
 
-    expect(screen.getByRole('button', { name: /New file/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /New folder/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Refresh/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Convert to tree\/list view/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Fold\/Unfold all folders/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '새 파일' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '새 폴더' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '새로고침' }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: '트리/목록 보기로 전환' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '모든 폴더 접기/펼치기' })).toBeInTheDocument();
   });
 
   it('closes context menu when Escape key is pressed', async () => {
@@ -113,10 +116,10 @@ describe('FileTree Context Menus', () => {
     const fileItem = screen.getByText('sample.txt');
     fireEvent.contextMenu(fileItem);
 
-    expect(screen.getByRole('button', { name: /Reveal in file explorer/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '탐색기에서 보기' })).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
-    expect(screen.queryByRole('button', { name: /Reveal in file explorer/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '탐색기에서 보기' })).not.toBeInTheDocument();
   });
 });

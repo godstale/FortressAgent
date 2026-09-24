@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface ActivityBarProps {
   activeView: SidePanelView;
@@ -18,17 +19,18 @@ export interface ActivityBarProps {
 interface ActivityBarItem {
   view: Exclude<SidePanelView, null>;
   icon: LucideIcon;
-  title: string;
+  labelKey: string;
 }
 
 const ITEMS: ActivityBarItem[] = [
-  { view: 'explorer', icon: Files, title: '파일 탐색기' },
-  { view: 'chat-sessions', icon: MessageSquare, title: '대화 목록' },
-  { view: 'agents', icon: Bot, title: '에이전트 관리' },
-  { view: 'skills', icon: Puzzle, title: '스킬 관리' },
+  { view: 'explorer', icon: Files, labelKey: 'activityBar.explorer' },
+  { view: 'chat-sessions', icon: MessageSquare, labelKey: 'activityBar.chatSessions' },
+  { view: 'agents', icon: Bot, labelKey: 'activityBar.agents' },
+  { view: 'skills', icon: Puzzle, labelKey: 'activityBar.skills' },
 ];
 
 export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
+  const { t } = useLanguage();
   const workspace = useSafeWorkspace();
   const hasWorkspace = workspace === null || Boolean(workspace.workspaceRoot);
 
@@ -39,9 +41,11 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
         className="w-12 shrink-0 h-full flex flex-col items-center justify-between bg-sidebar border-r border-border py-2 select-none"
       >
         <div className="flex flex-col items-center gap-1 w-full">
-          {ITEMS.map(({ view, icon: Icon, title }) => {
+          {ITEMS.map(({ view, icon: Icon, labelKey }) => {
             const isActive = activeView === view;
             const isItemDisabled = !hasWorkspace && view !== 'explorer';
+            const title = t(labelKey);
+            const disabledTitle = `${title} ${t('activityBar.needFolder')}`;
             return (
               <Tooltip key={view}>
                 <TooltipTrigger asChild>
@@ -53,7 +57,7 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
                         onSelect(view);
                       }
                     }}
-                    aria-label={isItemDisabled ? `${title} (폴더 선택 필요)` : title}
+                    aria-label={isItemDisabled ? disabledTitle : title}
                     className={cn(
                       'w-10 h-10 flex items-center justify-center rounded-md transition-colors relative',
                       isItemDisabled
@@ -66,7 +70,7 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  <p>{isItemDisabled ? `${title} (폴더 선택 필요)` : title}</p>
+                  <p>{isItemDisabled ? disabledTitle : title}</p>
                 </TooltipContent>
               </Tooltip>
             );
@@ -79,7 +83,7 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
               <button
                 type="button"
                 disabled
-                aria-label="설정 (파일 메뉴 이용)"
+                aria-label={t('activityBar.settingsNeedFolder')}
                 className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground/30 cursor-not-allowed"
               >
                 <Settings className="h-5 w-5" />
@@ -87,7 +91,7 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
             ) : (
               <Link
                 to="/settings"
-                aria-label="설정"
+                aria-label={t('activityBar.settings')}
                 className="w-10 h-10 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors cursor-pointer"
               >
                 <Settings className="h-5 w-5" />
@@ -95,7 +99,7 @@ export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {
             )}
           </TooltipTrigger>
           <TooltipContent side="right">
-            <p>{!hasWorkspace ? '설정 (파일 메뉴에서 사용 가능)' : '설정'}</p>
+            <p>{!hasWorkspace ? t('activityBar.settingsAvailable') : t('activityBar.settings')}</p>
           </TooltipContent>
         </Tooltip>
       </aside>

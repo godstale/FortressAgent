@@ -31,6 +31,7 @@ import { AgentStatsTab } from '@/components/workspace/AgentStatsTab';
 import { AgentMonitorTab } from '@/components/workspace/AgentMonitorTab';
 import { WelcomeGuide } from '@/components/workspace/WelcomeGuide';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 // Global reference for drag operations to avoid React state update latency
 let activeDragTabId: string | null = null;
@@ -139,6 +140,7 @@ function WorkspacePane({
   onContentDragLeave,
   onContentDrop,
 }: WorkspacePaneProps) {
+  const { t } = useLanguage();
   const isThisPaneDropping = splitDropTarget?.pane === pane;
 
   return (
@@ -198,7 +200,7 @@ function WorkspacePane({
                 </span>
                 <button
                   type="button"
-                  aria-label="탭 닫기"
+                  aria-label={t('workspace.closeTab')}
                   draggable={false}
                   onDragStart={(e) => e.stopPropagation()}
                   onClick={(e) => {
@@ -228,8 +230,8 @@ function WorkspacePane({
               onClick={() => onNewChat(pane)}
               title={
                 workspaceRoot
-                  ? '새 채팅 탭 열기'
-                  : '폴더를 먼저 선택해주세요'
+                  ? t('workspace.openNewChat')
+                  : t('topMenu.selectFolderFirst')
               }
             >
               <Plus className="h-4 w-4" />
@@ -244,7 +246,7 @@ function WorkspacePane({
                 onClick={() =>
                   activeTabId && onSplitTab(activeTabId, 'horizontal', 'right')
                 }
-                title="우측으로 화면 분할"
+                title={t('workspace.splitRight')}
               >
                 <Columns2 className="h-3.5 w-3.5" />
               </Button>
@@ -259,8 +261,8 @@ function WorkspacePane({
                   onClick={onToggleSplitDirection}
                   title={
                     splitDirection === 'horizontal'
-                      ? '상하 분할로 전환'
-                      : '좌우 분할로 전환'
+                      ? t('workspace.switchToVertical')
+                      : t('workspace.switchToHorizontal')
                   }
                 >
                   {splitDirection === 'horizontal' ? (
@@ -274,7 +276,7 @@ function WorkspacePane({
                   size="icon"
                   className="h-7 w-7 text-muted-foreground hover:text-destructive transition-colors"
                   onClick={onCloseSplit}
-                  title="분할 화면 닫기 (탭 병합)"
+                  title={t('workspace.closeSplit')}
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
@@ -296,13 +298,13 @@ function WorkspacePane({
         ) : paneTabs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full w-full text-center text-muted-foreground gap-3">
             <MessageSquare className="h-10 w-10 opacity-30" />
-            <p className="text-xs">열려 있는 탭이 없습니다.</p>
+            <p className="text-xs">{t('workspace.noTabs')}</p>
             <Button
               size="sm"
               onClick={() => onNewChat(pane)}
               className="text-xs cursor-pointer"
             >
-              새 채팅 시작
+              {t('workspace.startNewChat')}
             </Button>
           </div>
         ) : (
@@ -331,10 +333,10 @@ function WorkspacePane({
                   <Columns2 className="h-6 w-6" />
                 </div>
                 <span className="text-xs font-semibold text-primary">
-                  우측으로 화면 분할
+                  {t('workspace.splitRight')}
                 </span>
                 <span className="text-[10px] text-muted-foreground mt-0.5">
-                  여기에 놓아 분할 화면 열기
+                  {t('workspace.dropToSplit')}
                 </span>
               </div>
             )}
@@ -344,10 +346,10 @@ function WorkspacePane({
                   <Columns2 className="h-6 w-6" />
                 </div>
                 <span className="text-xs font-semibold text-primary">
-                  좌측으로 화면 분할
+                  {t('workspace.splitLeft')}
                 </span>
                 <span className="text-[10px] text-muted-foreground mt-0.5">
-                  여기에 놓아 분할 화면 열기
+                  {t('workspace.dropToSplit')}
                 </span>
               </div>
             )}
@@ -357,10 +359,10 @@ function WorkspacePane({
                   <Rows2 className="h-6 w-6" />
                 </div>
                 <span className="text-xs font-semibold text-primary">
-                  하단으로 화면 분할
+                  {t('workspace.splitBottom')}
                 </span>
                 <span className="text-[10px] text-muted-foreground mt-0.5">
-                  여기에 놓아 분할 화면 열기
+                  {t('workspace.dropToSplit')}
                 </span>
               </div>
             )}
@@ -370,10 +372,10 @@ function WorkspacePane({
                   <Rows2 className="h-6 w-6" />
                 </div>
                 <span className="text-xs font-semibold text-primary">
-                  상단으로 화면 분할
+                  {t('workspace.splitTop')}
                 </span>
                 <span className="text-[10px] text-muted-foreground mt-0.5">
-                  여기에 놓아 분할 화면 열기
+                  {t('workspace.dropToSplit')}
                 </span>
               </div>
             )}
@@ -383,7 +385,7 @@ function WorkspacePane({
         {isThisPaneDropping && isSplit && (
           <div className="absolute inset-0 bg-primary/10 border-2 border-dashed border-primary rounded-xl m-2 flex flex-col items-center justify-center pointer-events-none z-30 transition-all backdrop-blur-[1px]">
             <span className="text-xs font-semibold text-primary">
-              이 화면으로 탭 이동
+              {t('workspace.moveTabHere')}
             </span>
           </div>
         )}
@@ -393,6 +395,7 @@ function WorkspacePane({
 }
 
 export function CenterWorkspace() {
+  const { t } = useLanguage();
   const { workspaceRoot } = useWorkspace();
   const {
     tabs,
@@ -482,7 +485,7 @@ export function CenterWorkspace() {
     openTab(
       {
         type: 'chat',
-        title: '새 채팅',
+        title: t('workspace.newChat'),
       },
       pane,
     );
@@ -867,7 +870,7 @@ export function CenterWorkspace() {
                 setContextMenuState(null);
               }}
             >
-              닫기
+              {t('workspace.close')}
             </button>
             <button
               type="button"
@@ -885,7 +888,7 @@ export function CenterWorkspace() {
                 setContextMenuState(null);
               }}
             >
-              좌측 탭 닫기
+              {t('workspace.closeLeft')}
             </button>
             <button
               type="button"
@@ -907,7 +910,7 @@ export function CenterWorkspace() {
                 setContextMenuState(null);
               }}
             >
-              우측 탭 닫기
+              {t('workspace.closeRight')}
             </button>
             <button
               type="button"
@@ -918,7 +921,7 @@ export function CenterWorkspace() {
                 setContextMenuState(null);
               }}
             >
-              다른 탭 닫기
+              {t('workspace.closeOthers')}
             </button>
             <button
               type="button"
@@ -929,7 +932,7 @@ export function CenterWorkspace() {
                 setContextMenuState(null);
               }}
             >
-              모든 탭 닫기
+              {t('workspace.closeAll')}
             </button>
 
             <div className="-mx-1 my-1 h-px bg-border" />
@@ -946,7 +949,7 @@ export function CenterWorkspace() {
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left cursor-pointer"
                 >
                   <Columns2 className="h-3.5 w-3.5 text-primary" />
-                  <span>우측으로 화면 분할</span>
+                  <span>{t('workspace.splitRight')}</span>
                 </button>
                 <button
                   type="button"
@@ -958,7 +961,7 @@ export function CenterWorkspace() {
                   className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left cursor-pointer"
                 >
                   <Rows2 className="h-3.5 w-3.5 text-primary" />
-                  <span>하단으로 화면 분할</span>
+                  <span>{t('workspace.splitBottom')}</span>
                 </button>
               </>
             )}
@@ -981,8 +984,8 @@ export function CenterWorkspace() {
                 <Columns2 className="h-3.5 w-3.5 text-primary" />
                 <span>
                   {contextMenuState.pane === 'primary'
-                    ? '반대쪽 화면으로 이동'
-                    : '기본 화면으로 이동'}
+                    ? t('workspace.moveToOpposite')
+                    : t('workspace.moveToPrimary')}
                 </span>
               </button>
             )}

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, type UIEvent } from 'react';
 import { ArrowDown, Bot } from 'lucide-react';
 import type { AgentMessage } from '@/lib/agent/types';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { MessageBubble } from './MessageBubble';
 import { CompactionBanner } from './CompactionBanner';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ export interface MessageListProps {
 }
 
 export function MessageList({ messages, isStreaming }: MessageListProps) {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const isUserScrolledUpRef = useRef(false);
@@ -57,8 +59,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
           </div>
           <h2 className="text-base font-semibold">Fortress Local AI Workstation</h2>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            로컬 Ollama LLM을 사용하여 소스 코드 분석, 파일 편집, 셸 명령어 실행,
-            웹 검색 등을 지원합니다. 아래 입력창에 메시지를 입력하여 작업을 시작하세요.
+            {t('chat.emptyGuide')}
           </p>
         </div>
       </div>
@@ -116,7 +117,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
               <div className="p-4 rounded-xl border border-border/80 bg-card/80 shadow-xs space-y-2">
                 <div className="flex items-center gap-2 text-xs text-primary font-medium">
                   <span className="inline-block w-2 h-2 rounded-full bg-primary animate-ping" />
-                  <span>에이전트가 작업 중입니다... (Ollama 모델 연산 중)</span>
+                  <span>{t('chat.working')}</span>
                 </div>
               </div>
             </div>
@@ -133,7 +134,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
             className="rounded-full shadow-md flex items-center gap-1.5 text-xs py-1 px-3 bg-card border border-border hover:bg-muted text-foreground"
           >
             <ArrowDown className="h-3.5 w-3.5" />
-            <span>맨 아래로</span>
+            <span>{t('chat.scrollBottom')}</span>
           </Button>
         </div>
       )}

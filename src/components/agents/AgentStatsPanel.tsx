@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recha
 import { Activity, MessageSquare, History } from 'lucide-react';
 import * as sessionsRepo from '@/lib/db/repositories/sessionsRepo';
 import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 interface AgentStats {
   sessionCount: number;
@@ -13,6 +14,7 @@ interface AgentStats {
 export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
   const [stats, setStats] = useState<AgentStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const { t } = useLanguage();
 
   useEffect(() => {
     let active = true;
@@ -65,7 +67,7 @@ export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
   if (loading) {
     return (
       <div className="py-4 text-center text-xs text-muted-foreground animate-pulse">
-        사용 통계 집계 중...
+        {t('agentStats.loading')}
       </div>
     );
   }
@@ -73,7 +75,7 @@ export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
   if (!stats || stats.sessionCount === 0) {
     return (
       <div className="py-4 text-center text-xs text-muted-foreground">
-        아직 이 에이전트로 진행된 대화 세션이 없습니다.
+        {t('agentStats.empty')}
       </div>
     );
   }
@@ -87,8 +89,8 @@ export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
             <History className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-[11px] text-muted-foreground">총 대화 세션</div>
-            <div className="text-base font-bold text-foreground">{stats.sessionCount}회</div>
+            <div className="text-[11px] text-muted-foreground">{t('agentStats.sessions')}</div>
+            <div className="text-base font-bold text-foreground">{t('agentStats.sessionsUnit', { n: stats.sessionCount })}</div>
           </div>
         </div>
 
@@ -97,8 +99,8 @@ export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
             <MessageSquare className="h-4 w-4" />
           </div>
           <div>
-            <div className="text-[11px] text-muted-foreground">총 메시지 교환</div>
-            <div className="text-base font-bold text-foreground">{stats.messageCount}건</div>
+            <div className="text-[11px] text-muted-foreground">{t('agentStats.messages')}</div>
+            <div className="text-base font-bold text-foreground">{t('agentStats.messagesUnit', { n: stats.messageCount })}</div>
           </div>
         </div>
       </div>
@@ -108,7 +110,7 @@ export const AgentStatsPanel: React.FC<{ agentId: string }> = ({ agentId }) => {
         <div className="p-4 rounded-xl border border-border bg-card space-y-2">
           <div className="flex items-center gap-2">
             <Activity className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs font-semibold text-foreground">최근 세션별 메시지 수</span>
+            <span className="text-xs font-semibold text-foreground">{t('agentStats.recentChart')}</span>
           </div>
 
           <div className="w-full h-40 pt-2">

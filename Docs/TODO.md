@@ -93,6 +93,14 @@
 
 ## Phase 7 — Polish & QA `[x]`
 
+## Phase 8 — Internationalization (ko/en) `[x]`
+
+- [x] P8-01 i18n 인프라 (Locale 타입, ko/en 사전, LanguageContext, 첫 실행 언어 선택 팝업, 설정 연동)
+- [x] P8-02 Shell 그룹 문구 전환 (ActivityBar/TopMenuBar/FileTree/ChatSessionList/CenterWorkspace/Welcome/Settings/ErrorBoundary)
+- [x] P8-03 Chat 그룹 문구 전환 (chat/*, ChatTab, useKeyboardShortcuts)
+- [x] P8-04 Agents/Skills/Editor 그룹 문구 전환 (agents/skills/monitor/stats/viewer/editor/image)
+- [x] P8-05 `pnpm lint`/`typecheck`/`test` 통과 + ko/en 실동작 확인
+
 - [x] P7-01 텍스트/문구 일관성 점검
 - [x] P7-02 키보드 단축키
 - [x] P7-03 에러 바운더리 및 전역 예외 처리
