@@ -8,19 +8,22 @@ import { SkillsProvider } from '@/lib/context/SkillsContext';
 import { AgentsProvider } from '@/lib/context/AgentsContext';
 import { ChatSessionsProvider } from '@/lib/context/ChatSessionsContext';
 import { WorkspaceTabsProvider } from '@/lib/context/WorkspaceTabsContext';
+import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 
 const PanelWrapper = ({ children }: { children: React.ReactNode }) => (
-  <WorkspaceProvider>
-    <SettingsProvider>
-      <SkillsProvider>
-        <AgentsProvider>
-          <ChatSessionsProvider>
-            <WorkspaceTabsProvider>{children}</WorkspaceTabsProvider>
-          </ChatSessionsProvider>
-        </AgentsProvider>
-      </SkillsProvider>
-    </SettingsProvider>
-  </WorkspaceProvider>
+  <LanguageProvider>
+    <WorkspaceProvider>
+      <SettingsProvider>
+        <SkillsProvider>
+          <AgentsProvider>
+            <ChatSessionsProvider>
+              <WorkspaceTabsProvider>{children}</WorkspaceTabsProvider>
+            </ChatSessionsProvider>
+          </AgentsProvider>
+        </SkillsProvider>
+      </SettingsProvider>
+    </WorkspaceProvider>
+  </LanguageProvider>
 );
 
 describe('AgentListPanel', () => {

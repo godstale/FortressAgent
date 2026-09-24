@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface ImageViewerTabProps {
   tab: WorkspaceTab;
@@ -18,6 +19,7 @@ function basename(path: string): string {
 export function ImageViewerTab({ tab }: ImageViewerTabProps) {
   const filePath = (tab.meta?.filePath as string) || tab.id.replace(/^image-viewer:/, '');
   const [zoom, setZoom] = useState(100);
+  const { t } = useLanguage();
 
   const zoomIn = () => setZoom((z) => Math.min(z + ZOOM_STEP, ZOOM_MAX));
   const zoomOut = () => setZoom((z) => Math.max(z - ZOOM_STEP, ZOOM_MIN));
@@ -54,7 +56,7 @@ export function ImageViewerTab({ tab }: ImageViewerTabProps) {
           <button
             type="button"
             onClick={zoomOut}
-            title="축소"
+            title={t('image.zoomOut')}
             className="h-8 w-8 flex items-center justify-center rounded-l-lg hover:bg-accent text-muted-foreground hover:text-foreground"
           >
             <ZoomOut className="h-4 w-4" />
@@ -62,7 +64,7 @@ export function ImageViewerTab({ tab }: ImageViewerTabProps) {
           <button
             type="button"
             onClick={resetZoom}
-            title="100% 리셋"
+            title={t('image.reset')}
             className="h-8 px-2 font-mono tabular-nums text-muted-foreground hover:text-foreground hover:bg-accent border-x border-border flex items-center gap-1"
           >
             <RotateCcw className="h-3 w-3" />
@@ -71,7 +73,7 @@ export function ImageViewerTab({ tab }: ImageViewerTabProps) {
           <button
             type="button"
             onClick={zoomIn}
-            title="확대"
+            title={t('image.zoomIn')}
             className="h-8 w-8 flex items-center justify-center rounded-r-lg hover:bg-accent text-muted-foreground hover:text-foreground"
           >
             <ZoomIn className="h-4 w-4" />

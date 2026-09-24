@@ -2,14 +2,16 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Sliders, Cpu, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 const NAV_ITEMS = [
-  { path: '/settings', label: '일반 (테마/언어)', icon: Sliders, end: true },
-  { path: '/settings/model', label: '모델 및 LLM', icon: Cpu, end: false },
-  { path: '/settings/approval', label: '도구 승인 정책', icon: ShieldCheck, end: false },
+  { path: '/settings', labelKey: 'settings.navGeneral', icon: Sliders, end: true },
+  { path: '/settings/model', labelKey: 'settings.navModel', icon: Cpu, end: false },
+  { path: '/settings/approval', labelKey: 'settings.navApproval', icon: ShieldCheck, end: false },
 ];
 
 export function SettingsLayout() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
 
   return (
@@ -23,15 +25,15 @@ export function SettingsLayout() {
               size="icon"
               className="h-8 w-8"
               onClick={() => navigate('/')}
-              title="워크스페이스로 돌아가기"
+              title={t('settings.back')}
             >
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-base font-bold tracking-tight">환경 설정</h1>
+            <h1 className="text-base font-bold tracking-tight">{t('settings.title')}</h1>
           </div>
 
           <nav className="flex flex-col gap-1">
-            {NAV_ITEMS.map(({ path, label, icon: Icon, end }) => (
+            {NAV_ITEMS.map(({ path, labelKey, icon: Icon, end }) => (
               <NavLink
                 key={path}
                 to={path}
@@ -46,7 +48,7 @@ export function SettingsLayout() {
                 }
               >
                 <Icon className="h-4 w-4" />
-                <span>{label}</span>
+                <span>{t(labelKey)}</span>
               </NavLink>
             ))}
           </nav>
@@ -54,7 +56,7 @@ export function SettingsLayout() {
 
         <div className="text-[11px] text-muted-foreground p-2 border-t border-border">
           <p className="font-semibold text-foreground">Fortress v0.1.0</p>
-          <p className="opacity-70 mt-0.5">로컬 AI 에이전트 워크스테이션</p>
+          <p className="opacity-70 mt-0.5">{t('settings.footer')}</p>
         </div>
       </div>
 

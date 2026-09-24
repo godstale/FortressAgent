@@ -5,15 +5,18 @@ import { MemoryRouter } from 'react-router-dom';
 import { WorkspaceTabsProvider } from '@/lib/context/WorkspaceTabsContext';
 import { ChatSessionsProvider } from '@/lib/context/ChatSessionsContext';
 import { WorkspaceProvider } from '@/lib/context/WorkspaceContext';
+import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 
 const Wrapper = ({ children }: { children: React.ReactNode }) => (
-  <MemoryRouter>
-    <WorkspaceProvider>
-      <ChatSessionsProvider>
-        <WorkspaceTabsProvider>{children}</WorkspaceTabsProvider>
-      </ChatSessionsProvider>
-    </WorkspaceProvider>
-  </MemoryRouter>
+  <LanguageProvider>
+    <MemoryRouter>
+      <WorkspaceProvider>
+        <ChatSessionsProvider>
+          <WorkspaceTabsProvider>{children}</WorkspaceTabsProvider>
+        </ChatSessionsProvider>
+      </WorkspaceProvider>
+    </MemoryRouter>
+  </LanguageProvider>
 );
 
 describe('useKeyboardShortcuts', () => {

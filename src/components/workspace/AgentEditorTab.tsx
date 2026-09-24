@@ -5,6 +5,7 @@ import type { Agent } from '@/lib/types/agent';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { AgentEditorForm } from '@/components/agents/AgentEditorForm';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface AgentEditorTabProps {
   tab: WorkspaceTab;
@@ -21,10 +22,11 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
   const mode: 'create' | 'edit' = existingAgent ? 'edit' : (isNew ? 'create' : 'edit');
 
   const [saveFeedback, setSaveFeedback] = useState(false);
+  const { t } = useLanguage();
 
   const handleSave = (saved: Agent) => {
     updateTab(tab.id, {
-      title: `${saved.name} 편집`,
+      title: t('agentList.edit', { name: saved.name }),
       meta: { agentId: saved.id },
     });
     setSaveFeedback(true);
@@ -46,13 +48,13 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
           <div>
             <h2 className="text-sm font-bold text-foreground">
               {mode === 'edit' && existingAgent
-                ? `에이전트 편집: ${existingAgent.name}`
-                : '새 에이전트 생성'}
+                ? t('agentEditor.editTitle', { name: existingAgent.name })
+                : t('agentEditor.createTitle')}
             </h2>
             <p className="text-[11px] text-muted-foreground">
               {mode === 'edit'
-                ? '페르소나 프롬프트 및 도구/스킬 구성을 수정합니다.'
-                : '새로운 시스템 프롬프트와 파라미터를 가진 에이전트를 추가합니다.'}
+                ? t('agentEditor.editDesc')
+                : t('agentEditor.createDesc')}
             </p>
           </div>
         </div>
@@ -61,7 +63,7 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
           {saveFeedback && (
             <span className="flex items-center gap-1 text-xs text-success font-medium animate-fade-in">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>저장되었습니다</span>
+              <span>{t('agentEditor.saved')}</span>
             </span>
           )}
         </div>

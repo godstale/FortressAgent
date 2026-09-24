@@ -19,6 +19,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import {
   approvalBus,
   type ApprovalRequestItem,
@@ -31,6 +32,7 @@ interface ApprovalDialogProps {
 }
 
 export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDialogProps) {
+  const { t } = useLanguage();
   const [busRequest, setBusRequest] = useState<ApprovalRequestItem | null>(
     () => (propRequest !== undefined ? null : approvalBus.getPendingRequests()[0] ?? null),
   );
@@ -84,7 +86,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
       approved,
       reason: approved
         ? undefined
-        : rejectReason.trim() || '사용자가 도구 실행을 거절했습니다.',
+        : rejectReason.trim() || t('approval.defaultReject'),
       rememberForSession,
     };
 
@@ -120,11 +122,11 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
               <ShieldAlert className="h-5 w-5 text-warning" />
             )}
             <DialogTitle className="text-base font-semibold text-foreground">
-              도구 실행 승인 요청
+              {t('approval.title')}
             </DialogTitle>
           </div>
           <DialogDescription className="text-xs text-muted-foreground">
-            에이전트가 시스템 자원에 접근하는 작업을 요청했습니다. 내용을 확인하고 승인 여부를 선택하세요.
+            {t('approval.desc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -151,7 +153,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
           {/* Special view for shell: full command */}
           {isShell && shellCommand && (
             <div className="space-y-1">
-              <span className="text-[11px] font-medium text-muted-foreground">실행될 명령:</span>
+              <span className="text-[11px] font-medium text-muted-foreground">{t('approval.command')}</span>
               <div className="p-3 rounded-lg bg-code text-code-foreground font-mono text-xs overflow-x-auto border border-border/80">
                 <code>$ {shellCommand}</code>
               </div>
@@ -161,12 +163,12 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
           {/* Special view for write / edit: file path */}
           {filePath && (
             <div className="space-y-1">
-              <span className="text-[11px] font-medium text-muted-foreground">대상 파일:</span>
+              <span className="text-[11px] font-medium text-muted-foreground">{t('approval.targetFile')}</span>
               <div className="p-2 rounded bg-muted/60 font-mono text-xs text-foreground break-all border border-border/40 space-y-1">
                 <div>{filePath}</div>
                 {resolvedFilePath && (
                   <div className="text-[11px] text-muted-foreground font-sans pt-1 border-t border-border/30">
-                    프로젝트 내 저장 위치:{' '}
+                    {t('approval.saveLocation')}{' '}
                     <span className="font-mono text-foreground font-medium">{resolvedFilePath}</span>
                   </div>
                 )}
@@ -177,14 +179,14 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
           {/* Edit diff preview */}
           {isEdit && (targetContent || replacementContent) && (
             <div className="space-y-1">
-              <span className="text-[11px] font-medium text-muted-foreground">변경 내용:</span>
+              <span className="text-[11px] font-medium text-muted-foreground">{t('approval.diff')}</span>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] font-mono">
                 <div className="p-2 rounded bg-destructive/10 border border-destructive/20 max-h-32 overflow-y-auto">
-                  <div className="text-destructive font-semibold mb-1">- 변경 전</div>
+                  <div className="text-destructive font-semibold mb-1">{t('approval.before')}</div>
                   <pre className="whitespace-pre-wrap">{targetContent}</pre>
                 </div>
                 <div className="p-2 rounded bg-success/10 border border-success/20 max-h-32 overflow-y-auto">
-                  <div className="text-success font-semibold mb-1">+ 변경 후</div>
+                  <div className="text-success font-semibold mb-1">{t('approval.after')}</div>
                   <pre className="whitespace-pre-wrap">{replacementContent}</pre>
                 </div>
               </div>
@@ -198,7 +200,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
               onClick={() => setShowArgs((prev) => !prev)}
               className="w-full flex items-center justify-between px-3 py-1.5 text-muted-foreground hover:text-foreground text-[11px]"
             >
-              <span>전체 전달 인자 (JSON)</span>
+              <span>{t('approval.rawArgs')}</span>
               {showArgs ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
             </button>
             {showArgs && (
@@ -212,13 +214,13 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
           {showRejectInput ? (
             <div className="space-y-1 pt-1">
               <label className="text-[11px] font-medium text-muted-foreground">
-                거절 사유 (모델에게 대안 모색 피드백으로 전달됩니다):
+                {t('approval.rejectLabel')}
               </label>
               <input
                 type="text"
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="예: 프로젝트 빌드 명령은 npm test로 변경해줘"
+                placeholder={t('approval.rejectPlaceholder')}
                 className="w-full px-2.5 py-1.5 rounded-md border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
@@ -228,7 +230,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
               onClick={() => setShowRejectInput(true)}
               className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
             >
-              + 거절 사유 직접 입력
+              {t('approval.rejectToggle')}
             </button>
           )}
         </div>
@@ -241,7 +243,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
             onClick={() => handleDecision(true, true)}
             className="text-[11px] text-muted-foreground hover:text-foreground w-full sm:w-auto"
           >
-            이 세션에서 항상 승인
+            {t('approval.alwaysAllow')}
           </Button>
 
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
@@ -253,7 +255,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
               className="text-xs flex items-center gap-1"
             >
               <X className="h-3.5 w-3.5" />
-              <span>거절</span>
+              <span>{t('approval.reject')}</span>
             </Button>
             <Button
               type="button"
@@ -262,7 +264,7 @@ export function ApprovalDialog({ request: propRequest, onDecision }: ApprovalDia
               className="text-xs flex items-center gap-1 bg-primary text-primary-foreground"
             >
               <Check className="h-3.5 w-3.5" />
-              <span>승인</span>
+              <span>{t('approval.approve')}</span>
             </Button>
           </div>
         </DialogFooter>

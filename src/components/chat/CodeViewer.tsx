@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Check, Copy, Code2 } from 'lucide-react';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface CodeViewerProps {
   code: string;
@@ -101,6 +102,7 @@ export function CodeViewer({
   filename,
   showLineNumbers = true,
 }: CodeViewerProps) {
+  const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
 
   const cleanLang = (language || 'text').replace(/^language-/, '').toLowerCase();
@@ -135,7 +137,7 @@ export function CodeViewer({
             </span>
           )}
           <span className="text-[10px] text-zinc-500 font-mono hidden sm:inline">
-            {lines.length} lines
+            {t('codeViewer.lines', { n: lines.length })}
           </span>
         </div>
 
@@ -144,17 +146,17 @@ export function CodeViewer({
             type="button"
             onClick={handleCopy}
             className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-sans text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors cursor-pointer"
-            title="코드 복사"
+            title={t('codeViewer.copyTitle')}
           >
             {copied ? (
               <>
                 <Check className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="text-emerald-400">복사됨</span>
+                <span className="text-emerald-400">{t('codeViewer.copied')}</span>
               </>
             ) : (
               <>
                 <Copy className="h-3.5 w-3.5" />
-                <span>복사</span>
+                <span>{t('codeViewer.copy')}</span>
               </>
             )}
           </button>

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import type { QueuedItem } from '@/lib/agent/chatQueueManager';
 import { Button } from '@/components/ui/button';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { cn } from '@/lib/utils';
 
 export interface ChatQueueFloatingDockProps {
@@ -29,6 +30,7 @@ export function ChatQueueFloatingDock({
   onResumeQueue,
   onRunItem,
 }: ChatQueueFloatingDockProps) {
+  const { t } = useLanguage();
   if (items.length === 0) return null;
 
   return (
@@ -60,7 +62,7 @@ export function ChatQueueFloatingDock({
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="text-xs font-semibold text-foreground">
-                대기 큐
+                {t('queue.title')}
               </span>
               <span
                 className={cn(
@@ -70,13 +72,13 @@ export function ChatQueueFloatingDock({
                     : 'bg-primary/15 text-primary',
                 )}
               >
-                {items.length}건 {isPaused ? '일시 중단됨' : '대기 중'}
+                {isPaused
+                  ? t('queue.paused', { n: items.length })
+                  : t('queue.waiting', { n: items.length })}
               </span>
             </div>
             <span className="text-[11px] text-muted-foreground truncate hidden md:inline">
-              {isPaused
-                ? '• 실행이 중단되었습니다. 항목을 클릭하여 실행하거나 재개하세요.'
-                : '• 현재 작업 완료 후 순서대로 실행됩니다.'}
+              {isPaused ? t('queue.pausedDesc') : t('queue.waitingDesc')}
             </span>
           </div>
 
@@ -88,10 +90,10 @@ export function ChatQueueFloatingDock({
                 size="sm"
                 onClick={onResumeQueue}
                 className="h-6 px-2.5 text-[11px] bg-primary text-primary-foreground hover:bg-primary/90 transition-colors gap-1 shadow-xs cursor-pointer"
-                title="첫 번째 작업부터 이어서 자동 순차 실행"
+                title={t('queue.resumeTitle')}
               >
                 <Play className="h-3 w-3 fill-current" />
-                <span>계속 실행</span>
+                <span>{t('queue.resume')}</span>
               </Button>
             )}
 
@@ -101,10 +103,10 @@ export function ChatQueueFloatingDock({
               size="sm"
               onClick={onClearQueue}
               className="h-6 px-2 text-[11px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors gap-1 cursor-pointer"
-              title="대기 중인 모든 요청 삭제"
+              title={t('queue.clearTitle')}
             >
               <Trash2 className="h-3 w-3" />
-              <span>모두 비우기</span>
+              <span>{t('queue.clear')}</span>
             </Button>
           </div>
         </div>
@@ -131,7 +133,7 @@ export function ChatQueueFloatingDock({
                 )}
                 title={
                   isPaused
-                    ? '클릭하면 이 작업을 즉시 실행하고 이후 항목을 순차 처리합니다'
+                    ? t('queue.runNowTitle')
                     : undefined
                 }
               >
@@ -143,17 +145,17 @@ export function ChatQueueFloatingDock({
                   {isSlashCommand ? (
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-primary/15 text-primary font-mono text-[10px] shrink-0 font-medium">
                       <Terminal className="h-3 w-3" />
-                      <span>명령어: /{item.commandName || 'cmd'}</span>
+                      <span>{t('queue.slash', { name: item.commandName || 'cmd' })}</span>
                     </span>
                   ) : isSkill ? (
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-warning/15 text-warning font-mono text-[10px] shrink-0 font-medium">
                       <Puzzle className="h-3 w-3" />
-                      <span>스킬</span>
+                      <span>{t('queue.skill')}</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[10px] shrink-0">
                       <MessageSquare className="h-3 w-3" />
-                      <span>요청</span>
+                      <span>{t('queue.message')}</span>
                     </span>
                   )}
 
@@ -172,7 +174,7 @@ export function ChatQueueFloatingDock({
                         onRunItem(item.id);
                       }}
                       className="h-5 w-5 rounded flex items-center justify-center text-primary hover:bg-primary/20 transition-colors cursor-pointer"
-                      title="이 작업 실행"
+                      title={t('queue.runItem')}
                     >
                       <Play className="h-3 w-3 fill-current" />
                     </button>
@@ -185,7 +187,7 @@ export function ChatQueueFloatingDock({
                       onRemoveItem(item.id);
                     }}
                     className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/15 transition-colors cursor-pointer"
-                    title="이 항목 삭제"
+                    title={t('queue.removeItem')}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>

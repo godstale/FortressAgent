@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain, Clock, AlertCircle } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentMessage } from '@/lib/agent/types';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { ToolCallCard } from './ToolCallCard';
 import { MermaidViewer } from './MermaidViewer';
 import { RechartsViewer } from './RechartsViewer';
@@ -16,6 +17,7 @@ export interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
+  const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
 
@@ -37,7 +39,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     return (
       <div className="py-2 text-center text-[11px] text-muted-foreground font-mono">
         <span className="px-2 py-0.5 rounded-full bg-muted/60">
-          시스템 프롬프트 설정됨
+          {t('chat.systemPromptSet')}
         </span>
       </div>
     );
@@ -75,10 +77,10 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                 type="button"
                 onClick={handleCopy}
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                title="복사"
+                title={t('chat.copyTitle')}
               >
                 {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
-                <span>{copied ? '복사됨' : '복사'}</span>
+                <span>{copied ? t('chat.copied') : t('chat.copy')}</span>
               </button>
             </div>
           </div>
@@ -150,7 +152,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
               {isStreaming && !hasContent && (
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-xs text-primary font-medium">
                   <span className="inline-block w-2 h-2 rounded-full bg-primary animate-ping" />
-                  <span>에이전트가 작업 중입니다... (Ollama 모델 연산 중)</span>
+                  <span>{t('chat.working')}</span>
                 </div>
               )}
 
@@ -168,7 +170,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                       <ChevronRight className="h-3.5 w-3.5" />
                     )}
                     <Brain className="h-3.5 w-3.5 text-warning" />
-                    <span className="font-medium text-[11px]">생각 과정 (Thinking)</span>
+                    <span className="font-medium text-[11px]">{t('chat.thinking')}</span>
                   </button>
                   {showThinking && (
                     <div className="px-3 py-2 border-t border-border/50 text-[11px] text-muted-foreground whitespace-pre-wrap font-mono bg-background/50 max-h-60 overflow-y-auto">
@@ -250,7 +252,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
               ) : (
                 isStreaming && (
                   <div className="text-xs text-muted-foreground italic">
-                    답변을 작성하고 있습니다...
+                    {t('chat.writing')}
                   </div>
                 )
               )}
@@ -273,7 +275,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                 </span>
                 {message.usage && (
                   <span className="text-muted-foreground/60 hidden sm:inline">
-                    • {message.usage.total} tokens ({message.usage.input} in / {message.usage.output} out)
+                    {t('chat.tokens', { total: message.usage.total, input: message.usage.input, output: message.usage.output })}
                   </span>
                 )}
               </div>
@@ -284,7 +286,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                 className="flex items-center gap-1 text-xs hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/70 cursor-pointer"
               >
                 {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
-                <span>{copied ? '복사됨' : '복사'}</span>
+                <span>{copied ? t('chat.copied') : t('chat.copy')}</span>
               </button>
             </div>
           </div>

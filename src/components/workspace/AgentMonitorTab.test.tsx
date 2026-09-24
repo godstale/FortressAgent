@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test-utils';
 import '@testing-library/jest-dom/vitest';
 import { AgentMonitorTab } from './AgentMonitorTab';
 import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';

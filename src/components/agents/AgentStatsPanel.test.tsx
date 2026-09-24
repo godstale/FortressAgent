@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test-utils';
 import '@testing-library/jest-dom/vitest';
 import { AgentStatsPanel } from './AgentStatsPanel';
 

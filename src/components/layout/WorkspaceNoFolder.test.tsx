@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithProviders as render } from '@/test-utils';
 import { MemoryRouter } from 'react-router-dom';
 import { ActivityBar } from './ActivityBar';
 import { TopMenuBar } from './TopMenuBar';

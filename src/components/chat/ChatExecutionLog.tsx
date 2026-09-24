@@ -20,6 +20,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface ChatExecutionLogProps {
   sessionId: string;
@@ -27,6 +28,7 @@ export interface ChatExecutionLogProps {
 }
 
 export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
+  const { t } = useLanguage();
   const [scope, setScope] = useState<'current' | 'all'>('current');
   const [logs, setLogs] = useState<LogEntry[]>(() => {
     return appLogger.getSessionLogs(sessionId);
@@ -122,9 +124,9 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
         <div className="flex items-center gap-2">
           <Terminal className="h-4 w-4 text-primary" />
           <span className="font-semibold text-foreground text-xs font-sans">
-            에이전트 실행 상세 로그
+            {t('execLog.title')}
           </span>
-          <span className="text-[11px] text-muted-foreground font-mono">({filteredLogs.length}건)</span>
+          <span className="text-[11px] text-muted-foreground font-mono">{t('execLog.count', { n: filteredLogs.length })}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -139,7 +141,7 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              현재 세션
+              {t('execLog.current')}
             </button>
             <button
               type="button"
@@ -150,7 +152,7 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              전체 세션
+              {t('execLog.all')}
             </button>
           </div>
 
@@ -177,10 +179,10 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
             size="sm"
             onClick={handleDownload}
             className="h-6 text-[11px] gap-1 px-2 text-muted-foreground hover:text-foreground"
-            title="로그 다운로드"
+            title={t('execLog.downloadTitle')}
           >
             <Download className="h-3 w-3" />
-            <span>저장</span>
+            <span>{t('execLog.save')}</span>
           </Button>
 
           <Button
@@ -188,10 +190,10 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
             size="sm"
             onClick={() => setClearDialogOpen(true)}
             className="h-6 text-[11px] gap-1 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-            title="실행 로그 비우기"
+            title={t('execLog.clearTitle')}
           >
             <Trash2 className="h-3 w-3" />
-            <span>비우기</span>
+            <span>{t('execLog.clear')}</span>
           </Button>
         </div>
       </div>
@@ -201,9 +203,9 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
         {filteredLogs.length === 0 ? (
           <div className="py-12 text-center text-muted-foreground text-xs font-sans space-y-1">
             <Filter className="h-6 w-6 mx-auto opacity-40 mb-2" />
-            <p>기록된 실행 상세 로그가 없습니다.</p>
+            <p>{t('execLog.empty')}</p>
             <p className="text-[11px] opacity-70">
-              대화 입력, 도구 실행, Ollama 스트리밍 등 모든 동작이 SQLite에 영구 기록됩니다.
+              {t('execLog.emptyDesc')}
             </p>
           </div>
         ) : (
@@ -253,19 +255,19 @@ export function ChatExecutionLog({ sessionId }: ChatExecutionLogProps) {
       <Dialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>실행 로그 비우기</DialogTitle>
+            <DialogTitle>{t('execLog.confirmTitle')}</DialogTitle>
             <DialogDescription>
               {scope === 'current'
-                ? '현재 세션의 모든 실행 상세 로그를 SQLite 데이터베이스에서 완전히 삭제하시겠습니까? (대화 메시지는 영향을 받지 않습니다)'
-                : '데이터베이스에 저장된 모든 세션의 실행 상세 로그를 완전히 삭제하시겠습니까?'}
+                ? t('execLog.confirmCurrent')
+                : t('execLog.confirmAll')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setClearDialogOpen(false)}>
-              취소
+              {t('execLog.cancel')}
             </Button>
             <Button variant="destructive" onClick={handleClearLogs}>
-              로그 삭제
+              {t('execLog.confirmDelete')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -22,7 +22,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/components/ui/**', 'src/lib/context/**', 'src/hooks/**'],
+    files: ['src/components/ui/**', 'src/lib/context/**', 'src/lib/i18n/**', 'src/hooks/**'],
     rules: {
       'react-refresh/only-export-components': 'off',
     },

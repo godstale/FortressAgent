@@ -1,27 +1,30 @@
-// TODO(Phase4): persist to SQLite app_settings
-
 import { Moon, Sun, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/lib/context/ThemeContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { cn } from '@/lib/utils';
 
 export function SettingsGeneral() {
   const { theme, setTheme } = useTheme();
+  const { locale, setLocale, markChosen, t } = useLanguage();
+
+  const pickLocale = (next: 'ko' | 'en') => {
+    setLocale(next);
+    markChosen();
+  };
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-bold">일반 설정</h2>
-        <p className="text-xs text-muted-foreground mt-1">
-          앱의 시각적 테마와 기본 인터페이스 옵션을 설정합니다.
-        </p>
+        <h2 className="text-lg font-bold">{t('settingsGeneral.title')}</h2>
+        <p className="text-xs text-muted-foreground mt-1">{t('settingsGeneral.desc')}</p>
       </div>
 
       <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
         <div>
-          <h3 className="text-sm font-semibold">테마 선택</h3>
+          <h3 className="text-sm font-semibold">{t('settingsGeneral.theme')}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            어두운 테마 또는 밝은 테마를 선택할 수 있습니다.
+            {t('settingsGeneral.themeDesc')}
           </p>
         </div>
 
@@ -38,7 +41,7 @@ export function SettingsGeneral() {
             )}
           >
             <Moon className={cn('h-5 w-5', theme === 'dark' && 'text-primary')} />
-            <span className="text-xs">다크 모드</span>
+            <span className="text-xs">{t('settingsGeneral.dark')}</span>
           </Button>
 
           <Button
@@ -53,7 +56,7 @@ export function SettingsGeneral() {
             )}
           >
             <Sun className={cn('h-5 w-5', theme === 'light' && 'text-primary')} />
-            <span className="text-xs">라이트 모드</span>
+            <span className="text-xs">{t('settingsGeneral.light')}</span>
           </Button>
 
           <Button
@@ -68,24 +71,34 @@ export function SettingsGeneral() {
             )}
           >
             <Monitor className={cn('h-5 w-5', theme === 'system' && 'text-primary')} />
-            <span className="text-xs">시스템 설정</span>
+            <span className="text-xs">{t('settingsGeneral.system')}</span>
           </Button>
         </div>
       </div>
 
       <div className="border border-border rounded-xl p-5 bg-card/40 space-y-3">
         <div>
-          <h3 className="text-sm font-semibold">언어 (Language)</h3>
+          <h3 className="text-sm font-semibold">{t('settingsGeneral.language')}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            UI 표시 언어를 설정합니다.
+            {t('settingsGeneral.languageDesc')}
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="default" size="sm" className="text-xs">
-            한국어
+          <Button
+            variant={locale === 'ko' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => pickLocale('ko')}
+            className={cn('text-xs', locale !== 'ko' && 'text-muted-foreground')}
+          >
+            {t('languageSelect.koLabel')}
           </Button>
-          <Button variant="outline" size="sm" className="text-xs text-muted-foreground">
-            English
+          <Button
+            variant={locale === 'en' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => pickLocale('en')}
+            className={cn('text-xs', locale !== 'en' && 'text-muted-foreground')}
+          >
+            {t('languageSelect.enLabel')}
           </Button>
         </div>
       </div>

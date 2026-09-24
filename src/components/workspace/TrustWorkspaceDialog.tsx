@@ -9,8 +9,10 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export function TrustWorkspaceDialog() {
+  const { t } = useLanguage();
   const {
     workspaceRoot,
     trustModalOpen,
@@ -28,14 +30,11 @@ export function TrustWorkspaceDialog() {
           <div className="flex items-center gap-2 text-warning mb-1">
             <ShieldAlert className="h-5 w-5" />
             <DialogTitle className="text-base font-semibold text-foreground">
-              워크스페이스 신뢰 확인
+              {t('trust.title')}
             </DialogTitle>
           </div>
           <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
-            이 폴더의 <code className="text-foreground font-mono">AGENTS.md</code>와{' '}
-            <code className="text-foreground font-mono">.agents/skills/</code>를 로드할까요?
-            워크스페이스의 스킬과 지침은 모델에게 파일 수정이나 도구 실행 등의 행동을
-            지시할 수 있습니다.
+            {t('trust.desc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -51,7 +50,7 @@ export function TrustWorkspaceDialog() {
             onClick={rejectCurrentWorkspace}
             className="text-xs"
           >
-            신뢰하지 않음
+            {t('trust.decline')}
           </Button>
           <Button
             type="button"
@@ -60,7 +59,7 @@ export function TrustWorkspaceDialog() {
             className="text-xs flex items-center gap-1.5 bg-primary text-primary-foreground"
           >
             <ShieldCheck className="h-4 w-4" />
-            <span>신뢰하고 로드</span>
+            <span>{t('trust.accept')}</span>
           </Button>
         </DialogFooter>
       </DialogContent>

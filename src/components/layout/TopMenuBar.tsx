@@ -31,10 +31,12 @@ import { useSidePanel } from '@/lib/context/SidePanelContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { FortressMark } from '@/components/brand/FortressMark';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export function TopMenuBar() {
+  const { t } = useLanguage();
   const { workspaceRoot, setWorkspaceRoot, recentWorkspaces = [] } = useWorkspace();
   const { setActiveView } = useSidePanel();
   const { openTab } = useWorkspaceTabs();
@@ -60,10 +62,10 @@ export function TopMenuBar() {
   const handleNewChat = async () => {
     if (!hasWorkspace) return;
     let sessionId = `chat_${Date.now()}`;
-    let title = '새로운 대화';
+    let title = t('topMenu.newChatDefault');
     let agentId: string | undefined;
     try {
-      const session = await createSession({ title: '새로운 대화' });
+      const session = await createSession({ title: t('topMenu.newChatDefault') });
       sessionId = session.id;
       title = session.title;
       agentId = session.agentId;
@@ -82,7 +84,7 @@ export function TopMenuBar() {
     openTab({
       id: `agent-editor:new-${Date.now()}`,
       type: 'agent-editor',
-      title: '새 에이전트',
+      title: t('topMenu.newAgent'),
     });
   };
 
@@ -174,20 +176,20 @@ export function TopMenuBar() {
               type="button"
               className="px-2 py-0.5 rounded text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
             >
-              파일 (File)
+              {t('topMenu.file')}
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56 text-[11px] p-1 [&_[role=menuitem]]:text-[11px] [&_[role=menuitem]]:py-1 [&_[role=menuitem]]:gap-2 [&_[role=menuitem]_svg]:size-3.5">
             <DropdownMenuItem onClick={handlePickFolder} className="gap-2 cursor-pointer text-[11px] py-1">
               <FolderOpen className="h-3.5 w-3.5 text-warning" />
-              <span>폴더 열기...</span>
+              <span>{t('topMenu.openFolder')}</span>
             </DropdownMenuItem>
 
             {recentWorkspaces.length > 0 && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="gap-2 text-[11px] py-1 cursor-pointer">
                   <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>최근 폴더 열기</span>
+                  <span>{t('topMenu.openRecent')}</span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-64 text-[11px] p-1 [&_[role=menuitem]]:text-[11px] [&_[role=menuitem]]:py-1 [&_[role=menuitem]]:gap-2 [&_[role=menuitem]_svg]:size-3.5">
                   {recentWorkspaces.map((path) => (
@@ -207,7 +209,7 @@ export function TopMenuBar() {
             {workspaceRoot && (
               <DropdownMenuItem onClick={handleCloseFolder} className="gap-2 cursor-pointer text-[11px] py-1">
                 <FolderX className="h-3.5 w-3.5 text-muted-foreground" />
-                <span>폴더 닫기</span>
+                <span>{t('topMenu.closeFolder')}</span>
               </DropdownMenuItem>
             )}
 
@@ -228,12 +230,12 @@ export function TopMenuBar() {
               )}
             >
               <FilePlus className="h-3.5 w-3.5 text-primary" />
-              <span>새 대화 시작</span>
+              <span>{t('topMenu.startNewChat')}</span>
             </DropdownMenuItem>
 
             <DropdownMenuItem onClick={() => navigate('/settings')} className="gap-2 cursor-pointer text-[11px] py-1">
               <Settings className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>설정 (Settings)</span>
+              <span>{t('topMenu.settings')}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -244,7 +246,7 @@ export function TopMenuBar() {
             <button
               type="button"
               disabled={!hasWorkspace}
-              title={!hasWorkspace ? '폴더를 먼저 선택해주세요' : undefined}
+              title={!hasWorkspace ? t('topMenu.selectFolderFirst') : undefined}
               className={cn(
                 'px-2 py-0.5 rounded text-[11px] transition-colors',
                 !hasWorkspace
@@ -252,21 +254,21 @@ export function TopMenuBar() {
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/70 cursor-pointer',
               )}
             >
-              에이전트
+              {t('topMenu.agent')}
             </button>
           </DropdownMenuTrigger>
           {hasWorkspace && (
             <DropdownMenuContent align="start" className="w-48 text-[11px] p-1 [&_[role=menuitem]]:text-[11px] [&_[role=menuitem]]:py-1 [&_[role=menuitem]]:gap-2 [&_[role=menuitem]_svg]:size-3.5">
               <DropdownMenuItem onClick={handleCreateAgent} className="gap-2 cursor-pointer text-[11px] py-1">
                 <Bot className="h-3.5 w-3.5 text-primary" />
-                <span>새 에이전트 생성</span>
+                <span>{t('topMenu.createAgent')}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setActiveView('agents')}
                 className="gap-2 cursor-pointer text-[11px] py-1"
               >
                 <Bot className="h-3.5 w-3.5 text-muted-foreground" />
-                <span>에이전트 관리 패널</span>
+                <span>{t('topMenu.agentPanel')}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           )}
@@ -278,7 +280,7 @@ export function TopMenuBar() {
             <button
               type="button"
               disabled={!hasWorkspace}
-              title={!hasWorkspace ? '폴더를 먼저 선택해주세요' : undefined}
+              title={!hasWorkspace ? t('topMenu.selectFolderFirst') : undefined}
               className={cn(
                 'px-2 py-0.5 rounded text-[11px] transition-colors',
                 !hasWorkspace
@@ -286,7 +288,7 @@ export function TopMenuBar() {
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/70 cursor-pointer',
               )}
             >
-              보기 (View)
+              {t('topMenu.view')}
             </button>
           </DropdownMenuTrigger>
           {hasWorkspace && (
@@ -296,21 +298,21 @@ export function TopMenuBar() {
                 className="gap-2 cursor-pointer text-[11px] py-1"
               >
                 <Files className="h-3.5 w-3.5 text-primary" />
-                <span>파일 탐색기</span>
+                <span>{t('topMenu.explorer')}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setActiveView('chat-sessions')}
                 className="gap-2 cursor-pointer text-[11px] py-1"
               >
                 <MessageSquare className="h-3.5 w-3.5 text-success" />
-                <span>대화 목록</span>
+                <span>{t('topMenu.chatList')}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setActiveView('skills')}
                 className="gap-2 cursor-pointer text-[11px] py-1"
               >
                 <Puzzle className="h-3.5 w-3.5 text-warning" />
-                <span>스킬 관리</span>
+                <span>{t('topMenu.skills')}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           )}
@@ -327,7 +329,7 @@ export function TopMenuBar() {
             data-no-drag="true"
             className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 font-mono truncate cursor-pointer hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/40"
             onClick={handlePickFolder}
-            title={`${workspaceRoot} (클릭하여 폴더 변경)`}
+            title={`${workspaceRoot} ${t('topMenu.clickToChangeFolder')}`}
           >
             <Folder className="h-3 w-3 text-warning shrink-0" />
             <span className="font-semibold text-foreground">{folderName}</span>
@@ -342,7 +344,7 @@ export function TopMenuBar() {
             onClick={handlePickFolder}
           >
             <FolderOpen className="h-3 w-3" />
-            <span>프로젝트 폴더를 선택해주세요</span>
+            <span>{t('topMenu.selectProjectFolder')}</span>
           </div>
         )}
       </div>
@@ -356,7 +358,7 @@ export function TopMenuBar() {
           type="button"
           onClick={handleMinimize}
           className="h-full w-11 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
-          title="최소화"
+          title={t('topMenu.minimize')}
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
@@ -365,7 +367,7 @@ export function TopMenuBar() {
           type="button"
           onClick={handleToggleMaximize}
           className="h-full w-11 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
-          title={isMaximized ? '이전 크기로 복원' : '최대화'}
+          title={isMaximized ? t('topMenu.restore') : t('topMenu.maximize')}
         >
           {isMaximized ? (
             <svg
@@ -387,7 +389,7 @@ export function TopMenuBar() {
           type="button"
           onClick={handleClose}
           className="h-full w-11 flex items-center justify-center text-muted-foreground hover:text-white hover:bg-red-600 transition-colors cursor-pointer"
-          title="닫기"
+          title={t('topMenu.close')}
         >
           <X className="h-3.5 w-3.5" />
         </button>

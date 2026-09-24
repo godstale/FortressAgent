@@ -5,6 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Puzzle, Folder, FileCode, AlertCircle } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import { parseFrontmatter } from '@/lib/skills/frontmatter';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 interface DirItem {
   name: string;
@@ -27,6 +28,7 @@ export function SkillViewerTab({ tab }: SkillViewerTabProps) {
   const [folderFiles, setFolderFiles] = useState<DirItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useLanguage();
 
   useEffect(() => {
     let cancelled = false;
@@ -76,7 +78,7 @@ export function SkillViewerTab({ tab }: SkillViewerTabProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full w-full text-xs text-muted-foreground">
-        스킬 문서를 불러오는 중...
+        {t('skillViewer.loading')}
       </div>
     );
   }
@@ -85,7 +87,7 @@ export function SkillViewerTab({ tab }: SkillViewerTabProps) {
     return (
       <div className="flex flex-col items-center justify-center h-full w-full p-6 text-center text-destructive gap-2">
         <AlertCircle className="h-8 w-8" />
-        <p className="text-sm font-semibold">스킬 문서를 불러오지 못했습니다</p>
+        <p className="text-sm font-semibold">{t('skillViewer.failed')}</p>
         <p className="text-xs text-muted-foreground">{error}</p>
       </div>
     );
@@ -109,7 +111,7 @@ export function SkillViewerTab({ tab }: SkillViewerTabProps) {
         {Object.keys(frontmatter).length > 0 && (
           <div className="p-3.5 rounded-lg bg-muted/30 border border-border/60 text-xs space-y-1.5 font-mono">
             <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">
-              Skill Metadata
+              {t('skillViewer.meta')}
             </div>
             {Object.entries(frontmatter).map(([k, v]) => (
               <div key={k} className="flex items-start gap-2">
@@ -132,7 +134,7 @@ export function SkillViewerTab({ tab }: SkillViewerTabProps) {
           <div className="pt-4 border-t border-border">
             <h3 className="text-xs font-semibold text-foreground flex items-center gap-1.5 mb-2.5">
               <Folder className="h-3.5 w-3.5 text-muted-foreground" />
-              <span>스킬 디렉터리 파일 및 리소스 ({folderFiles.length})</span>
+              <span>{t('skillViewer.resources', { n: folderFiles.length })}</span>
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {folderFiles.map((file) => (

@@ -34,6 +34,7 @@ import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import type { FileTreeNode } from '@/lib/types/fileTree';
 import { cn } from '@/lib/utils';
 import { getFileIcon } from '@/lib/fileIcons';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp']);
 
@@ -73,6 +74,7 @@ interface ContextMenuState {
 }
 
 export function FileTree() {
+  const { t } = useLanguage();
   const { openTab } = useWorkspaceTabs();
   const { workspaceRoot, setWorkspaceRoot } = useWorkspace();
   const workspacePath = workspaceRoot;
@@ -235,7 +237,7 @@ export function FileTree() {
         await loadTree(workspacePath);
       }
     } catch (err) {
-      alert(`생성 실패: ${err}`);
+      alert(t('fileTree.createFailed', { err: String(err) }));
     } finally {
       setCreatingIn(null);
       setCreatingName('');
@@ -258,7 +260,7 @@ export function FileTree() {
         await loadTree(workspacePath);
       }
     } catch (err) {
-      alert(`이름 변경 실패: ${err}`);
+      alert(t('fileTree.renameFailed', { err: String(err) }));
     } finally {
       setRenamingNode(null);
       setRenamingName('');
@@ -266,7 +268,7 @@ export function FileTree() {
   };
 
   const handleDelete = async (node: FileTreeNode) => {
-    const isConfirmed = window.confirm(`'${node.name}'을(를) 삭제하시겠습니까?`);
+    const isConfirmed = window.confirm(t('fileTree.deleteConfirm', { name: node.name }));
     if (!isConfirmed) return;
 
     try {
@@ -275,7 +277,7 @@ export function FileTree() {
         await loadTree(workspacePath);
       }
     } catch (err) {
-      alert(`삭제 실패: ${err}`);
+      alert(t('fileTree.deleteFailed', { err: String(err) }));
     }
   };
 
@@ -336,7 +338,7 @@ export function FileTree() {
       }
       await loadTree(workspacePath);
     } catch (err) {
-      alert(`붙여넣기 실패: ${err}`);
+      alert(t('fileTree.pasteFailed', { err: String(err) }));
     }
   };
 
@@ -345,7 +347,7 @@ export function FileTree() {
       await invoke('reveal_in_explorer', { path: node.path });
     } catch (err) {
       console.error('Failed to reveal in explorer:', err);
-      alert(`탐색기 열기 실패: ${err}`);
+      alert(t('fileTree.openExplorerFailed', { err: String(err) }));
     }
   };
 
@@ -500,7 +502,7 @@ export function FileTree() {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                aria-label="옵션"
+                aria-label={t('fileTree.options')}
                 className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-background rounded text-muted-foreground"
                 onClick={(e) => e.stopPropagation()}
               >
@@ -519,7 +521,7 @@ export function FileTree() {
                     if (!isExpanded) toggleExpand(node.path);
                   }}
                 >
-                  <FilePlus className="h-3.5 w-3.5 mr-2" /> 새 파일
+                  <FilePlus className="h-3.5 w-3.5 mr-2" /> {t('fileTree.newFile')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => {
@@ -528,7 +530,7 @@ export function FileTree() {
                     if (!isExpanded) toggleExpand(node.path);
                   }}
                 >
-                  <FolderPlus className="h-3.5 w-3.5 mr-2" /> 새 폴더
+                  <FolderPlus className="h-3.5 w-3.5 mr-2" /> {t('fileTree.newFolder')}
                 </DropdownMenuItem>
               </>
             )}
@@ -538,13 +540,13 @@ export function FileTree() {
                 setRenamingName(node.name);
               }}
             >
-              <Edit2 className="h-3.5 w-3.5 mr-2" /> 이름 변경
+              <Edit2 className="h-3.5 w-3.5 mr-2" /> {t('fileTree.rename')}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => handleDelete(node)}
               className="text-destructive focus:text-destructive"
             >
-              <Trash2 className="h-3.5 w-3.5 mr-2" /> 삭제
+              <Trash2 className="h-3.5 w-3.5 mr-2" /> {t('fileTree.delete')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -564,7 +566,7 @@ export function FileTree() {
                 <input
                   type="text"
                   autoFocus
-                  placeholder={creatingIn.type === 'folder' ? '폴더명...' : '파일명...'}
+                  placeholder={creatingIn.type === 'folder' ? t('fileTree.folderNamePlaceholder') : t('fileTree.fileNamePlaceholder')}
                   value={creatingName}
                   onChange={(e) => setCreatingName(e.target.value)}
                   onKeyDown={(e) => {
@@ -594,10 +596,10 @@ export function FileTree() {
           type="button"
           onClick={handlePickFolder}
           className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 truncate hover:text-foreground hover:bg-accent/50 px-1.5 py-0.5 rounded transition-colors text-left"
-          title="클릭하여 프로젝트 폴더 변경"
+          title={t('fileTree.clickToChange')}
         >
           <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
-          <span className="truncate">{tree ? tree.name : '파일 탐색기'}</span>
+          <span className="truncate">{tree ? tree.name : t('fileTree.title')}</span>
         </button>
         <div className="flex items-center gap-0.5 shrink-0">
           {tree && (
@@ -607,7 +609,7 @@ export function FileTree() {
                 size="icon"
                 className="h-6 w-6"
                 onClick={() => setViewMode((v) => (v === 'tree' ? 'list' : 'tree'))}
-                title={viewMode === 'tree' ? '목록 보기로 전환' : '트리 보기로 전환'}
+                title={viewMode === 'tree' ? t('fileTree.switchToList') : t('fileTree.switchToTree')}
               >
                 {viewMode === 'tree' ? (
                   <List className="h-3.5 w-3.5" />
@@ -625,7 +627,7 @@ export function FileTree() {
                     setCreatingName('');
                   }
                 }}
-                title="루트에 새 파일"
+                title={t('fileTree.newFileAtRoot')}
               >
                 <FilePlus className="h-3.5 w-3.5" />
               </Button>
@@ -639,7 +641,7 @@ export function FileTree() {
                     setCreatingName('');
                   }
                 }}
-                title="루트에 새 폴더"
+                title={t('fileTree.newFolderAtRoot')}
               >
                 <FolderPlus className="h-3.5 w-3.5" />
               </Button>
@@ -649,7 +651,7 @@ export function FileTree() {
                 className="h-6 w-6"
                 onClick={() => workspacePath && loadTree(workspacePath)}
                 disabled={loading}
-                title="새로고침"
+                title={t('fileTree.refresh')}
               >
                 <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
               </Button>
@@ -661,9 +663,9 @@ export function FileTree() {
       {!workspacePath ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-muted-foreground gap-3">
           <Folder className="h-10 w-10 opacity-30" />
-          <p className="text-xs">선택된 프로젝트 폴더가 없습니다.</p>
+          <p className="text-xs">{t('fileTree.noFolder')}</p>
           <Button size="sm" onClick={handlePickFolder} className="text-xs">
-            폴더 열기
+            {t('fileTree.openFolder')}
           </Button>
         </div>
       ) : (
@@ -675,7 +677,7 @@ export function FileTree() {
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="파일 검색..."
+                placeholder={t('fileTree.searchPlaceholder')}
                 className="h-7 pl-7 text-xs bg-background/50"
               />
             </div>
@@ -696,7 +698,7 @@ export function FileTree() {
                 <input
                   type="text"
                   autoFocus
-                  placeholder={creatingIn.type === 'folder' ? '폴더명...' : '파일명...'}
+                  placeholder={creatingIn.type === 'folder' ? t('fileTree.folderNamePlaceholder') : t('fileTree.fileNamePlaceholder')}
                   value={creatingName}
                   onChange={(e) => setCreatingName(e.target.value)}
                   onKeyDown={(e) => {
@@ -713,7 +715,7 @@ export function FileTree() {
               tree ? (
                 renderTreeItem(tree)
               ) : (
-                <div className="p-4 text-center text-muted-foreground">로딩 중...</div>
+                <div className="p-4 text-center text-muted-foreground">{t('fileTree.loading')}</div>
               )
             ) : (
               <div className="flex flex-col gap-0.5">
@@ -736,7 +738,7 @@ export function FileTree() {
                 })}
                 {filteredFlatFiles.length === 0 && (
                   <div className="p-4 text-center text-muted-foreground">
-                    검색 결과가 없습니다.
+                    {t('fileTree.noResults')}
                   </div>
                 )}
               </div>
@@ -767,7 +769,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Open</span>
+                  <span>{t('fileTree.ctxOpen')}</span>
                 </button>
 
                 <button
@@ -779,7 +781,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Copy</span>
+                  <span>{t('fileTree.ctxCopy')}</span>
                 </button>
 
                 <button
@@ -791,7 +793,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <Scissors className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Cut</span>
+                  <span>{t('fileTree.ctxCut')}</span>
                 </button>
 
                 <button
@@ -807,7 +809,7 @@ export function FileTree() {
                   )}
                 >
                   <ClipboardPaste className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Paste</span>
+                  <span>{t('fileTree.ctxPaste')}</span>
                 </button>
 
                 <div className="my-1 h-px bg-border/60" />
@@ -822,7 +824,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <Edit2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Rename</span>
+                  <span>{t('fileTree.ctxRename')}</span>
                 </button>
 
                 <button
@@ -835,7 +837,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-destructive/10 text-destructive text-left"
                 >
                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                  <span>Delete</span>
+                  <span>{t('fileTree.ctxDelete')}</span>
                 </button>
 
                 <div className="my-1 h-px bg-border/60" />
@@ -849,7 +851,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <FolderSearch className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Reveal in file explorer</span>
+                  <span>{t('fileTree.ctxReveal')}</span>
                 </button>
               </div>
             ) : (
@@ -867,7 +869,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <FilePlus className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>New file</span>
+                  <span>{t('fileTree.ctxNewFile')}</span>
                 </button>
 
                 <button
@@ -882,7 +884,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <FolderPlus className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>New folder</span>
+                  <span>{t('fileTree.ctxNewFolder')}</span>
                 </button>
 
                 <div className="my-1 h-px bg-border/60" />
@@ -898,7 +900,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5 text-muted-foreground', loading && 'animate-spin')} />
-                  <span>Refresh</span>
+                  <span>{t('fileTree.ctxRefresh')}</span>
                 </button>
 
                 <button
@@ -914,7 +916,7 @@ export function FileTree() {
                   ) : (
                     <ListTree className="h-3.5 w-3.5 text-muted-foreground" />
                   )}
-                  <span>Convert to tree/list view</span>
+                  <span>{t('fileTree.ctxToggleView')}</span>
                 </button>
 
                 <button
@@ -926,7 +928,7 @@ export function FileTree() {
                   className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-left"
                 >
                   <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>Fold/Unfold all folders</span>
+                  <span>{t('fileTree.ctxFoldAll')}</span>
                 </button>
               </div>
             )}

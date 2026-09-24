@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { Agent, AgentConnectionStatus } from '@/lib/types/agent';
 import { Button } from '@/components/ui/button';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import {
   Dialog,
   DialogContent,
@@ -56,6 +57,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
   onDelete,
 }) => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const { t } = useLanguage();
 
 
   const handleDelete = () => {
@@ -70,14 +72,14 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           containerClass: 'bg-success/10 border-success/30 text-success',
           iconClass: 'text-success',
           dotClass: 'bg-success',
-          label: '연결됨 (서비스 정상)',
+          label: t('agentCard.connected'),
         };
       case 'disconnected':
         return {
           containerClass: 'bg-destructive/10 border-destructive/30 text-destructive',
           iconClass: 'text-destructive',
           dotClass: 'bg-destructive',
-          label: '미연결 (서비스 미연결 또는 모델 미설치)',
+          label: t('agentCard.disconnected'),
         };
       case 'unknown':
       default:
@@ -85,7 +87,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           containerClass: 'bg-muted border-border text-foreground',
           iconClass: 'text-foreground',
           dotClass: 'bg-foreground',
-          label: '상태체크 전',
+          label: t('agentCard.unchecked'),
         };
     }
   };
@@ -103,8 +105,8 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               onClick={() => (onOpenMonitor ? onOpenMonitor(agent) : onCheckConnection?.(agent))}
               disabled={isChecking}
               className={`relative h-8 w-8 rounded-lg border flex items-center justify-center shrink-0 transition-all cursor-pointer hover:opacity-85 hover:scale-105 active:scale-95 focus:outline-none focus:ring-1 focus:ring-ring ${statusConfig.containerClass}`}
-              title={`연결 상태: ${statusConfig.label}${isChecking ? ' (확인 중...)' : ''} - 클릭하여 실시간 모니터링 열기`}
-              aria-label={`에이전트 연결 상태: ${statusConfig.label}`}
+              title={t('agentCard.statusTitle', { label: statusConfig.label, checking: isChecking ? t('agentCard.checking') : '' })}
+              aria-label={t('agentCard.statusLabel', { label: statusConfig.label })}
             >
               {isChecking ? (
                 <Loader2 className={`h-4 w-4 animate-spin ${statusConfig.iconClass}`} />
@@ -121,12 +123,12 @@ export const AgentCard: React.FC<AgentCardProps> = ({
                 {agent.isDefault && (
                   <span className="flex items-center gap-0.5 px-1.5 py-0.2 rounded-full bg-warning/15 text-warning text-[10px] font-medium border border-warning/25 shrink-0">
                     <Star className="h-2.5 w-2.5 fill-warning" />
-                    <span>기본</span>
+                    <span>{t('agentCard.isDefault')}</span>
                   </span>
                 )}
               </div>
               <p className="text-[11px] text-muted-foreground line-clamp-1">
-                {agent.description || '설명 없음'}
+                {agent.description || t('agentCard.noDesc')}
               </p>
             </div>
           </div>
@@ -137,8 +139,8 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               onClick={() => onCheckConnection?.(agent)}
               disabled={isChecking}
               className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-              title="연결 상태 확인"
-              aria-label="연결 상태 확인"
+              title={t('agentCard.check')}
+              aria-label={t('agentCard.check')}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isChecking ? 'animate-spin' : ''}`} />
             </button>
@@ -147,7 +149,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
                 type="button"
                 onClick={() => onSetDefault(agent)}
                 className="p-1 rounded text-muted-foreground hover:text-warning hover:bg-muted transition-colors"
-                title="기본 에이전트로 설정"
+                title={t('agentCard.setDefault')}
               >
                 <Star className="h-3.5 w-3.5" />
               </button>
@@ -156,7 +158,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               type="button"
               onClick={() => onEdit(agent)}
               className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              title="에이전트 수정"
+              title={t('agentCard.edit')}
             >
               <Edit2 className="h-3.5 w-3.5" />
             </button>
@@ -165,7 +167,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
                 type="button"
                 onClick={() => setDeleteConfirmOpen(true)}
                 className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
-                title="에이전트 삭제"
+                title={t('agentCard.delete')}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -193,12 +195,12 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           </span>
           <span className="flex items-center gap-1 bg-muted/60 px-1.5 py-0.5 rounded">
             <Wrench className="h-3 w-3" />
-            <span>{agent.enabledBuiltinTools.length}개 도구</span>
+            <span>{t('agentCard.tools', { n: agent.enabledBuiltinTools.length })}</span>
           </span>
           {agent.enabledSkills.length > 0 && (
             <span className="flex items-center gap-1 bg-muted/60 px-1.5 py-0.5 rounded">
               <BookOpen className="h-3 w-3 text-primary" />
-              <span>{agent.enabledSkills.length}개 스킬</span>
+              <span>{t('agentCard.skills', { n: agent.enabledSkills.length })}</span>
             </span>
           )}
         </div>
@@ -213,7 +215,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
             className="w-full h-7 text-xs flex items-center justify-center gap-1.5 border-border/80 hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors cursor-pointer"
           >
             <MessageSquare className="h-3.5 w-3.5" />
-            <span>대화 시작</span>
+            <span>{t('agentCard.startChat')}</span>
           </Button>
 
           <div className="grid grid-cols-3 gap-1.5">
@@ -223,10 +225,10 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               variant="ghost"
               onClick={() => onOpenMonitor?.(agent)}
               className="w-full h-7 text-[10px] px-1 flex items-center justify-center gap-1 text-primary hover:text-primary hover:bg-primary/10 transition-colors border border-primary/30 cursor-pointer"
-              title="실시간 GPU 및 LLM 리소스 모니터링 열기"
+              title={t('agentCard.monitorTitle')}
             >
               <Activity className="h-3 w-3 text-primary" />
-              <span>모니터링</span>
+              <span>{t('agentCard.monitor')}</span>
             </Button>
 
             <Button
@@ -235,10 +237,10 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               variant="ghost"
               onClick={() => onShowStats?.(agent)}
               className="w-full h-7 text-[10px] px-1 flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
-              title="세션 및 호출 지표 통계"
+              title={t('agentCard.statsTitle')}
             >
               <Cpu className="h-3 w-3 text-warning" />
-              <span>통계</span>
+              <span>{t('agentCard.stats')}</span>
             </Button>
 
             <Button
@@ -247,10 +249,10 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               variant="ghost"
               onClick={() => onShowLogs?.(agent)}
               className="w-full h-7 text-[10px] px-1 flex items-center justify-center gap-1 text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors border border-border/40 cursor-pointer"
-              title="에이전트 실행 로그"
+              title={t('agentCard.logTitle')}
             >
               <Terminal className="h-3 w-3 text-primary" />
-              <span>로그</span>
+              <span>{t('agentCard.log')}</span>
             </Button>
           </div>
         </div>
@@ -260,14 +262,12 @@ export const AgentCard: React.FC<AgentCardProps> = ({
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">에이전트 삭제 확인</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">{t('agentCard.deleteTitle')}</DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-2">
-              정말로 <strong className="text-foreground font-medium">"{agent.name}"</strong>{' '}
-              에이전트를 삭제하시겠습니까?
+              {t('agentCard.deleteBody', { name: agent.name })}
               {agent.isDefault && (
                 <span className="block mt-2 text-warning font-medium">
-                  * 이 에이전트는 현재 기본 에이전트입니다. 삭제 시 목록의 다음 에이전트가
-                  자동으로 기본으로 승격됩니다.
+                  {t('agentCard.deleteDefaultNote')}
                 </span>
               )}
             </DialogDescription>
@@ -281,7 +281,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               onClick={() => setDeleteConfirmOpen(false)}
               className="text-xs"
             >
-              취소
+              {t('agentCard.cancel')}
             </Button>
             <Button
               type="button"
@@ -290,7 +290,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
               onClick={handleDelete}
               className="text-xs"
             >
-              삭제
+              {t('agentCard.confirmDelete')}
             </Button>
           </DialogFooter>
         </DialogContent>

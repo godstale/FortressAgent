@@ -3,18 +3,21 @@ import { MessageSquare, Plus, Trash2, Calendar, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 import type { ChatSession } from '@/lib/types/chat';
 
-function formatDate(iso: string): string {
+type TFn = (key: string, params?: Record<string, string | number>) => string;
+
+function formatDate(iso: string, t: TFn): string {
   try {
     const d = new Date(iso);
     const now = new Date();
     const diff = now.getTime() - d.getTime();
 
-    if (diff < 60 * 1000) return '방금 전';
-    if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))}분 전`;
+    if (diff < 60 * 1000) return t('sessions.justNow');
+    if (diff < 60 * 60 * 1000) return t('sessions.minutesAgo', { n: Math.floor(diff / (60 * 1000)) });
     if (diff < 24 * 60 * 60 * 1000)
-      return `${Math.floor(diff / (60 * 60 * 1000))}시간 전`;
+      return t('sessions.hoursAgo', { n: Math.floor(diff / (60 * 60 * 1000)) });
 
     return d.toLocaleDateString(undefined, {
       month: 'short',
@@ -26,6 +29,7 @@ function formatDate(iso: string): string {
 }
 
 export function ChatSessionList() {
+  const { t } = useLanguage();
   const { openTab, closeTab, activeTabId } = useWorkspaceTabs();
   const {
     sessions,
@@ -39,7 +43,7 @@ export function ChatSessionList() {
 
   const handleNewChat = async () => {
     let sessionId = `${Date.now()}`;
-    let title = '새로운 대화';
+    let title = t('sessions.newChat');
     try {
       const session = await createSession();
       sessionId = session.id;
@@ -70,7 +74,7 @@ export function ChatSessionList() {
     sessionId: string,
   ) => {
     e.stopPropagation();
-    if (!window.confirm('대화 기록을 삭제하시겠습니까? (복구할 수 없습니다)')) {
+    if (!window.confirm(t('sessions.deleteConfirm'))) {
       return;
     }
 
@@ -91,14 +95,14 @@ export function ChatSessionList() {
       <div className="flex items-center justify-between p-3 border-b border-border">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
           <MessageSquare className="h-3.5 w-3.5" />
-          대화 목록
+          {t('sessions.title')}
         </span>
         <Button
           variant="ghost"
           size="icon"
           className="h-6 w-6 text-foreground hover:text-primary"
           onClick={() => void handleNewChat()}
-          title="새 대화 시작"
+          title={t('sessions.startNew')}
         >
           <Plus className="h-3.5 w-3.5" />
         </Button>
@@ -109,14 +113,14 @@ export function ChatSessionList() {
         {isLoading && sessions.length === 0 ? (
           <div className="flex items-center justify-center p-8 text-xs text-muted-foreground gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            <span>대화 목록 불러오는 중...</span>
+            <span>{t('sessions.loading')}</span>
           </div>
         ) : sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-6 text-center text-muted-foreground">
             <MessageSquare className="h-8 w-8 mb-2 opacity-40" />
-            <p className="text-xs font-medium">대화 세션이 없습니다</p>
+            <p className="text-xs font-medium">{t('sessions.empty')}</p>
             <p className="text-[11px] opacity-70 mt-1">
-              새 대화를 시작하여 로컬 AI와 소통해보세요.
+              {t('sessions.emptyDesc')}
             </p>
             <Button
               variant="outline"
@@ -124,7 +128,7 @@ export function ChatSessionList() {
               className="mt-3 text-xs"
               onClick={() => void handleNewChat()}
             >
-              <Plus className="h-3.5 w-3.5 mr-1" />새 대화 시작
+              <Plus className="h-3.5 w-3.5 mr-1" />{t('sessions.startNew')}
             </Button>
           </div>
         ) : (
@@ -157,7 +161,7 @@ export function ChatSessionList() {
                   <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Calendar className="h-3 w-3 opacity-60" />
-                      {formatDate(session.updatedAt)}
+                      {formatDate(session.updatedAt, t)}
                     </span>
                   </div>
                 </div>
@@ -168,7 +172,7 @@ export function ChatSessionList() {
                   disabled={isDeleting}
                   onClick={(e) => void handleDeleteSession(e, session.id)}
                   className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-opacity shrink-0"
-                  title="세션 삭제"
+                  title={t('sessions.deleteSession')}
                 >
                   {isDeleting ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />

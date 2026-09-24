@@ -12,12 +12,14 @@ import { useSkills } from '@/lib/context/SkillsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export function SkillListPanel() {
   const { skills, diagnostics, isLoading, isSkillActive, toggleSkill, refreshSkills } =
     useSkills();
   const { openTab } = useWorkspaceTabs();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const { t } = useLanguage();
 
   const handleOpenViewer = (skill: {
     name: string;
@@ -43,7 +45,7 @@ export function SkillListPanel() {
         <div className="flex items-center gap-1.5">
           <Puzzle className="h-4 w-4 text-tertiary" />
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            스킬 ({skills.length})
+            {t('skills.titleCount', { n: skills.length })}
           </span>
         </div>
 
@@ -53,7 +55,7 @@ export function SkillListPanel() {
           onClick={refreshSkills}
           disabled={isLoading}
           className="h-6 w-6 text-muted-foreground hover:text-foreground"
-          title="새로고침"
+          title={t('skills.refresh')}
         >
           <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
         </Button>
@@ -69,7 +71,7 @@ export function SkillListPanel() {
           >
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              <span>스킬 진단 ({diagnostics.length}건)</span>
+              <span>{t('skills.diagnostics', { n: diagnostics.length })}</span>
             </div>
             {showDiagnostics ? (
               <ChevronDown className="h-3.5 w-3.5" />
@@ -101,10 +103,9 @@ export function SkillListPanel() {
         {skills.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground p-4">
             <Layers className="h-8 w-8 mb-2 opacity-30" />
-            <p className="text-xs font-medium">등록된 스킬이 없습니다.</p>
+            <p className="text-xs font-medium">{t('skills.empty')}</p>
             <p className="text-[11px] opacity-70 mt-1">
-              워크스페이스의 <code className="font-mono">.agents/skills/</code> 폴더에
-              <code className="font-mono">SKILL.md</code>를 추가하면 자동으로 감지됩니다.
+              {t('skills.emptyDesc')}
             </p>
           </div>
         ) : (
@@ -138,7 +139,7 @@ export function SkillListPanel() {
                             : 'bg-success/10 text-success border border-success/20',
                         )}
                       >
-                        {skill.source === 'global' ? '전역' : '워크스페이스'}
+                        {skill.source === 'global' ? t('skills.global') : t('skills.workspace')}
                       </span>
                     </div>
 
@@ -156,7 +157,7 @@ export function SkillListPanel() {
                         'w-7 h-4 rounded-full transition-colors relative focus:outline-hidden',
                         active ? 'bg-primary' : 'bg-muted-foreground/30',
                       )}
-                      title={active ? '스킬 비활성화' : '스킬 활성화'}
+                      title={active ? t('skills.disable') : t('skills.enable')}
                     >
                       <span
                         className={cn(
@@ -170,7 +171,7 @@ export function SkillListPanel() {
                       type="button"
                       onClick={() => handleOpenViewer(skill)}
                       className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-foreground transition-opacity"
-                      title="문서 보기"
+                      title={t('skills.viewDoc')}
                     >
                       <ExternalLink className="h-3 w-3" />
                     </button>

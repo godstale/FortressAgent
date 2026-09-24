@@ -47,6 +47,7 @@ import {
 } from '@/components/ui/dialog';
 import { computeAgentStats, type DetailedAgentStats } from '@/lib/metrics/agentMetrics';
 import { appLogger, type LogEntry } from '@/lib/logger/logger';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 const LOG_PAGE_SIZE = 100;
 const LLM_PAGE_SIZE = 100;
@@ -72,6 +73,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
   const [logSearchQuery, setLogSearchQuery] = useState<string>('');
   const [copiedLogId, setCopiedLogId] = useState<string | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const { t } = useLanguage();
 
   const loadData = useCallback(async () => {
     if (!agentId) return;
@@ -248,16 +250,20 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
   if (!agentId || !agent) {
     return (
       <div className="flex-1 p-8 text-center text-muted-foreground text-xs">
-        에이전트 정보를 찾을 수 없습니다.
+        {t('stats.notFound')}
       </div>
     );
   }
 
+  const successKey = t('stats.success');
+  const failKey = t('stats.fail');
+  const messageKey = t('stats.messages');
+  const tokenKey = t('stats.tokens');
   const toolChartData = stats
     ? Object.entries(stats.toolUsage).map(([name, data]) => ({
         name,
-        성공: data.successes,
-        실패: data.errors,
+        [successKey]: data.successes,
+        [failKey]: data.errors,
       }))
     : [];
 
@@ -273,23 +279,23 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
               <Activity className="h-5 w-5 text-primary" />
             )}
             <h2 className="text-base font-bold text-foreground">
-              {activeTab === 'logs' ? `${agent.name} 실행 로그` : `${agent.name} 성능 지표 및 통계`}
+              {activeTab === 'logs' ? t('stats.headerLog', { name: agent.name }) : t('stats.headerStats', { name: agent.name })}
             </h2>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
             {activeTab === 'logs' ? (
               <>
-                에이전트 루프, Ollama 추론, 도구 호출의 전체 상세 실행 기록을 확인합니다. | 총{' '}
-                <span className="font-mono text-foreground font-medium">{logs.length}</span>건
+                {t('stats.logSub')}{' '}
+                <span className="font-mono text-foreground font-medium">{t('stats.count', { n: logs.length })}</span>
               </>
             ) : (
               <>
-                모델: <span className="font-mono text-foreground font-medium">{agent.model}</span> |
-                컨텍스트 크기:{' '}
+                {t('stats.model')} <span className="font-mono text-foreground font-medium">{agent.model}</span> |
+                {t('stats.ctxSize')}{' '}
                 <span className="font-mono text-foreground font-medium">
-                  {agent.contextSize > 0 ? `${agent.contextSize.toLocaleString()} 토큰` : '기본 (8192)'}
+                  {agent.contextSize > 0 ? t('stats.ctxTokens', { n: agent.contextSize.toLocaleString() }) : t('stats.ctxDefault')}
                 </span>{' '}
-                | 승인 정책:{' '}
+                | {t('stats.approval')}{' '}
                 <span className="font-mono text-foreground font-medium">
                   {agent.approvalMode}
                 </span>
@@ -307,7 +313,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
             className="text-xs gap-1.5 cursor-pointer"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>새로고침</span>
+            <span>{t('stats.refresh')}</span>
           </Button>
 
           {activeTab === 'stats' ? (
@@ -319,7 +325,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
               className="text-xs gap-1.5 cursor-pointer"
             >
               <FileDown className="h-3.5 w-3.5" />
-              <span>분석 다운로드</span>
+              <span>{t('stats.downloadAnalysis')}</span>
             </Button>
           ) : (
             <>
@@ -329,10 +335,10 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 onClick={handleExportLogsText}
                 disabled={filteredLogs.length === 0}
                 className="text-xs gap-1.5 cursor-pointer"
-                title="텍스트 파일로 저장"
+                title={t('stats.saveAsText')}
               >
                 <FileDown className="h-3.5 w-3.5" />
-                <span>로그 다운로드</span>
+                <span>{t('stats.downloadLog')}</span>
               </Button>
 
               <Button
@@ -341,10 +347,10 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 onClick={() => setClearConfirmOpen(true)}
                 disabled={logs.length === 0}
                 className="text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
-                title="에이전트 로그 비우기"
+                title={t('stats.clearLogTitle')}
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                <span>비우기</span>
+                <span>{t('stats.clear')}</span>
               </Button>
             </>
           )}
@@ -353,7 +359,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
 
       {loading ? (
         <div className="py-20 text-center text-xs text-muted-foreground animate-pulse">
-          에이전트 세션 및 통계 데이터를 집계하고 있습니다...
+          {t('stats.aggregating')}
         </div>
       ) : activeTab === 'stats' ? (
         <div className="space-y-6">
@@ -362,20 +368,20 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
             <div className="p-4 rounded-xl bg-card border border-border space-y-1">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                 <History className="h-3.5 w-3.5 text-primary" />
-                <span>총 대화 세션</span>
+                <span>{t('stats.totalSessions')}</span>
               </div>
-              <div className="text-xl font-bold text-foreground">{stats?.sessionCount || 0}회</div>
+              <div className="text-xl font-bold text-foreground">{t('stats.sessionsUnit', { n: stats?.sessionCount || 0 })}</div>
             </div>
 
             <div className="p-4 rounded-xl bg-card border border-border space-y-1">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                 <MessageSquare className="h-3.5 w-3.5 text-primary" />
-                <span>총 메시지 수</span>
+                <span>{t('stats.totalMessages')}</span>
               </div>
               <div className="text-xl font-bold text-foreground">
-                {stats?.totalMessages || 0}건
+                {t('stats.count', { n: stats?.totalMessages || 0 })}
                 <span className="text-[10px] font-normal text-muted-foreground ml-1">
-                  (질문 {stats?.userMessages || 0} / 응답 {stats?.assistantMessages || 0})
+                  {t('stats.qaSplit', { q: stats?.userMessages || 0, a: stats?.assistantMessages || 0 })}
                 </span>
               </div>
             </div>
@@ -383,7 +389,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
             <div className="p-4 rounded-xl bg-card border border-border space-y-1">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                 <Cpu className="h-3.5 w-3.5 text-success" />
-                <span>총 토큰 사용량</span>
+                <span>{t('stats.totalTokens')}</span>
               </div>
               <div className="text-xl font-bold text-foreground">
                 {(stats?.totalTokens || 0).toLocaleString()}
@@ -396,12 +402,12 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
             <div className="p-4 rounded-xl bg-card border border-border space-y-1">
               <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 text-warning" />
-                <span>평균 추론 응답 시간</span>
+                <span>{t('stats.avgLatency')}</span>
               </div>
               <div className="text-xl font-bold text-foreground">
-                {stats?.avgDurationMs ? `${(stats.avgDurationMs / 1000).toFixed(2)}초` : '—'}
+                {stats?.avgDurationMs ? t('stats.seconds', { n: (stats.avgDurationMs / 1000).toFixed(2) }) : '—'}
                 <span className="text-[10px] font-normal text-muted-foreground ml-1">
-                  ({stats?.llmCalls.length || 0}회 호출)
+                  {t('stats.calls', { n: stats?.llmCalls.length || 0 })}
                 </span>
               </div>
             </div>
@@ -415,7 +421,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" />
                   <span className="text-xs font-semibold text-foreground">
-                    최근 세션별 메시지 및 토큰 추이
+                    {t('stats.trendTitle')}
                   </span>
                 </div>
               </div>
@@ -424,8 +430,8 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   <BarChart
                     data={(stats?.sessionHistory || []).slice(-8).map((s) => ({
                       name: s.title.length > 10 ? s.title.slice(0, 10) + '...' : s.title,
-                      메시지: s.messageCount,
-                      토큰: s.tokenCount,
+                      [messageKey]: s.messageCount,
+                      [tokenKey]: s.tokenCount,
                     }))}
                     margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
                   >
@@ -442,8 +448,8 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    <Bar dataKey="메시지" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="토큰" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey={messageKey} fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey={tokenKey} fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -454,12 +460,12 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
               <div className="flex items-center gap-2">
                 <Wrench className="h-4 w-4 text-warning" />
                 <span className="text-xs font-semibold text-foreground">
-                  도구별 호출 빈도 및 성공/실패율
+                  {t('stats.toolsTitle')}
                 </span>
               </div>
               {toolChartData.length === 0 ? (
                 <div className="h-56 flex items-center justify-center text-xs text-muted-foreground">
-                  아직 실행된 도구 기록이 없습니다.
+                  {t('stats.noTools')}
                 </div>
               ) : (
                 <div className="w-full h-56">
@@ -481,8 +487,8 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                         }}
                       />
                       <Legend wrapperStyle={{ fontSize: '11px' }} />
-                      <Bar dataKey="성공" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="실패" fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey={successKey} fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey={failKey} fill="hsl(var(--destructive))" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -496,18 +502,18 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
               <div className="flex items-center gap-2">
                 <Zap className="h-4 w-4 text-warning" />
                 <span className="text-xs font-semibold text-foreground">
-                  컨텍스트 크기 vs 모델 실행 시간(Latency) 상관관계
+                  {t('stats.latencyTitle')}
                 </span>
               </div>
               <span className="text-[11px] text-muted-foreground font-mono">
-                컨텍스트가 증가할 때 모델 연산 지연시간 추이
+                {t('stats.latencySub')}
               </span>
             </div>
 
             {(!stats?.contextVsDuration || stats.contextVsDuration.length === 0) ? (
               <div className="h-48 flex flex-col items-center justify-center text-xs text-muted-foreground space-y-1">
-                <p>수집된 LLM 추론 시간 데이터가 아직 없습니다.</p>
-                <p className="text-[11px] opacity-70">채팅에서 대화를 진행하면 실시간으로 레이턴시 그래프가 누적됩니다.</p>
+                <p>{t('stats.noLatency')}</p>
+                <p className="text-[11px] opacity-70">{t('stats.noLatencyHint')}</p>
               </div>
             ) : (
               <div className="w-full h-56">
@@ -515,9 +521,9 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   <AreaChart
                     data={stats.contextVsDuration.map((item, idx) => ({
                       index: `#${idx + 1}`,
-                      컨텍스트: item.contextTokens,
-                      실행시간_초: Number((item.durationMs / 1000).toFixed(2)),
-                      생성토큰: item.outputTokens,
+                      [t('stats.latCtx')]: item.contextTokens,
+                      [t('stats.latSec')]: Number((item.durationMs / 1000).toFixed(2)),
+                      [t('stats.latTokens')]: item.outputTokens,
                     }))}
                     margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
                   >
@@ -538,7 +544,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     <Area
                       yAxisId="left"
                       type="monotone"
-                      dataKey="컨텍스트"
+                      dataKey={t('stats.latCtx')}
                       stroke="hsl(var(--chart-1))"
                       fill="hsl(var(--chart-1))"
                       fillOpacity={0.15}
@@ -546,7 +552,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     <Area
                       yAxisId="right"
                       type="monotone"
-                      dataKey="실행시간_초"
+                      dataKey={t('stats.latSec')}
                       stroke="hsl(var(--chart-4))"
                       fill="hsl(var(--chart-4))"
                       fillOpacity={0.15}
@@ -563,29 +569,29 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
               <div className="flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-primary" />
                 <span className="text-xs font-semibold text-foreground">
-                  최근 LLM 호출 상세 기록 ({stats?.llmCalls.length || 0}건)
+                  {t('stats.llmHistory', { n: stats?.llmCalls.length || 0 })}
                 </span>
               </div>
               <span className="text-[11px] text-muted-foreground">
-                한 번의 요청 처리에 발생한 호출 당 컨텍스트 크기, 소요 시간, 생성 토큰 정보
+                {t('stats.llmHistorySub')}
               </span>
             </div>
 
             {(!stats?.llmCalls || stats.llmCalls.length === 0) ? (
               <div className="py-6 text-center text-xs text-muted-foreground">
-                아직 기록된 LLM 호출 내역이 없습니다.
+                {t('stats.noLlmHistory')}
               </div>
             ) : (
               <div className="overflow-x-auto border border-border/60 rounded-lg">
                 <table className="w-full text-left border-collapse text-xs font-mono">
                   <thead>
                     <tr className="bg-muted/40 border-b border-border/80 text-[11px] text-muted-foreground">
-                      <th className="p-2.5">호출 시각</th>
-                      <th className="p-2.5">입력 컨텍스트</th>
-                      <th className="p-2.5">출력 토큰</th>
-                      <th className="p-2.5">소요 시간</th>
-                      <th className="p-2.5">도구 호출 수</th>
-                      <th className="p-2.5">초당 생성 속도</th>
+                      <th className="p-2.5">{t('stats.colTime')}</th>
+                      <th className="p-2.5">{t('stats.colCtx')}</th>
+                      <th className="p-2.5">{t('stats.colOut')}</th>
+                      <th className="p-2.5">{t('stats.colTime2')}</th>
+                      <th className="p-2.5">{t('stats.colTools')}</th>
+                      <th className="p-2.5">{t('stats.colSpeed')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -611,7 +617,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                           <td className="p-2.5">
                             {call.toolCallsCount > 0 ? (
                               <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 text-[10px]">
-                                {call.toolCallsCount}건 실행
+                                {t('stats.toolCalls', { n: call.toolCallsCount })}
                               </span>
                             ) : (
                               <span className="text-muted-foreground">—</span>
@@ -633,8 +639,8 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
               <div className="flex items-center justify-between pt-2 text-xs border-t border-border/40 select-none">
                 <span className="text-[11px] text-muted-foreground font-mono">
                   {(currentLlmPage - 1) * LLM_PAGE_SIZE + 1} ~{' '}
-                  {Math.min(currentLlmPage * LLM_PAGE_SIZE, allLlmCalls.length)} / 총{' '}
-                  {allLlmCalls.length}건
+                  {Math.min(currentLlmPage * LLM_PAGE_SIZE, allLlmCalls.length)} / {t('stats.total')}{' '}
+                  {t('stats.count', { n: allLlmCalls.length })}
                 </span>
                 <div className="flex items-center gap-1">
                   <Button
@@ -643,7 +649,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     onClick={() => setLlmPage(1)}
                     disabled={currentLlmPage === 1}
                     className="h-7 w-7 p-0 cursor-pointer"
-                    title="첫 페이지"
+                    title={t('stats.first')}
                   >
                     <ChevronsLeft className="h-3.5 w-3.5" />
                   </Button>
@@ -655,7 +661,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     className="h-7 px-2 text-xs gap-1 cursor-pointer"
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
-                    <span>이전</span>
+                    <span>{t('stats.prev')}</span>
                   </Button>
                   <span className="px-2 text-xs font-mono font-medium">
                     {currentLlmPage} / {totalLlmPages}
@@ -667,7 +673,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     disabled={currentLlmPage === totalLlmPages}
                     className="h-7 px-2 text-xs gap-1 cursor-pointer"
                   >
-                    <span>다음</span>
+                    <span>{t('stats.next')}</span>
                     <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
                   <Button
@@ -676,7 +682,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     onClick={() => setLlmPage(totalLlmPages)}
                     disabled={currentLlmPage === totalLlmPages}
                     className="h-7 w-7 p-0 cursor-pointer"
-                    title="마지막 페이지"
+                    title={t('stats.last')}
                   >
                     <ChevronsRight className="h-3.5 w-3.5" />
                   </Button>
@@ -700,7 +706,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                     setLogSearchQuery(e.target.value);
                     setLogPage(1);
                   }}
-                  placeholder="로그 내용, 프롬프트, 도구 결과 검색..."
+                  placeholder={t('stats.searchPh')}
                   className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
@@ -713,13 +719,13 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 }}
                 className="px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none cursor-pointer"
               >
-                <option value="all">전체 카테고리 (ALL)</option>
-                <option value="chat">CHAT (질문/대화)</option>
-                <option value="ollama">OLLAMA (추론/응답/Thinking)</option>
-                <option value="tools">TOOLS (도구 실행)</option>
-                <option value="agent">AGENT (루프 제어)</option>
-                <option value="approval">APPROVAL (승인/권한)</option>
-                <option value="context">CONTEXT (컨텍스트 관리)</option>
+                <option value="all">{t('stats.allCategories')}</option>
+                <option value="chat">{t('stats.catChat')}</option>
+                <option value="ollama">{t('stats.catOllama')}</option>
+                <option value="tools">{t('stats.catTools')}</option>
+                <option value="agent">{t('stats.catAgent')}</option>
+                <option value="approval">{t('stats.catApproval')}</option>
+                <option value="context">{t('stats.catContext')}</option>
               </select>
 
               <select
@@ -730,7 +736,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 }}
                 className="px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground focus:outline-none cursor-pointer"
               >
-                <option value="all">전체 레벨 (ALL)</option>
+                <option value="all">{t('stats.allLevels')}</option>
                 <option value="info">INFO</option>
                 <option value="warn">WARN</option>
                 <option value="error">ERROR</option>
@@ -740,9 +746,9 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
 
             <div className="flex items-center gap-2 self-end md:self-auto">
               <span className="text-xs text-muted-foreground font-mono mr-2">
-                표시: {filteredLogs.length > 0 ? (currentLogPage - 1) * LOG_PAGE_SIZE + 1 : 0} ~{' '}
-                {Math.min(currentLogPage * LOG_PAGE_SIZE, filteredLogs.length)} / 총 {filteredLogs.length}건
-                {totalLogPages > 1 && ` (페이지 ${currentLogPage}/${totalLogPages})`}
+                {t('stats.showing')} {filteredLogs.length > 0 ? (currentLogPage - 1) * LOG_PAGE_SIZE + 1 : 0} ~{' '}
+                {Math.min(currentLogPage * LOG_PAGE_SIZE, filteredLogs.length)} / {t('stats.total')} {t('stats.count', { n: filteredLogs.length })}
+                {totalLogPages > 1 && ` ${t('stats.page', { a: currentLogPage, b: totalLogPages })}`}
               </span>
 
               <Button
@@ -751,10 +757,10 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 onClick={handleExportLogsText}
                 disabled={filteredLogs.length === 0}
                 className="h-7 text-xs gap-1 cursor-pointer"
-                title="텍스트 파일로 저장"
+                title={t('stats.saveAsText')}
               >
                 <FileDown className="h-3 w-3" />
-                <span>저장</span>
+                <span>{t('stats.save')}</span>
               </Button>
 
               <Button
@@ -763,10 +769,10 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                 onClick={() => setClearConfirmOpen(true)}
                 disabled={logs.length === 0}
                 className="h-7 text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 cursor-pointer"
-                title="에이전트 로그 비우기"
+                title={t('stats.clearLogTitle')}
               >
                 <Trash2 className="h-3 w-3" />
-                <span>비우기</span>
+                <span>{t('stats.clear')}</span>
               </Button>
             </div>
           </div>
@@ -775,9 +781,9 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
           {filteredLogs.length === 0 ? (
             <div className="p-16 text-center text-xs text-muted-foreground rounded-xl border border-border bg-card space-y-1.5">
               <Terminal className="h-6 w-6 mx-auto text-muted-foreground/60 mb-2" />
-              <p className="font-semibold text-foreground">기록된 에이전트 로그가 없습니다.</p>
+              <p className="font-semibold text-foreground">{t('stats.noLogs')}</p>
               <p className="text-[11px] opacity-70">
-                채팅창에서 질문이나 도구 실행을 요청하면 실시간으로 모든 추론 및 실행 로그가 이곳에 기록됩니다.
+                {t('stats.noLogsHint')}
               </p>
             </div>
           ) : (
@@ -843,7 +849,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                         <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
                         {log.sessionId && (
                           <span className="text-[10px] text-muted-foreground/60 hidden sm:inline">
-                            세션: {log.sessionId.length > 12 ? log.sessionId.slice(0, 12) + '...' : log.sessionId}
+                            {t('stats.sessionPrefix')} {log.sessionId.length > 12 ? log.sessionId.slice(0, 12) + '...' : log.sessionId}
                           </span>
                         )}
                       </div>
@@ -859,7 +865,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                           )
                         }
                         className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer shrink-0"
-                        title="로그 복사"
+                        title={t('stats.copyLog')}
                       >
                         {copiedLogId === log.id ? (
                           <Check className="h-3 w-3 text-success" />
@@ -879,7 +885,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                       <div className="p-2.5 rounded-lg bg-primary/5 border border-primary/20 text-xs">
                         <div className="text-[11px] font-semibold text-primary mb-1 flex items-center gap-1.5">
                           <MessageSquare className="h-3.5 w-3.5" />
-                          <span>사용자 프롬프트 전문</span>
+                          <span>{t('stats.userPrompt')}</span>
                         </div>
                         <div className="whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed">
                           {String(detailsObj!.fullPrompt || detailsObj!.prompt)}
@@ -892,7 +898,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                         <summary className="px-2.5 py-1.5 font-semibold text-tertiary cursor-pointer select-none flex items-center justify-between hover:bg-tertiary/10 transition-colors">
                           <div className="flex items-center gap-1.5">
                             <Sparkles className="h-3.5 w-3.5 text-tertiary" />
-                            <span>LLM 사고 과정 (Thinking / CoT) — {String(detailsObj!.thinking).length}자</span>
+                            <span>{t('stats.thinking', { n: String(detailsObj!.thinking).length })}</span>
                           </div>
                         </summary>
                         <div className="p-2.5 border-t border-tertiary/20 whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed max-h-72 overflow-y-auto">
@@ -906,7 +912,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                         <summary className="px-2.5 py-1.5 font-semibold text-success cursor-pointer select-none flex items-center justify-between hover:bg-success/10 transition-colors">
                           <div className="flex items-center gap-1.5">
                             <Bot className="h-3.5 w-3.5 text-success" />
-                            <span>LLM 응답 전문 — {String(detailsObj!.content).length}자</span>
+                            <span>{t('stats.response', { n: String(detailsObj!.content).length })}</span>
                           </div>
                         </summary>
                         <div className="p-2.5 border-t border-success/20 whitespace-pre-wrap text-foreground/90 font-sans leading-relaxed max-h-72 overflow-y-auto">
@@ -919,7 +925,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                       <div className="p-2.5 rounded-lg bg-warning/5 border border-warning/20 text-xs">
                         <div className="text-[11px] font-semibold text-warning mb-1 flex items-center gap-1.5">
                           <Wrench className="h-3.5 w-3.5" />
-                          <span>도구 호출 인자 (Arguments)</span>
+                          <span>{t('stats.toolArgs')}</span>
                         </div>
                         <pre className="text-foreground/90 font-mono text-[11px] whitespace-pre-wrap break-all">
                           {JSON.stringify(detailsObj!.arguments, null, 2)}
@@ -932,7 +938,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                         <summary className="px-2.5 py-1.5 font-semibold text-foreground/80 cursor-pointer select-none flex items-center justify-between hover:bg-muted/60 transition-colors">
                           <div className="flex items-center gap-1.5">
                             <Terminal className="h-3.5 w-3.5 text-primary" />
-                            <span>도구 실행 결과 전문 (Tool Result)</span>
+                            <span>{t('stats.toolResult')}</span>
                           </div>
                         </summary>
                         <div className="p-2.5 border-t border-border/60 whitespace-pre-wrap font-mono text-[11px] text-muted-foreground max-h-72 overflow-y-auto">
@@ -948,7 +954,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                         <summary className="px-2.5 py-1.5 font-semibold text-muted-foreground cursor-pointer select-none flex items-center justify-between hover:bg-accent transition-colors">
                           <div className="flex items-center gap-1.5">
                             <Code className="h-3.5 w-3.5" />
-                            <span>LLM 입력 프롬프트 및 컨텍스트 메시지 ({(detailsObj!.messages as unknown[]).length}개)</span>
+                            <span>{t('stats.inputMessages', { n: (detailsObj!.messages as unknown[]).length })}</span>
                           </div>
                         </summary>
                         <div className="p-2.5 border-t border-border space-y-2 max-h-80 overflow-y-auto">
@@ -981,8 +987,8 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
             <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-card text-xs select-none">
               <span className="text-[11px] text-muted-foreground font-mono">
                 {(currentLogPage - 1) * LOG_PAGE_SIZE + 1} ~{' '}
-                {Math.min(currentLogPage * LOG_PAGE_SIZE, filteredLogs.length)} / 총{' '}
-                {filteredLogs.length}건
+                {Math.min(currentLogPage * LOG_PAGE_SIZE, filteredLogs.length)} / {t('stats.total')}{' '}
+                {t('stats.count', { n: filteredLogs.length })}
               </span>
               <div className="flex items-center gap-1">
                 <Button
@@ -991,7 +997,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   onClick={() => setLogPage(1)}
                   disabled={currentLogPage === 1}
                   className="h-7 w-7 p-0 cursor-pointer"
-                  title="첫 페이지"
+                  title={t('stats.first')}
                 >
                   <ChevronsLeft className="h-3.5 w-3.5" />
                 </Button>
@@ -1003,7 +1009,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   className="h-7 px-2.5 text-xs gap-1 cursor-pointer"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
-                  <span>이전</span>
+                  <span>{t('stats.prev')}</span>
                 </Button>
                 <span className="px-3 text-xs font-mono font-semibold text-foreground">
                   {currentLogPage} / {totalLogPages}
@@ -1015,7 +1021,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   disabled={currentLogPage === totalLogPages}
                   className="h-7 px-2.5 text-xs gap-1 cursor-pointer"
                 >
-                  <span>다음</span>
+                  <span>{t('stats.next')}</span>
                   <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
                 <Button
@@ -1024,7 +1030,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   onClick={() => setLogPage(totalLogPages)}
                   disabled={currentLogPage === totalLogPages}
                   className="h-7 w-7 p-0 cursor-pointer"
-                  title="마지막 페이지"
+                  title={t('stats.last')}
                 >
                   <ChevronsRight className="h-3.5 w-3.5" />
                 </Button>
@@ -1036,11 +1042,11 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
           <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle className="text-sm font-semibold">에이전트 실행 로그 비우기</DialogTitle>
+                <DialogTitle className="text-sm font-semibold">{t('stats.clearTitle')}</DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-2">
-                  <strong className="text-foreground font-medium">"{agent.name}"</strong> 에이전트의 모든 실행 로그 기록을 완전히 삭제하시겠습니까?
+                  {t('stats.clearBody', { name: agent.name })}
                   <span className="block mt-2 text-destructive font-medium">
-                    * 이 작업은 되돌릴 수 없으며, SQLite에 저장된 과거 기록도 모두 삭제됩니다.
+                    {t('stats.clearWarn')}
                   </span>
                 </DialogDescription>
               </DialogHeader>
@@ -1052,7 +1058,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   onClick={() => setClearConfirmOpen(false)}
                   className="text-xs"
                 >
-                  취소
+                  {t('stats.cancel')}
                 </Button>
                 <Button
                   type="button"
@@ -1061,7 +1067,7 @@ export function AgentStatsTab({ tab }: { tab: WorkspaceTab }) {
                   onClick={handleClearAgentLogs}
                   className="text-xs"
                 >
-                  로그 비우기
+                  {t('stats.clearConfirm')}
                 </Button>
               </DialogFooter>
             </DialogContent>

@@ -6,6 +6,7 @@ import { WorkspaceProvider } from '@/lib/context/WorkspaceContext';
 import { AgentsProvider } from '@/lib/context/AgentsContext';
 import { SettingsProvider } from '@/lib/context/SettingsContext';
 import { SkillsProvider } from '@/lib/context/SkillsContext';
+import { LanguageProvider } from '@/lib/i18n/LanguageContext';
 
 // Mock listModels & showModel
 vi.mock('@/lib/llm/ollamaClient', async (importOriginal) => {
@@ -21,13 +22,15 @@ vi.mock('@/lib/llm/ollamaClient', async (importOriginal) => {
 });
 
 const TestWrapper = ({ children }: { children: React.ReactNode }) => (
-  <WorkspaceProvider>
-    <SettingsProvider>
-      <SkillsProvider>
-        <AgentsProvider>{children}</AgentsProvider>
-      </SkillsProvider>
-    </SettingsProvider>
-  </WorkspaceProvider>
+  <LanguageProvider>
+    <WorkspaceProvider>
+      <SettingsProvider>
+        <SkillsProvider>
+          <AgentsProvider>{children}</AgentsProvider>
+        </SkillsProvider>
+      </SettingsProvider>
+    </WorkspaceProvider>
+  </LanguageProvider>
 );
 
 describe('AgentEditorForm', () => {

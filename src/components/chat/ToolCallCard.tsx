@@ -14,6 +14,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { AgentToolCall, AgentToolResult } from '@/lib/agent/types';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface ToolCallCardProps {
   toolCall?: AgentToolCall;
@@ -54,6 +55,7 @@ export function ToolCallCard({
   isError,
   isLoading,
 }: ToolCallCardProps) {
+  const { t } = useLanguage();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const resultContent = typeof result === 'string' ? result : result?.content;
@@ -96,12 +98,12 @@ export function ToolCallCard({
           ) : isError ? (
             <div className="flex items-center gap-1 text-destructive text-[11px]">
               <AlertCircle className="h-3.5 w-3.5" />
-              <span>실패</span>
+              <span>{t('toolCard.failed')}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 text-success text-[11px]">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>완료</span>
+              <span>{t('toolCard.done')}</span>
             </div>
           )}
         </div>
@@ -112,7 +114,7 @@ export function ToolCallCard({
           {args !== undefined && (
             <div>
               <div className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">
-                Arguments
+                {t('toolCard.args')}
               </div>
               <pre className="p-2 rounded bg-background border border-border/50 overflow-x-auto whitespace-pre-wrap">
                 {JSON.stringify(args, null, 2)}
@@ -123,7 +125,7 @@ export function ToolCallCard({
           {resultContent ? (
             <div>
               <div className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">
-                Result Output
+                {t('toolCard.result')}
               </div>
               <pre
                 className={`p-2 rounded bg-background border overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto ${
@@ -138,7 +140,7 @@ export function ToolCallCard({
           {resultDetails !== undefined && (
             <div>
               <div className="text-[10px] uppercase text-muted-foreground font-semibold mb-1">
-                Raw Details
+                {t('toolCard.raw')}
               </div>
               <pre className="p-2 rounded bg-background border border-border/50 overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">
                 {JSON.stringify(resultDetails, null, 2)}

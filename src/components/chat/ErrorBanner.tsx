@@ -1,5 +1,6 @@
 import { AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 export interface ErrorBannerProps {
   error: Error | null;
@@ -8,20 +9,21 @@ export interface ErrorBannerProps {
 }
 
 export function ErrorBanner({ error, onRetry, onDismiss }: ErrorBannerProps) {
+  const { t } = useLanguage();
   if (!error) return null;
 
-  let title = '오류가 발생했습니다';
+  let title = t('errorBanner.default');
   let message = error.message;
 
   if (error.name === 'OllamaConnectionError' || error.message.includes('Ollama connection')) {
-    title = 'Ollama 서버에 연결할 수 없습니다';
-    message = '로컬 Ollama 서비스가 실행 중인지 확인해 주세요. (http://127.0.0.1:11434)';
+    title = t('errorBanner.connTitle');
+    message = t('errorBanner.connBody');
   } else if (error.name === 'OllamaModelNotFoundError' || error.message.includes('model not found')) {
-    title = '요청한 모델을 찾을 수 없습니다';
-    message = '해당 모델이 Ollama에 설치되어 있는지 확인하세요. (`ollama pull <model>`)';
+    title = t('errorBanner.modelTitle');
+    message = t('errorBanner.modelBody');
   } else if (error.name === 'OllamaContextOverflowError' || error.message.includes('context')) {
-    title = '컨텍스트 윈도우 초과';
-    message = '대화 길이가 모델의 컨텍스트 한도를 초과했습니다. 세션을 정리하거나 압축해 주세요.';
+    title = t('errorBanner.overflowTitle');
+    message = t('errorBanner.overflowBody');
   }
 
   return (
@@ -44,7 +46,7 @@ export function ErrorBanner({ error, onRetry, onDismiss }: ErrorBannerProps) {
           className="h-7 px-2.5 text-xs flex items-center gap-1 border-destructive/30 hover:bg-destructive/10 text-destructive"
         >
           <RefreshCw className="h-3 w-3" />
-          <span>재시도</span>
+          <span>{t('errorBanner.retry')}</span>
         </Button>
 
         {onDismiss && (

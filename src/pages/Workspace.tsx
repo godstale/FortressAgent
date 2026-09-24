@@ -16,9 +16,11 @@ import { ApprovalDialog } from '@/components/chat/ApprovalDialog';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
 
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 function WorkspaceContent() {
   useKeyboardShortcuts();
+  const { t } = useLanguage();
   const { workspaceRoot } = useWorkspace();
   const { activeView, setActiveView } = useSidePanel();
   const { tabs, openTab, isTabsLoaded } = useWorkspaceTabs();
@@ -35,11 +37,11 @@ function WorkspaceContent() {
       openTab({
         type: 'chat',
         id: newId,
-        title: '새 채팅',
+        title: t('workspace.newChat'),
         meta: { sessionId: newId.slice(5) },
       });
     }
-  }, [isTabsLoaded, openTab, tabs.length, workspaceRoot]);
+  }, [isTabsLoaded, openTab, tabs.length, workspaceRoot, t]);
 
   // When no workspaceRoot, make sure side panel is on explorer and expanded
   useEffect(() => {
