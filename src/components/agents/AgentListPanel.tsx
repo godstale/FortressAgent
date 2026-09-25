@@ -168,6 +168,8 @@ export function AgentListPanel() {
         enabledSkills: [...agent.enabledSkills],
         enabledBuiltinTools: [...agent.enabledBuiltinTools],
         approvalMode: agent.approvalMode,
+        reasoning: agent.reasoning ?? 'default',
+        reasoningEffort: agent.reasoningEffort ?? 'medium',
         isDefault: false,
       });
     } catch (err) {

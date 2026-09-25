@@ -22,6 +22,11 @@ export const MIGRATION_STATEMENTS: string[] = [
     enabled_skills TEXT NOT NULL DEFAULT '[]',
     enabled_builtin_tools TEXT NOT NULL DEFAULT '[]',
     approval_mode TEXT NOT NULL DEFAULT 'dangerous-only',
+    reasoning TEXT NOT NULL DEFAULT 'default',
+    reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+    llm_provider TEXT NOT NULL DEFAULT 'ollama',
+    llm_base_url TEXT,
+    llm_api_key TEXT,
     is_default INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -100,10 +105,29 @@ export const MIGRATION_STATEMENTS: string[] = [
     decoding_duration_ms REAL,
     decoding_speed REAL,
     total_duration_ms REAL,
+    thinking_tokens INTEGER,
+    conversation_id TEXT,
+    conversation_seq INTEGER,
     details TEXT,
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_monitoring_agent_timestamp ON agent_monitoring_snapshots(agent_id, timestamp)`,
+  `CREATE TABLE IF NOT EXISTS conversation_token_summaries (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    session_id TEXT,
+    seq INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    turn_count INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    thinking_tokens INTEGER NOT NULL,
+    content_tokens INTEGER NOT NULL,
+    status_tokens TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_conv_tokens_agent_started ON conversation_token_summaries(agent_id, started_at)`,
 ];
 
 export class MemorySqlFallback implements SqlDatabase {
@@ -116,6 +140,7 @@ export class MemorySqlFallback implements SqlDatabase {
     this.tables.set('app_settings', new Map());
     this.tables.set('execution_logs', new Map());
     this.tables.set('agent_monitoring_snapshots', new Map());
+    this.tables.set('conversation_token_summaries', new Map());
   }
 
   async execute(
@@ -145,10 +170,23 @@ export class MemorySqlFallback implements SqlDatabase {
         enabled_skills,
         enabled_builtin_tools,
         approval_mode,
-        is_default,
-        created_at,
-        updated_at,
+        reasoning,
+        reasoning_effort,
+        ...rest
       ] = bindValues;
+      // 신규 스키마(20개 바인드): [..., llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at]
+      // 구 스키마(17개 바인드): [..., is_default, created_at, updated_at]
+      let llm_provider: unknown = 'ollama';
+      let llm_base_url: unknown = null;
+      let llm_api_key: unknown = null;
+      let is_default: unknown;
+      let created_at: unknown;
+      let updated_at: unknown;
+      if (rest.length >= 6) {
+        [llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at] = rest;
+      } else {
+        [is_default, created_at, updated_at] = rest;
+      }
       this.tables.get('agents')?.set(id as string, {
         id,
         name,
@@ -162,6 +200,11 @@ export class MemorySqlFallback implements SqlDatabase {
         enabled_skills,
         enabled_builtin_tools,
         approval_mode,
+        reasoning,
+        reasoning_effort,
+        llm_provider,
+        llm_base_url,
+        llm_api_key,
         is_default,
         created_at,
         updated_at,
@@ -204,10 +247,23 @@ export class MemorySqlFallback implements SqlDatabase {
         enabled_skills,
         enabled_builtin_tools,
         approval_mode,
-        is_default,
-        updated_at,
-        id,
+        reasoning,
+        reasoning_effort,
+        ...rest
       ] = bindValues;
+      // 신규 스키마: [..., llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id]
+      // 구 스키마: [..., is_default, updated_at, id]
+      let llm_provider: unknown;
+      let llm_base_url: unknown;
+      let llm_api_key: unknown;
+      let is_default: unknown;
+      let updated_at: unknown;
+      let id: unknown;
+      if (rest.length >= 6) {
+        [llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id] = rest;
+      } else {
+        [is_default, updated_at, id] = rest;
+      }
       const existing = this.tables.get('agents')?.get(id as string);
       if (existing) {
         Object.assign(existing, {
@@ -222,6 +278,11 @@ export class MemorySqlFallback implements SqlDatabase {
           enabled_skills,
           enabled_builtin_tools,
           approval_mode,
+          reasoning,
+          reasoning_effort,
+          ...(llm_provider !== undefined ? { llm_provider } : {}),
+          ...(llm_base_url !== undefined ? { llm_base_url } : {}),
+          ...(llm_api_key !== undefined ? { llm_api_key } : {}),
           is_default,
           updated_at,
         });
@@ -465,6 +526,9 @@ export class MemorySqlFallback implements SqlDatabase {
         decoding_duration_ms,
         decoding_speed,
         total_duration_ms,
+        thinking_tokens,
+        conversation_id,
+        conversation_seq,
         details,
         created_at,
       ] = bindValues;
@@ -498,7 +562,44 @@ export class MemorySqlFallback implements SqlDatabase {
         decoding_duration_ms,
         decoding_speed,
         total_duration_ms,
+        thinking_tokens,
+        conversation_id,
+        conversation_seq,
         details,
+        created_at,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('INSERT INTO conversation_token_summaries')) {
+      const [
+        id,
+        agent_id,
+        session_id,
+        seq,
+        started_at,
+        ended_at,
+        turn_count,
+        input_tokens,
+        output_tokens,
+        thinking_tokens,
+        content_tokens,
+        status_tokens,
+        created_at,
+      ] = bindValues;
+      this.tables.get('conversation_token_summaries')?.set(id as string, {
+        id,
+        agent_id,
+        session_id,
+        seq,
+        started_at,
+        ended_at,
+        turn_count,
+        input_tokens,
+        output_tokens,
+        thinking_tokens,
+        content_tokens,
+        status_tokens,
         created_at,
       });
       return { rowsAffected: 1 };
@@ -570,6 +671,27 @@ export class MemorySqlFallback implements SqlDatabase {
     if (q.startsWith('DELETE FROM agent_monitoring_snapshots')) {
       const count = this.tables.get('agent_monitoring_snapshots')?.size ?? 0;
       this.tables.get('agent_monitoring_snapshots')?.clear();
+      return { rowsAffected: count };
+    }
+
+    if (q.startsWith('DELETE FROM conversation_token_summaries WHERE agent_id = ?')) {
+      const [agentId] = bindValues;
+      const convMap = this.tables.get('conversation_token_summaries');
+      let affected = 0;
+      if (convMap) {
+        for (const [k, v] of convMap) {
+          if (v.agent_id === agentId) {
+            convMap.delete(k);
+            affected++;
+          }
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('DELETE FROM conversation_token_summaries')) {
+      const count = this.tables.get('conversation_token_summaries')?.size ?? 0;
+      this.tables.get('conversation_token_summaries')?.clear();
       return { rowsAffected: count };
     }
 
@@ -744,6 +866,21 @@ export class MemorySqlFallback implements SqlDatabase {
       return snaps as unknown as T;
     }
 
+    if (q.includes('FROM conversation_token_summaries WHERE agent_id = ?')) {
+      const [agentId, limit] = bindValues;
+      const rows = Array.from(this.tables.get('conversation_token_summaries')?.values() ?? [])
+        .filter((r) => r.agent_id === agentId)
+        .sort((a, b) => (b.started_at as string).localeCompare(a.started_at as string));
+      const capped = typeof limit === 'number' ? rows.slice(0, limit) : rows;
+      return capped as unknown as T;
+    }
+
+    if (q.includes('FROM conversation_token_summaries')) {
+      const rows = Array.from(this.tables.get('conversation_token_summaries')?.values() ?? [])
+        .sort((a, b) => (b.started_at as string).localeCompare(a.started_at as string));
+      return rows as unknown as T;
+    }
+
     return [] as unknown as T;
   }
 }
@@ -789,7 +926,15 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
     'ALTER TABLE agent_monitoring_snapshots ADD COLUMN decoding_duration_ms REAL',
     'ALTER TABLE agent_monitoring_snapshots ADD COLUMN decoding_speed REAL',
     'ALTER TABLE agent_monitoring_snapshots ADD COLUMN total_duration_ms REAL',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN thinking_tokens INTEGER',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN conversation_id TEXT',
+    'ALTER TABLE agent_monitoring_snapshots ADD COLUMN conversation_seq INTEGER',
     'ALTER TABLE app_settings ADD COLUMN monitoring_interval_ms INTEGER NOT NULL DEFAULT 1000',
+    "ALTER TABLE agents ADD COLUMN reasoning TEXT NOT NULL DEFAULT 'default'",
+    "ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'medium'",
+    "ALTER TABLE agents ADD COLUMN llm_provider TEXT NOT NULL DEFAULT 'ollama'",
+    'ALTER TABLE agents ADD COLUMN llm_base_url TEXT',
+    'ALTER TABLE agents ADD COLUMN llm_api_key TEXT',
   ];
   for (const alter of alterColumns) {
     try {
@@ -810,8 +955,10 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
         `INSERT OR IGNORE INTO agents (
           id, name, description, system_prompt, model, temperature,
           context_size, reserve_tokens, keep_recent_tokens, enabled_skills,
-          enabled_builtin_tools, approval_mode, is_default, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          enabled_builtin_tools, approval_mode, reasoning, reasoning_effort,
+          llm_provider, llm_base_url, llm_api_key,
+          is_default, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           DEFAULT_AGENT.id,
           DEFAULT_AGENT.name,
@@ -825,6 +972,11 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
           JSON.stringify(DEFAULT_AGENT.enabledSkills),
           JSON.stringify(DEFAULT_AGENT.enabledBuiltinTools),
           DEFAULT_AGENT.approvalMode,
+          DEFAULT_AGENT.reasoning ?? 'default',
+          DEFAULT_AGENT.reasoningEffort ?? 'medium',
+          DEFAULT_AGENT.llmProvider ?? 'ollama',
+          DEFAULT_AGENT.llmBaseUrl ?? null,
+          DEFAULT_AGENT.llmApiKey ?? null,
           1,
           now,
           now,

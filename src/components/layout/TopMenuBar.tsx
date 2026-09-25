@@ -30,6 +30,7 @@ import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { useSidePanel } from '@/lib/context/SidePanelContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
+import { useGlobalLlmBusy } from '@/lib/agent/chatQueueManager';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { FortressMark } from '@/components/brand/FortressMark';
@@ -43,12 +44,20 @@ export function TopMenuBar() {
   const { createSession } = useChatSessions();
   const navigate = useNavigate();
   const hasWorkspace = Boolean(workspaceRoot);
+  // LLM 동작 중에는 폴더(프로젝트) 변경을 금지한다.
+  const busySessionId = useGlobalLlmBusy();
+  const isLlmBusy = busySessionId !== null;
+  const folderChangeBlockedTitle = isLlmBusy ? t('topMenu.folderChangeBlocked') : undefined;
 
   const handlePickFolder = async () => {
+    if (isLlmBusy) return;
     try {
       const picked = await invoke<string | null>('pick_project_folder');
       if (picked) {
-        setWorkspaceRoot(picked);
+        const ok = setWorkspaceRoot(picked);
+        if (!ok) {
+          console.warn('Workspace change blocked: LLM session is running.');
+        }
       }
     } catch (err) {
       console.error('Failed to pick project folder:', err);
@@ -56,7 +65,13 @@ export function TopMenuBar() {
   };
 
   const handleCloseFolder = () => {
+    if (isLlmBusy) return;
     setWorkspaceRoot(null);
+  };
+
+  const handleRecentFolder = (path: string) => {
+    if (isLlmBusy) return;
+    setWorkspaceRoot(path);
   };
 
   const handleNewChat = async () => {
@@ -180,14 +195,23 @@ export function TopMenuBar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56 text-[11px] p-1 [&_[role=menuitem]]:text-[11px] [&_[role=menuitem]]:py-1 [&_[role=menuitem]]:gap-2 [&_[role=menuitem]_svg]:size-3.5">
-            <DropdownMenuItem onClick={handlePickFolder} className="gap-2 cursor-pointer text-[11px] py-1">
+            <DropdownMenuItem
+              disabled={isLlmBusy}
+              title={folderChangeBlockedTitle}
+              onClick={handlePickFolder}
+              className="gap-2 text-[11px] py-1 data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed"
+            >
               <FolderOpen className="h-3.5 w-3.5 text-warning" />
               <span>{t('topMenu.openFolder')}</span>
             </DropdownMenuItem>
 
             {recentWorkspaces.length > 0 && (
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="gap-2 text-[11px] py-1 cursor-pointer">
+                <DropdownMenuSubTrigger
+                  disabled={isLlmBusy}
+                  title={folderChangeBlockedTitle}
+                  className="gap-2 text-[11px] py-1 data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed"
+                >
                   <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                   <span>{t('topMenu.openRecent')}</span>
                 </DropdownMenuSubTrigger>
@@ -195,9 +219,10 @@ export function TopMenuBar() {
                   {recentWorkspaces.map((path) => (
                     <DropdownMenuItem
                       key={path}
-                      onClick={() => setWorkspaceRoot(path)}
-                      className="cursor-pointer truncate text-[11px] py-1"
-                      title={path}
+                      disabled={isLlmBusy}
+                      title={isLlmBusy ? folderChangeBlockedTitle : path}
+                      onClick={() => handleRecentFolder(path)}
+                      className="cursor-pointer truncate text-[11px] py-1 data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed"
                     >
                       <span className="truncate">{path}</span>
                     </DropdownMenuItem>
@@ -207,7 +232,12 @@ export function TopMenuBar() {
             )}
 
             {workspaceRoot && (
-              <DropdownMenuItem onClick={handleCloseFolder} className="gap-2 cursor-pointer text-[11px] py-1">
+              <DropdownMenuItem
+                disabled={isLlmBusy}
+                title={folderChangeBlockedTitle}
+                onClick={handleCloseFolder}
+                className="gap-2 text-[11px] py-1 data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed"
+              >
                 <FolderX className="h-3.5 w-3.5 text-muted-foreground" />
                 <span>{t('topMenu.closeFolder')}</span>
               </DropdownMenuItem>
@@ -327,9 +357,14 @@ export function TopMenuBar() {
         {workspaceRoot ? (
           <div
             data-no-drag="true"
-            className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80 font-mono truncate cursor-pointer hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/40"
-            onClick={handlePickFolder}
-            title={`${workspaceRoot} ${t('topMenu.clickToChangeFolder')}`}
+            className={cn(
+              'flex items-center gap-1.5 text-[11px] text-muted-foreground/80 font-mono truncate px-2 py-0.5 rounded transition-colors',
+              isLlmBusy
+                ? 'opacity-50 cursor-not-allowed'
+                : 'cursor-pointer hover:text-foreground hover:bg-muted/40',
+            )}
+            onClick={isLlmBusy ? undefined : handlePickFolder}
+            title={isLlmBusy ? folderChangeBlockedTitle : `${workspaceRoot} ${t('topMenu.clickToChangeFolder')}`}
           >
             <Folder className="h-3 w-3 text-warning shrink-0" />
             <span className="font-semibold text-foreground">{folderName}</span>

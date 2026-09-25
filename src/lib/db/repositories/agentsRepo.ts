@@ -1,5 +1,16 @@
 import { getGlobalDatabase, type SqlDatabase } from '@/lib/db/client';
-import type { Agent, ApprovalMode, BuiltinToolId } from '@/lib/types/agent';
+import type {
+  Agent,
+  ApprovalMode,
+  BuiltinToolId,
+  LlmProviderKind,
+  ReasoningEffort,
+  ReasoningMode,
+} from '@/lib/types/agent';
+import {
+  DEFAULT_REASONING_EFFORT,
+  DEFAULT_REASONING_MODE,
+} from '@/lib/types/agent';
 
 interface AgentRow {
   id: string;
@@ -14,6 +25,11 @@ interface AgentRow {
   enabled_skills: string;
   enabled_builtin_tools: string;
   approval_mode: ApprovalMode;
+  reasoning: ReasoningMode | null;
+  reasoning_effort: ReasoningEffort | null;
+  llm_provider: LlmProviderKind | null;
+  llm_base_url: string | null;
+  llm_api_key: string | null;
   is_default: number;
   created_at: string;
   updated_at: string;
@@ -35,6 +51,13 @@ function parseAgentRow(row: AgentRow): Agent {
       row.enabled_builtin_tools || '[]',
     ) as BuiltinToolId[],
     approvalMode: row.approval_mode,
+    // 구 DB 행(컬럼 없음 → null/undefined)은 모델 기본값으로 해석
+    reasoning: row.reasoning ?? DEFAULT_REASONING_MODE,
+    reasoningEffort: row.reasoning_effort ?? DEFAULT_REASONING_EFFORT,
+    // Provider 미지정 구 행은 Ollama로 해석 (기존 동작 유지)
+    llmProvider: row.llm_provider ?? 'ollama',
+    llmBaseUrl: row.llm_base_url ?? undefined,
+    llmApiKey: row.llm_api_key ?? undefined,
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -106,8 +129,10 @@ export async function createAgent(
       id, name, description, system_prompt, model, temperature,
       context_size, reserve_tokens, keep_recent_tokens,
       enabled_skills, enabled_builtin_tools, approval_mode,
+      reasoning, reasoning_effort,
+      llm_provider, llm_base_url, llm_api_key,
       is_default, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agent.id,
       agent.name,
@@ -121,6 +146,11 @@ export async function createAgent(
       JSON.stringify(agent.enabledSkills),
       JSON.stringify(agent.enabledBuiltinTools),
       agent.approvalMode,
+      agent.reasoning ?? DEFAULT_REASONING_MODE,
+      agent.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+      agent.llmProvider ?? 'ollama',
+      agent.llmBaseUrl ?? null,
+      agent.llmApiKey ?? null,
       shouldBeDefault ? 1 : 0,
       createdAt,
       updatedAt,
@@ -129,6 +159,11 @@ export async function createAgent(
 
   return {
     ...agent,
+    reasoning: agent.reasoning ?? DEFAULT_REASONING_MODE,
+    reasoningEffort: agent.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+    llmProvider: agent.llmProvider ?? 'ollama',
+    llmBaseUrl: agent.llmBaseUrl ?? undefined,
+    llmApiKey: agent.llmApiKey ?? undefined,
     isDefault: shouldBeDefault,
     createdAt,
     updatedAt,
@@ -183,6 +218,8 @@ export async function updateAgent(
       temperature = ?, context_size = ?, reserve_tokens = ?,
       keep_recent_tokens = ?, enabled_skills = ?,
       enabled_builtin_tools = ?, approval_mode = ?,
+      reasoning = ?, reasoning_effort = ?,
+      llm_provider = ?, llm_base_url = ?, llm_api_key = ?,
       is_default = ?, updated_at = ?
     WHERE id = ?`,
     [
@@ -197,6 +234,11 @@ export async function updateAgent(
       JSON.stringify(merged.enabledSkills),
       JSON.stringify(merged.enabledBuiltinTools),
       merged.approvalMode,
+      merged.reasoning ?? DEFAULT_REASONING_MODE,
+      merged.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+      merged.llmProvider ?? 'ollama',
+      merged.llmBaseUrl ?? null,
+      merged.llmApiKey ?? null,
       merged.isDefault ? 1 : 0,
       merged.updatedAt,
       id,

@@ -248,4 +248,30 @@ describe('FortressAgent and runAgentLoop', () => {
       expect(assistantMsg.stopReason).toBe('aborted');
     }
   });
+
+  it('(f) think value reaches the Ollama request and setThink updates it live', async () => {
+    const seenThink: unknown[] = [];
+    const mockStreamFn = vi.fn().mockImplementation((req: { think?: unknown }) => {
+      seenThink.push(req.think);
+      return createMockStream([{ content: 'ok', done: true }]);
+    });
+
+    const agent = new FortressAgent({
+      agent: { model: 'test-model', think: 'high' },
+      streamChatFn: mockStreamFn,
+    });
+
+    await agent.prompt('First');
+    expect(seenThink[0]).toBe('high');
+
+    // Live update applies from the next prompt() call without rebuilding the agent
+    agent.setThink('low');
+    await agent.prompt('Second');
+    expect(seenThink[1]).toBe('low');
+
+    // Unset → think omitted (model default)
+    agent.setThink(undefined);
+    await agent.prompt('Third');
+    expect(seenThink[2]).toBeUndefined();
+  });
 });

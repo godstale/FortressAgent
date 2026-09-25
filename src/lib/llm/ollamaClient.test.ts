@@ -121,6 +121,62 @@ describe('ollamaClient', () => {
       }
     }).rejects.toThrow(OllamaContextOverflowError);
   });
+
+  it('sends the think field only when explicitly set', async () => {
+    const seenBodies: unknown[] = [];
+    global.fetch = vi.fn().mockImplementation((_url: unknown, init?: { body?: string }) => {
+      seenBodies.push(JSON.parse(init?.body ?? '{}'));
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(JSON.stringify({ done: true }) + '\n'),
+          );
+          controller.close();
+        },
+      });
+      return Promise.resolve(new Response(stream, { status: 200 }));
+    });
+
+    for await (const chunk of streamChat({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'Hi' }],
+      think: 'high',
+    })) {
+      expect(chunk).toBeDefined();
+    }
+    expect((seenBodies[0] as Record<string, unknown>).think).toBe('high');
+
+    seenBodies.length = 0;
+    for await (const chunk of streamChat({
+      model: 'test-model',
+      messages: [{ role: 'user', content: 'Hi' }],
+    })) {
+      expect(chunk).toBeDefined();
+    }
+    expect('think' in (seenBodies[0] as Record<string, unknown>)).toBe(false);
+  });
+
+  it('parses thinking metadata from /api/show', async () => {
+    const { showModel } = await import('./ollamaClient');
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model_info: { 'qwen3.context_length': 32768 },
+          capabilities: ['tools', 'thinking'],
+          thinking: { values: ['low', 'medium', 'high'], default: 'medium' },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const info = await showModel(undefined, 'gpt-oss:20b');
+    expect(info.contextLength).toBe(32768);
+    expect(info.supportsTools).toBe(true);
+    expect(info.thinking).toEqual({
+      values: ['low', 'medium', 'high'],
+      default: 'medium',
+    });
+  });
 });
 
 describe('messageMapper', () => {

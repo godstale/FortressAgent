@@ -1,5 +1,11 @@
 import { getDatabase } from '@/lib/db/client';
-import type { AgentMonitoringSnapshot, MonitoringSummary } from '@/lib/types/monitoring';
+import type {
+  AgentMonitoringSnapshot,
+  ConversationTokenSummary,
+  MonitoringSummary,
+  TokenStatusBreakdown,
+} from '@/lib/types/monitoring';
+import { emptyStatusTokens } from '@/lib/types/monitoring';
 
 export const DEFAULT_MAX_SNAPSHOTS_PER_AGENT = 1000;
 export const DEFAULT_MAX_SNAPSHOT_AGE_HOURS = 48;
@@ -23,8 +29,9 @@ export async function saveMonitoringSnapshot(
       gpu_offload_pct, agent_status, current_task,
       prefill_tokens, prefill_duration_ms, prefill_speed,
       decoding_tokens, decoding_duration_ms, decoding_speed, total_duration_ms,
+      thinking_tokens, conversation_id, conversation_seq,
       details, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       snapshot.id,
       snapshot.agentId,
@@ -55,6 +62,9 @@ export async function saveMonitoringSnapshot(
       snapshot.decodingDurationMs ?? null,
       snapshot.decodingSpeed ?? null,
       snapshot.totalDurationMs ?? null,
+      snapshot.thinkingTokens ?? null,
+      snapshot.conversationId ?? null,
+      snapshot.conversationSeq ?? null,
       detailsJson,
       snapshot.createdAt,
     ],
@@ -99,6 +109,9 @@ interface DbSnapshotRow {
   decoding_duration_ms: number | null;
   decoding_speed: number | null;
   total_duration_ms: number | null;
+  thinking_tokens: number | null;
+  conversation_id: string | null;
+  conversation_seq: number | null;
   details: string | null;
   created_at: string;
 }
@@ -143,6 +156,9 @@ function mapRowToSnapshot(row: DbSnapshotRow): AgentMonitoringSnapshot {
     decodingDurationMs: row.decoding_duration_ms ?? undefined,
     decodingSpeed: row.decoding_speed ?? undefined,
     totalDurationMs: row.total_duration_ms ?? undefined,
+    thinkingTokens: row.thinking_tokens ?? undefined,
+    conversationId: row.conversation_id ?? undefined,
+    conversationSeq: row.conversation_seq ?? undefined,
     details: parsedDetails,
     createdAt: row.created_at,
   };
@@ -272,4 +288,115 @@ export async function getMonitoringSummary(
     latestPrefillSpeed: latestWithPrefill?.prefillSpeed,
     latestDecodingSpeed: latestWithDecoding?.decodingSpeed,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 대화 단위 토큰 원장 (conversation_token_summaries)
+// "대화" = 사용자 요청 1건 → agent_end까지의 전체 턴. 턴별 usage 실측 합산.
+// ---------------------------------------------------------------------------
+
+interface DbConversationRow {
+  id: string;
+  agent_id: string;
+  session_id: string | null;
+  seq: number | null;
+  started_at: string;
+  ended_at: string;
+  turn_count: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  thinking_tokens: number | null;
+  content_tokens: number | null;
+  status_tokens: string | null;
+  created_at: string;
+}
+
+function parseStatusTokens(raw: string | null): TokenStatusBreakdown {
+  const base = emptyStatusTokens();
+  if (!raw) return base;
+  try {
+    const parsed = JSON.parse(raw) as Partial<Record<keyof TokenStatusBreakdown, unknown>>;
+    for (const key of Object.keys(base) as Array<keyof TokenStatusBreakdown>) {
+      const v = parsed[key];
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        base[key] = Math.max(0, Math.round(v));
+      }
+    }
+  } catch {
+    // ignore malformed JSON
+  }
+  return base;
+}
+
+function mapRowToConversation(row: DbConversationRow): ConversationTokenSummary {
+  const inputTokens = row.input_tokens ?? 0;
+  const outputTokens = row.output_tokens ?? 0;
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    sessionId: row.session_id ?? undefined,
+    seq: row.seq ?? 0,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    turnCount: row.turn_count ?? 0,
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    thinkingTokens: row.thinking_tokens ?? 0,
+    contentTokens: row.content_tokens ?? 0,
+    statusTokens: parseStatusTokens(row.status_tokens),
+  };
+}
+
+export async function saveConversationSummary(
+  summary: ConversationTokenSummary,
+  workspaceRoot?: string | null,
+): Promise<void> {
+  const db = await getDatabase(workspaceRoot);
+  await db.execute(
+    `INSERT INTO conversation_token_summaries (
+      id, agent_id, session_id, seq, started_at, ended_at, turn_count,
+      input_tokens, output_tokens, thinking_tokens, content_tokens,
+      status_tokens, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      summary.id,
+      summary.agentId,
+      summary.sessionId ?? null,
+      summary.seq,
+      summary.startedAt,
+      summary.endedAt,
+      summary.turnCount,
+      summary.inputTokens,
+      summary.outputTokens,
+      summary.thinkingTokens,
+      summary.contentTokens,
+      JSON.stringify(summary.statusTokens),
+      new Date().toISOString(),
+    ],
+  );
+}
+
+export async function getConversationSummaries(
+  agentId: string,
+  limit = 50,
+  workspaceRoot?: string | null,
+): Promise<ConversationTokenSummary[]> {
+  const db = await getDatabase(workspaceRoot);
+  const rows = await db.select<DbConversationRow[]>(
+    'SELECT * FROM conversation_token_summaries WHERE agent_id = ? ORDER BY started_at DESC LIMIT ?',
+    [agentId, limit],
+  );
+  return rows.map(mapRowToConversation);
+}
+
+export async function clearConversationSummaries(
+  agentId: string,
+  workspaceRoot?: string | null,
+): Promise<void> {
+  const db = await getDatabase(workspaceRoot);
+  await db.execute(
+    'DELETE FROM conversation_token_summaries WHERE agent_id = ?',
+    [agentId],
+  );
 }

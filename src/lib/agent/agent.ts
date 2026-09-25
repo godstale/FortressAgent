@@ -4,7 +4,7 @@ import { getRegisteredHooks } from '@/lib/agent/hookRegistry';
 import { createMessageQueue, type MessageQueue } from '@/lib/agent/queue';
 import type { RetryPolicy } from '@/lib/agent/retry';
 import { runAgentLoop, type LoopAgentConfig } from '@/lib/agent/loop';
-import type { streamChat } from '@/lib/llm/ollamaClient';
+import type { LlmStreamChatFn } from '@/lib/llm/providerRuntime';
 
 export interface FortressAgentConfig {
   sessionId?: string;
@@ -12,9 +12,10 @@ export interface FortressAgentConfig {
   tools?: AgentTool[];
   hooks?: AgentHooks;
   baseUrl?: string;
+  apiKey?: string;
   retryPolicy?: Partial<RetryPolicy>;
   initialMessages?: AgentMessage[];
-  streamChatFn?: typeof streamChat;
+  streamChatFn?: LlmStreamChatFn;
 }
 
 export type AgentState = 'idle' | 'running';
@@ -48,6 +49,15 @@ export class FortressAgent {
 
   setMessages(messages: AgentMessage[]): void {
     this.messages = [...messages];
+  }
+
+  /**
+   * Ollama `think` 값을 실행 중에 변경한다. 같은 객체를 직접 갱신하므로
+   * 스트리밍 중이라도 다음 LLM 호출(다음 턴)부터 새 값이 적용된다.
+   * 메시지/시스템 프롬프트를 건드리지 않아 prefill 오버헤드가 없다.
+   */
+  setThink(think: boolean | string | null | undefined): void {
+    this.config.agent.think = think;
   }
 
   subscribe(listener: (event: AgentEvent) => void): () => void {
@@ -126,6 +136,7 @@ export class FortressAgent {
         followUpQueue: this.followUpQueue,
         emit: (event) => this.emit(event),
         baseUrl: this.config.baseUrl,
+        apiKey: this.config.apiKey ?? this.config.agent.apiKey,
         retryPolicy: this.config.retryPolicy,
         streamChatFn: this.config.streamChatFn,
       });

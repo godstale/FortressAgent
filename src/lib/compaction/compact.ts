@@ -17,7 +17,10 @@ import {
   buildCompactionUserPrompt,
 } from './prompts';
 import { estimateContextTokens } from './estimate';
-import { streamChat, type OllamaChatRequest } from '@/lib/llm/ollamaClient';
+import { streamChat } from '@/lib/llm/ollamaClient';
+import { streamChat as streamOpenAiChat } from '@/lib/llm/openAiCompatibleClient';
+import type { LlmStreamChatFn } from '@/lib/llm/providerRuntime';
+import type { LlmProviderKind } from '@/lib/types/agent';
 import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
 
 export interface CompactionPreparation {
@@ -35,16 +38,11 @@ export type CompactionReason = 'manual' | 'threshold' | 'overflow';
 export interface CompactOptions {
   model: string;
   baseUrl?: string;
+  apiKey?: string;
+  provider?: LlmProviderKind;
   reason?: CompactionReason;
   customInstructions?: string;
-  streamChatFn?: (
-    options: OllamaChatRequest,
-    signal?: AbortSignal,
-  ) => AsyncIterable<{
-    content?: string;
-    done?: boolean;
-    usage?: TokenUsage;
-  }>;
+  streamChatFn?: LlmStreamChatFn;
 }
 
 /**
@@ -148,10 +146,13 @@ export async function executeCompact(
     fileOpsXml,
   );
 
-  const streamFn = options.streamChatFn ?? streamChat;
+  const streamFn: LlmStreamChatFn =
+    options.streamChatFn ??
+    ((options.provider && options.provider !== 'ollama' ? streamOpenAiChat : streamChat) as unknown as LlmStreamChatFn);
   const stream = streamFn(
     {
       baseUrl: options.baseUrl,
+      apiKey: options.apiKey,
       model: options.model,
       messages: [
         { role: 'system', content: COMPACTION_SYSTEM_PROMPT },

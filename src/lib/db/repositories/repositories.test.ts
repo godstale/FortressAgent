@@ -19,6 +19,11 @@ interface AgentRowMock {
   enabled_skills: string;
   enabled_builtin_tools: string;
   approval_mode: string;
+  reasoning: string | null;
+  reasoning_effort: string | null;
+  llm_provider: string | null;
+  llm_base_url: string | null;
+  llm_api_key: string | null;
   is_default: number;
   created_at: string;
   updated_at: string;
@@ -90,10 +95,23 @@ class MemorySqlDatabase implements SqlDatabase {
         enabled_skills,
         enabled_builtin_tools,
         approval_mode,
-        is_default,
-        created_at,
-        updated_at,
+        reasoning,
+        reasoning_effort,
+        ...rest
       ] = bindValues;
+      // 신규 스키마(20개): [..., llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at]
+      // 구 스키마(17개): [..., is_default, created_at, updated_at]
+      let llm_provider: unknown = 'ollama';
+      let llm_base_url: unknown = null;
+      let llm_api_key: unknown = null;
+      let is_default: unknown;
+      let created_at: unknown;
+      let updated_at: unknown;
+      if (rest.length >= 6) {
+        [llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at] = rest;
+      } else {
+        [is_default, created_at, updated_at] = rest;
+      }
       this.agents.set(id as string, {
         id: id as string,
         name: name as string,
@@ -107,6 +125,11 @@ class MemorySqlDatabase implements SqlDatabase {
         enabled_skills: enabled_skills as string,
         enabled_builtin_tools: enabled_builtin_tools as string,
         approval_mode: approval_mode as string,
+        reasoning: (reasoning as string) ?? null,
+        reasoning_effort: (reasoning_effort as string) ?? null,
+        llm_provider: (llm_provider as string) ?? null,
+        llm_base_url: (llm_base_url as string) ?? null,
+        llm_api_key: (llm_api_key as string) ?? null,
         is_default: is_default as number,
         created_at: created_at as string,
         updated_at: updated_at as string,
@@ -149,10 +172,23 @@ class MemorySqlDatabase implements SqlDatabase {
         enabled_skills,
         enabled_builtin_tools,
         approval_mode,
-        is_default,
-        updated_at,
-        id,
+        reasoning,
+        reasoning_effort,
+        ...rest
       ] = bindValues;
+      // 신규 스키마: [..., llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id]
+      // 구 스키마: [..., is_default, updated_at, id]
+      let llm_provider: unknown;
+      let llm_base_url: unknown;
+      let llm_api_key: unknown;
+      let is_default: unknown;
+      let updated_at: unknown;
+      let id: unknown;
+      if (rest.length >= 6) {
+        [llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id] = rest;
+      } else {
+        [is_default, updated_at, id] = rest;
+      }
       const existing = this.agents.get(id as string);
       if (existing) {
         Object.assign(existing, {
@@ -167,6 +203,11 @@ class MemorySqlDatabase implements SqlDatabase {
           enabled_skills: enabled_skills as string,
           enabled_builtin_tools: enabled_builtin_tools as string,
           approval_mode: approval_mode as string,
+          reasoning: reasoning as string,
+          reasoning_effort: reasoning_effort as string,
+          ...(llm_provider !== undefined ? { llm_provider: llm_provider as string } : {}),
+          ...(llm_base_url !== undefined ? { llm_base_url: (llm_base_url as string) ?? null } : {}),
+          ...(llm_api_key !== undefined ? { llm_api_key: (llm_api_key as string) ?? null } : {}),
           is_default: is_default as number,
           updated_at: updated_at as string,
         });
@@ -535,6 +576,105 @@ describe('SQLite Repositories (P4-02)', () => {
       const def = await agentsRepo.getDefaultAgent(db);
       expect(def?.id).toBe('agent-2');
       expect(def?.isDefault).toBe(true);
+    });
+
+    it('persists reasoning mode and effort, defaulting legacy rows to model default', async () => {
+      const created = await agentsRepo.createAgent(
+        {
+          id: 'agent-reason',
+          name: 'Reasoner',
+          systemPrompt: 'prompt',
+          model: 'qwen',
+          temperature: 0.7,
+          contextSize: 0,
+          reserveTokens: 0,
+          keepRecentTokens: 0,
+          enabledSkills: [],
+          enabledBuiltinTools: ['read'],
+          approvalMode: 'dangerous-only',
+          reasoning: 'on',
+          reasoningEffort: 'high',
+          isDefault: true,
+        },
+        db,
+      );
+      expect(created.reasoning).toBe('on');
+      expect(created.reasoningEffort).toBe('high');
+
+      const updated = await agentsRepo.updateAgent(
+        'agent-reason',
+        { reasoning: 'off' },
+        db,
+      );
+      expect(updated.reasoning).toBe('off');
+      expect(updated.reasoningEffort).toBe('high');
+
+      // Legacy row without reasoning columns resolves to model default
+      db.agents.set('agent-legacy', {
+        id: 'agent-legacy',
+        name: 'Legacy',
+        description: null,
+        system_prompt: 'prompt',
+        model: 'qwen',
+        temperature: 0.7,
+        context_size: 0,
+        reserve_tokens: 0,
+        keep_recent_tokens: 0,
+        enabled_skills: '[]',
+        enabled_builtin_tools: '[]',
+        approval_mode: 'dangerous-only',
+        reasoning: null,
+        reasoning_effort: null,
+        llm_provider: null,
+        llm_base_url: null,
+        llm_api_key: null,
+        is_default: 0,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      });
+      const legacy = await agentsRepo.getAgent('agent-legacy', db);
+      expect(legacy?.reasoning).toBe('default');
+      expect(legacy?.reasoningEffort).toBe('medium');
+      expect(legacy?.llmProvider).toBe('ollama');
+      expect(legacy?.llmBaseUrl).toBeUndefined();
+      expect(legacy?.llmApiKey).toBeUndefined();
+    });
+
+    it('persists LLM provider, baseUrl and apiKey', async () => {
+      const created = await agentsRepo.createAgent(
+        {
+          id: 'agent-provider',
+          name: 'Cloud',
+          systemPrompt: 'prompt',
+          model: 'gpt-4o-mini',
+          temperature: 0.7,
+          contextSize: 32768,
+          reserveTokens: 0,
+          keepRecentTokens: 0,
+          enabledSkills: [],
+          enabledBuiltinTools: ['read'],
+          approvalMode: 'dangerous-only',
+          llmProvider: 'openai',
+          llmBaseUrl: '',
+          llmApiKey: 'sk-test',
+          isDefault: true,
+        },
+        db,
+      );
+      expect(created.llmProvider).toBe('openai');
+      expect(created.llmApiKey).toBe('sk-test');
+
+      const loaded = await agentsRepo.getAgent('agent-provider', db);
+      expect(loaded?.llmProvider).toBe('openai');
+      expect(loaded?.llmApiKey).toBe('sk-test');
+
+      const updated = await agentsRepo.updateAgent(
+        'agent-provider',
+        { llmProvider: 'lmstudio', llmBaseUrl: 'http://192.168.0.5:1234/v1', llmApiKey: '' },
+        db,
+      );
+      expect(updated.llmProvider).toBe('lmstudio');
+      expect(updated.llmBaseUrl).toBe('http://192.168.0.5:1234/v1');
     });
   });
 

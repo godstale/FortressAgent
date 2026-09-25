@@ -143,8 +143,7 @@ export async function getSettings(
   return globalSettings;
 }
 
-export async function updateSettings(
-  updates: Partial<Omit<AppSettings, 'id'>>,
+export async function updateSettings(  updates: Partial<Omit<AppSettings, 'id'>>,
   dbOverride?: SqlDatabase,
 ): Promise<AppSettings> {
   if (dbOverride) {
@@ -215,4 +214,23 @@ export async function updateSettings(
   );
 
   return merged;
+}
+
+/**
+ * 지정된 프로젝트 DB에 탭 상태를 직접 저장한다.
+ * 폴더 전환 시 이전 프로젝트의 탭이 디바운스 저장 전에 유실되는 것을 방지하기 위해
+ * WorkspaceTabsContext가 전환 직전에 호출한다. 전역 activeWorkspaceRoot와 무관하게
+ * 명시적 root의 프로젝트 DB에만 기록하므로 전환 타이밍에 안전하다.
+ */
+export async function saveProjectTabs(
+  workspaceRoot: string,
+  openTabs: WorkspaceTab[],
+  activeTabId: string | null,
+): Promise<void> {
+  const projectDb = await getProjectDatabase(workspaceRoot);
+  await fetchOrInitRow(projectDb);
+  await projectDb.execute(
+    `UPDATE app_settings SET open_tabs = ?, active_tab_id = ? WHERE id = 'singleton'`,
+    [JSON.stringify(openTabs), activeTabId],
+  );
 }

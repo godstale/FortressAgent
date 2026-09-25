@@ -15,9 +15,11 @@ import {
   Layers,
   Info,
   Lock,
+  Brain,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { SkillManifest } from '@/lib/types/skill';
+import type { ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
 import { AgentsContext } from '@/lib/context/AgentsContext';
 import { resolveSkillInvocation, parseSkillCommand } from '@/lib/skills/invokeSkill';
@@ -71,6 +73,14 @@ export interface ChatInputProps {
   isAgentLocked?: boolean;
   contextUsage?: { tokens: number; limit: number };
   yoloMode?: boolean;
+  /**
+   * 세션 단위 reasoning/effort 오버라이드. 'agent'(기본값)면 Agent 설정을 따른다.
+   * Ollama think 최상위 필드로만 전달되므로 변경해도 프롬프트/prefill 오버헤드가 없다.
+   */
+  reasoningOverride?: ReasoningMode | 'agent';
+  effortOverride?: ReasoningEffort | 'agent';
+  onReasoningOverrideChange?: (v: ReasoningMode | 'agent') => void;
+  onEffortOverrideChange?: (v: ReasoningEffort | 'agent') => void;
   customHeight?: number | null;
   maxHeight?: number;
 }
@@ -94,6 +104,10 @@ export function ChatInput({
   isAgentLocked,
   contextUsage,
   yoloMode,
+  reasoningOverride = 'agent',
+  effortOverride = 'agent',
+  onReasoningOverrideChange,
+  onEffortOverrideChange,
   customHeight,
   maxHeight = 180,
 }: ChatInputProps) {
@@ -503,6 +517,55 @@ export function ChatInput({
                 <span>{t('chatInput.yoloShort')}</span>
               </div>
             )}
+
+            {/* Session reasoning/effort override (Ollama think field — no prefill overhead) */}
+            <div
+              className="flex items-center gap-1 shrink-0"
+              title={t('chatInput.thinkTitle')}
+            >
+              <Brain className="h-3.5 w-3.5 text-primary shrink-0" />
+              <select
+                value={reasoningOverride}
+                onChange={(e) => onReasoningOverrideChange?.(e.target.value as ReasoningMode | 'agent')}
+                className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none focus:ring-0 text-[11px] max-w-[86px]"
+              >
+                <option value="agent" className="bg-card text-foreground">
+                  {t('chatInput.thinkFollowAgent')}
+                </option>
+                <option value="default" className="bg-card text-foreground">
+                  {t('chatInput.thinkDefault')}
+                </option>
+                <option value="on" className="bg-card text-foreground">
+                  {t('chatInput.thinkOn')}
+                </option>
+                <option value="off" className="bg-card text-foreground">
+                  {t('chatInput.thinkOff')}
+                </option>
+              </select>
+              <select
+                value={effortOverride}
+                disabled={
+                  (reasoningOverride === 'agent'
+                    ? (currentAgent?.reasoning ?? 'default')
+                    : reasoningOverride) === 'off'
+                }
+                onChange={(e) => onEffortOverrideChange?.(e.target.value as ReasoningEffort | 'agent')}
+                className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none focus:ring-0 text-[11px] font-mono max-w-[72px] disabled:opacity-40"
+              >
+                <option value="agent" className="bg-card text-foreground">
+                  {t('chatInput.thinkFollowAgent')}
+                </option>
+                <option value="low" className="bg-card text-foreground">
+                  {t('agentForm.effortLow')}
+                </option>
+                <option value="medium" className="bg-card text-foreground">
+                  {t('agentForm.effortMedium')}
+                </option>
+                <option value="high" className="bg-card text-foreground">
+                  {t('agentForm.effortHigh')}
+                </option>
+              </select>
+            </div>
           </div>
 
           {contextUsage && (

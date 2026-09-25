@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Bot, Cpu, Sparkles, MessageSquare, Terminal, Zap, Layers, Activity } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
+import type { ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
 import { useAgents } from '@/lib/context/AgentsContext';
+import { useSettings } from '@/lib/context/SettingsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
@@ -35,6 +37,7 @@ export interface ChatTabProps {
 export function ChatTab({ tab }: ChatTabProps) {
   const { t } = useLanguage();
   const { getAgent, defaultAgent } = useAgents();
+  const { settings } = useSettings();
   const { updateTab, openTab } = useWorkspaceTabs();
   const { workspaceRoot } = useWorkspace();
   const { sessions, refreshSessions, updateSessionTitle } = useChatSessions();
@@ -66,6 +69,10 @@ export function ChatTab({ tab }: ChatTabProps) {
   const [selectedAgentId, setSelectedAgentId] = useState<string>(
     tabAgentId || defaultAgent.id,
   );
+  // 세션 단위 reasoning/effort 오버라이드. 'agent'면 Agent 기본 설정을 따른다.
+  // think 최상위 필드로만 전달되므로 변경해도 시스템 프롬프트가 변하지 않아 prefill 오버헤드가 없다.
+  const [reasoningOverride, setReasoningOverride] = useState<ReasoningMode | 'agent'>('agent');
+  const [effortOverride, setEffortOverride] = useState<ReasoningEffort | 'agent'>('agent');
   const [viewMode, setViewMode] = useState<'chat' | 'log'>('chat');
   const [yoloMode, setYoloMode] = useState<boolean>(false);
   const [compactDialogOpen, setCompactDialogOpen] = useState<boolean>(false);
@@ -167,10 +174,16 @@ export function ChatTab({ tab }: ChatTabProps) {
 
   const effectiveCwd = workspaceRoot ?? sessionWorkspaceRoot ?? undefined;
 
+  const thinkOverride = useMemo(() => ({
+    reasoning: reasoningOverride === 'agent' ? undefined : reasoningOverride,
+    effort: effortOverride === 'agent' ? undefined : effortOverride,
+  }), [reasoningOverride, effortOverride]);
+
   const {
     messages,
     isStreaming,
     contextUsage,
+    effectiveThink,
     sendMessage,
     steer,
     stop,
@@ -179,7 +192,13 @@ export function ChatTab({ tab }: ChatTabProps) {
     compact,
     clearChat,
     injectInfoMessage,
-  } = useChat(sessionId, activeAgent, { cwd: effectiveCwd });
+  } = useChat(sessionId, activeAgent, {
+    cwd: effectiveCwd,
+    thinkOverride,
+    // 구 Agent(Provider 미설정)는 전역 Ollama 주소를 그대로 사용한다.
+    // Agent 고유 llmBaseUrl이 있으면 useChat 내부에서 그쪽이 우선한다.
+    baseUrl: settings.ollamaBaseUrl,
+  });
 
   const handleSelectAgent = (newAgentId: string) => {
     setSelectedAgentId(newAgentId);
@@ -264,6 +283,7 @@ export function ChatTab({ tab }: ChatTabProps) {
             `- **${t('chatTab.approvalMode')}**: \`${yoloMode ? 'never (YOLO)' : activeAgent.approvalMode}\`\n` +
             `- **${t('chatTab.contextSize')}**: \`${(activeAgent.contextSize || 8192).toLocaleString()} tokens\`\n` +
             `- **${t('chatTab.temperature')}**: \`${activeAgent.temperature ?? 0.7}\`\n` +
+            `- **${t('chatTab.reasoning')}**: \`${activeAgent.reasoning ?? 'default'}\` / \`${activeAgent.reasoningEffort ?? 'medium'}\` → think: \`${String(effectiveThink ?? 'default')}\`\n` +
             `- **${t('chatTab.enabledTools')}**: \`${(activeAgent.enabledBuiltinTools || []).join(', ')}\``,
           );
           return true;
@@ -336,6 +356,7 @@ export function ChatTab({ tab }: ChatTabProps) {
       activeAgent,
       messages,
       yoloMode,
+      effectiveThink,
       openTab,
       skillsCtx?.skills,
       workspaceRoot,
@@ -602,6 +623,10 @@ export function ChatTab({ tab }: ChatTabProps) {
           isAgentLocked={messages.length > 0}
           contextUsage={contextUsage}
           yoloMode={yoloMode}
+          reasoningOverride={reasoningOverride}
+          effortOverride={effortOverride}
+          onReasoningOverrideChange={setReasoningOverride}
+          onEffortOverrideChange={setEffortOverride}
           customHeight={customInputHeight ? Math.max(60, customInputHeight - 24) : null}
         />
       </div>

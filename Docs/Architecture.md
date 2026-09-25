@@ -319,6 +319,8 @@ export interface Agent {
   systemPrompt: string;
   model: string; // Ollama 모델 태그, 예: "llama3.1:8b"
   temperature: number; // 0.0 ~ 2.0, 기본 0.7
+  reasoning?: ReasoningMode; // 사고모드: 'default'(모델 기본값) | 'off' | 'on'
+  reasoningEffort?: ReasoningEffort; // reasoning==='on'일 때 think 레벨: 'low'|'medium'|'high'(기본 'medium')
   contextSize: number; // 토큰 수. 0이면 전역값(app_settings) 상속
   reserveTokens: number; // 압축 트리거 여유분. 0이면 contextSize에서 파생 (§9.1)
   keepRecentTokens: number; // 압축 후 보존할 최근 대화량. 0이면 파생 (§9.1)
@@ -464,6 +466,8 @@ Fortress는 프로젝트 종속 데이터와 앱 전역 데이터를 명확히 �
 3. **런타임 동작**:
    - 워크스페이스가 열려있을 때 세션/대화/로그/탭 상태는 해당 프로젝트의 `.fortress/fortress.db`에만 저장/복원됩니다.
    - 워크스페이스가 없는 상태에서는 전역 DB가 fallback으로 동작합니다.
+   - 폴더(프로젝트) 전환 시 이전 프로젝트의 탭 상태를 해당 프로젝트 DB에 먼저 플러시한 뒤 새 프로젝트의 탭을 로드합니다. 다음 앱 로드 시 마지막 워크스페이스와 그 탭 상태가 그대로 복원됩니다.
+   - 어떤 세션에서든 LLM 추론 또는 대기 큐가 진행 중(`chatQueueManager` busy)일 때는 폴더 변경(열기/최근 폴더/닫기)을 금지합니다. 에이전트 설정은 전역이므로 폴더 변경 후에도 그대로 사용할 수 있습니다.
 
 ---
 
@@ -679,6 +683,7 @@ export function getRegisteredHooks(): AgentHooks; // 등록 순서대로 합성
 - `POST /api/chat` (`stream: true`, `tools: [...]`)를 `fetch`로 직접 호출하고 NDJSON 라인을 파싱합니다. LangChain 래퍼를 쓰지 않습니다.
 - 응답 마지막 청크의 `prompt_eval_count` / `eval_count`를 `TokenUsage`로 매핑합니다 — **압축 트리거의 토큰 계산은 이 실측값을 씁니다**(§9.2). 별도 토크나이저 라이브러리가 필요 없습니다.
 - `GET /api/tags`로 설치된 모델 목록, `POST /api/show`로 모델의 컨텍스트 길이(`model_info`의 `*.context_length`)를 조회합니다. Agent의 `contextSize`가 0이면 이 값을 씁니다.
+- **Reasoning 제어**: `POST /api/chat`의 최상위 `think` 필드에 Agent의 `reasoning`/`reasoningEffort` 해석값(`resolveThinkValue`)을 실어 보냅니다. `default`면 필드 생략(모델 기본값), `off`면 `false`, `on`이면 effort 문자열(`low`/`medium`/`high`). `/api/show` 응답의 `thinking.{values,default}`로 모델별 지원 범위를 확인해 Agent 편집 폼에 힌트로 표시합니다. `think`는 메시지 배열과 무관하므로 채팅 화면에서 세션 단위로 바꿔도 시스템 프롬프트 diff나 prefill 토큰 증가가 없습니다.
 - 기본 baseUrl: `http://127.0.0.1:11434` (Settings에서 변경 가능, `SettingsContext`).
 - Tauri v2 CSP의 `connect-src`에 `http://127.0.0.1:11434`를 허용해야 합니다 (`src-tauri/tauri.conf.json`의 `app.security.csp`, Phase 0).
 - **모델 호환성**: tool-calling을 지원하지 않는 모델이 선택되면 도구 없이 동작하고 UI에 경고 배지를 표시합니다. 어떤 모델이 멀티턴 tool-calling을 견디는지는 P0-08 스파이크에서 먼저 확인합니다.

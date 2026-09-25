@@ -13,9 +13,20 @@ import {
   getSystemGpuInfo,
   calculateEstimatedKvCacheBytes,
 } from '@/lib/llm/ollamaClient';
-import { saveMonitoringSnapshot } from '@/lib/db/repositories/monitoringRepo';
+import { saveMonitoringSnapshot, saveConversationSummary } from '@/lib/db/repositories/monitoringRepo';
 import { appLogger } from '@/lib/logger/logger';
 import { getAgentPhase, getAgentIdForSession } from '@/lib/monitoring/agentPhaseTracker';
+import {
+  endConversation,
+  getActiveConversationId,
+  getActiveConversationSeq,
+  getActiveTotals,
+  getTotals as getTokenTotals,
+} from '@/lib/monitoring/tokenTracker';
+import type {
+  ConversationTokenSummary,
+  TurnTokenContribution,
+} from '@/lib/types/monitoring';
 import { chatQueueManager } from '@/lib/agent/chatQueueManager';
 
 export type MonitoringListener = (snapshot: AgentMonitoringSnapshot) => void;
@@ -30,6 +41,10 @@ class MonitoringCollectorService {
   private isCollectingMap = new Map<string, boolean>();
   private latestInferenceMetrics = new Map<string, LlmPerformanceMetrics>();
   private lastCompletedMetrics = new Map<string, LlmPerformanceMetrics>();
+  /** 턴 종료 시 루프가 보고한 토큰 기여분. 다음 collect() 1회가 소비한다. */
+  private pendingTurnTokens = new Map<string, TurnTokenContribution>();
+  /** 마지막으로 종료된 대화 요약. 스냅샷의 대화 귀속/최근값 표시에 사용. */
+  private lastEndedConversation = new Map<string, ConversationTokenSummary>();
   private lastDbSavedTime = new Map<string, number>();
   private lastSavedStatus = new Map<string, string>();
   private activeAgentContexts = new Map<
@@ -65,6 +80,51 @@ class MonitoringCollectorService {
 
   public getLatestInferenceMetrics(agentId: string): LlmPerformanceMetrics | undefined {
     return this.latestInferenceMetrics.get(agentId);
+  }
+
+  /**
+   * 턴 종료 시점의 토큰 기여분을 등록한다. 다음 스냅샷 수집 1회가 소비하며,
+   * 이를 통해 주기 스냅샷 타임라인의 각 행에 해당 구간의 토큰 실측이 기재된다.
+   */
+  public recordTurnTokens(agentId: string, contribution: TurnTokenContribution): void {
+    const prev = this.pendingTurnTokens.get(agentId);
+    if (prev) {
+      // 같은 수집 주기 안에 여러 턴이 끝나면 합산 (멀티턴 도구 대화)
+      const merged: TurnTokenContribution = {
+        inputTokens: prev.inputTokens + contribution.inputTokens,
+        outputTokens: prev.outputTokens + contribution.outputTokens,
+        thinkingTokens: prev.thinkingTokens + contribution.thinkingTokens,
+        contentTokens: prev.contentTokens + contribution.contentTokens,
+        statusTokens: { ...prev.statusTokens },
+      };
+      for (const key of Object.keys(merged.statusTokens) as Array<keyof typeof merged.statusTokens>) {
+        merged.statusTokens[key] += contribution.statusTokens[key] ?? 0;
+      }
+      this.pendingTurnTokens.set(agentId, merged);
+    } else {
+      this.pendingTurnTokens.set(agentId, contribution);
+    }
+  }
+
+  /**
+   * 대화 종료(agent_end) 처리: 누적분을 요약으로 확정하고 대화 원장에 영속화.
+   * 저장 실패는 모니터링 수집에 영향을 주지 않도록 경고만 남긴다.
+   */
+  public async finishConversation(agentId: string): Promise<ConversationTokenSummary | null> {
+    const summary = endConversation(agentId);
+    if (!summary) return null;
+    this.lastEndedConversation.set(agentId, summary);
+    const workspaceRoot = this.activeAgentContexts.get(agentId)?.workspaceRoot;
+    try {
+      await saveConversationSummary(summary, workspaceRoot);
+    } catch (err) {
+      console.warn('Failed to save conversation token summary to SQLite:', err);
+    }
+    return summary;
+  }
+
+  public getLastEndedConversation(agentId: string): ConversationTokenSummary | undefined {
+    return this.lastEndedConversation.get(agentId);
   }
 
   public getLastCompletedMetrics(agentId: string): LlmPerformanceMetrics | undefined {
@@ -394,6 +454,16 @@ class MonitoringCollectorService {
         this.latestInferenceMetrics.delete(agent.id);
       }
 
+      // 턴 토큰 기여분도 1회성으로 소비한다. 주기 스냅샷 타임라인의 각 행에
+      // 해당 구간의 입력/출력/사고 토큰 실측이 기재되는 경로다.
+      const turnTokens = this.pendingTurnTokens.get(agent.id);
+      if (turnTokens) {
+        this.pendingTurnTokens.delete(agent.id);
+      }
+      const activeConvId = getActiveConversationId(agent.id);
+      const activeConvSeq = getActiveConversationSeq(agent.id);
+      const lastEnded = this.lastEndedConversation.get(agent.id);
+
       const snapshot: AgentMonitoringSnapshot = {
         id: `mon-${agent.id}-${Date.now()}`,
         agentId: agent.id,
@@ -424,6 +494,12 @@ class MonitoringCollectorService {
         decodingDurationMs: pendingPerf ? pendingPerf.evalDurationMs : 0,
         decodingSpeed: pendingPerf ? pendingPerf.decodingSpeed : 0,
         totalDurationMs: pendingPerf ? pendingPerf.totalDurationMs : 0,
+        thinkingTokens: turnTokens ? turnTokens.thinkingTokens : 0,
+        // 진행 중 대화에 귀속. 종료 직후 아직 소비되지 않은 턴 기여분이
+        // 이번 수집에 담기면 막 끝난 대화에 귀속시키고, 그 외에는 비워둔다
+        // (유휴 스냅샷이 과거 대화 id를 달고 다니지 않도록).
+        conversationId: activeConvId ?? (turnTokens ? lastEnded?.id : undefined),
+        conversationSeq: activeConvSeq ?? (turnTokens ? lastEnded?.seq : undefined),
         details: {
           blockCount: arch?.blockCount ?? 0,
           headCount: arch?.headCount ?? 0,
@@ -441,6 +517,17 @@ class MonitoringCollectorService {
           kvRamBytes,
           modelVramBytes,
           modelRamBytes,
+          tokenTurn: turnTokens
+            ? {
+                inputTokens: turnTokens.inputTokens,
+                outputTokens: turnTokens.outputTokens,
+                thinkingTokens: turnTokens.thinkingTokens,
+                contentTokens: turnTokens.contentTokens,
+                statusTokens: turnTokens.statusTokens,
+              }
+            : null,
+          tokenTotals: getTokenTotals(agent.id),
+          tokenActive: getActiveTotals(agent.id),
           lastCompletedInference: lastCompleted
             ? {
                 prefillSpeed: lastCompleted.prefillSpeed,
@@ -470,7 +557,7 @@ class MonitoringCollectorService {
       const prevStatus = this.lastSavedStatus.get(agent.id);
       const isStatusChanged = prevStatus !== snapshot.agentStatus;
       const isIdle = snapshot.agentStatus === 'idle';
-      const hasRecentInference = (snapshot.prefillTokens ?? 0) > 0 || (snapshot.decodingTokens ?? 0) > 0;
+      const hasRecentInference = (snapshot.prefillTokens ?? 0) > 0 || (snapshot.decodingTokens ?? 0) > 0 || (snapshot.thinkingTokens ?? 0) > 0;
       const shouldSaveToDb = isIdle
         ? isStatusChanged || hasRecentInference
         : true;

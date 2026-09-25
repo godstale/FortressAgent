@@ -7,8 +7,12 @@ import {
   clearMonitoringSnapshots,
   getMonitoringSummary,
   pruneOldMonitoringSnapshots,
+  saveConversationSummary,
+  getConversationSummaries,
+  clearConversationSummaries,
 } from './monitoringRepo';
-import type { AgentMonitoringSnapshot } from '@/lib/types/monitoring';
+import type { AgentMonitoringSnapshot, ConversationTokenSummary } from '@/lib/types/monitoring';
+import { emptyStatusTokens } from '@/lib/types/monitoring';
 
 describe('monitoringRepo', () => {
   beforeEach(() => {
@@ -45,6 +49,9 @@ describe('monitoringRepo', () => {
     decodingDurationMs: 2100,
     decodingSpeed: 38.1,
     totalDurationMs: 2550,
+    thinkingTokens: 12,
+    conversationId: 'conv-agent-1-abc',
+    conversationSeq: 3,
     details: { blockCount: 40 },
     createdAt: new Date().toISOString(),
   };
@@ -63,6 +70,9 @@ describe('monitoringRepo', () => {
     expect(snapshots[0].prefillDurationMs).toBe(450);
     expect(snapshots[0].decodingDurationMs).toBe(2100);
     expect(snapshots[0].details).toEqual({ blockCount: 40 });
+    expect(snapshots[0].thinkingTokens).toBe(12);
+    expect(snapshots[0].conversationId).toBe('conv-agent-1-abc');
+    expect(snapshots[0].conversationSeq).toBe(3);
   });
 
   it('filters recent snapshots within specified time window', async () => {
@@ -120,5 +130,47 @@ describe('monitoringRepo', () => {
     const after = await getMonitoringSnapshots('agent-1', 10);
     expect(after.length).toBe(3);
     expect(after.map((s) => s.id)).toEqual(['snap-5', 'snap-4', 'snap-3']);
+  });
+
+  it('saves and retrieves conversation token summaries', async () => {
+    const summary: ConversationTokenSummary = {
+      id: 'conv-agent-1-1',
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      seq: 1,
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      endedAt: new Date().toISOString(),
+      turnCount: 2,
+      inputTokens: 300,
+      outputTokens: 90,
+      totalTokens: 390,
+      thinkingTokens: 20,
+      contentTokens: 70,
+      statusTokens: {
+        ...emptyStatusTokens(),
+        prefill: 300,
+        thinking: 20,
+        decoding: 70,
+      },
+    };
+    await saveConversationSummary(summary);
+
+    const rows = await getConversationSummaries('agent-1');
+    expect(rows.length).toBe(1);
+    expect(rows[0].id).toBe('conv-agent-1-1');
+    expect(rows[0].seq).toBe(1);
+    expect(rows[0].turnCount).toBe(2);
+    expect(rows[0].inputTokens).toBe(300);
+    expect(rows[0].outputTokens).toBe(90);
+    expect(rows[0].totalTokens).toBe(390);
+    expect(rows[0].thinkingTokens).toBe(20);
+    expect(rows[0].statusTokens.prefill).toBe(300);
+    expect(rows[0].statusTokens.decoding).toBe(70);
+
+    const emptyForOther = await getConversationSummaries('other-agent');
+    expect(emptyForOther.length).toBe(0);
+
+    await clearConversationSummaries('agent-1');
+    expect(await getConversationSummaries('agent-1')).toHaveLength(0);
   });
 });

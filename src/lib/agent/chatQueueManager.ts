@@ -300,6 +300,18 @@ export const chatQueueManager = new ChatQueueManager();
 const getBusySessionSnapshot = () => chatQueueManager.getBusySessionId();
 
 /**
+ * 전역 LLM 실행 잠금 구독 훅.
+ * 폴더(프로젝트) 변경 등 "LLM 동작 중에는 금지" 동작의 가드 조건으로 사용한다.
+ * busySessionId가 null이 아니면 어떤 세션에서든 LLM 추론/대기 큐가 진행 중이다.
+ */
+export function useGlobalLlmBusy(): string | null {
+  return useSyncExternalStore(
+    (callback) => chatQueueManager.subscribe(callback),
+    getBusySessionSnapshot,
+  );
+}
+
+/**
  * React hook using useSyncExternalStore for reactive subscription to ChatQueueManager.
  * Guaranteed to return referentially stable snapshots to prevent infinite re-render loops.
  */

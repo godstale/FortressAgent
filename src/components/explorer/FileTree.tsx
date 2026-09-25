@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
+import { useGlobalLlmBusy } from '@/lib/agent/chatQueueManager';
 import type { FileTreeNode } from '@/lib/types/fileTree';
 import { cn } from '@/lib/utils';
 import { getFileIcon } from '@/lib/fileIcons';
@@ -77,6 +78,8 @@ export function FileTree() {
   const { t } = useLanguage();
   const { openTab } = useWorkspaceTabs();
   const { workspaceRoot, setWorkspaceRoot } = useWorkspace();
+  const busySessionId = useGlobalLlmBusy();
+  const isLlmBusy = busySessionId !== null;
   const workspacePath = workspaceRoot;
   const [tree, setTree] = useState<FileTreeNode | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -174,6 +177,7 @@ export function FileTree() {
   }, [contextMenu]);
 
   const handlePickFolder = async () => {
+    if (isLlmBusy) return;
     try {
       const picked = await invoke<string | null>('pick_project_folder');
       if (picked) {
@@ -594,9 +598,10 @@ export function FileTree() {
       <div className="flex items-center justify-between p-3 border-b border-border">
         <button
           type="button"
-          onClick={handlePickFolder}
-          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 truncate hover:text-foreground hover:bg-accent/50 px-1.5 py-0.5 rounded transition-colors text-left"
-          title={t('fileTree.clickToChange')}
+          onClick={isLlmBusy ? undefined : handlePickFolder}
+          disabled={isLlmBusy}
+          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 truncate hover:text-foreground hover:bg-accent/50 px-1.5 py-0.5 rounded transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-muted-foreground disabled:hover:bg-transparent"
+          title={isLlmBusy ? t('topMenu.folderChangeBlocked') : t('fileTree.clickToChange')}
         >
           <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
           <span className="truncate">{tree ? tree.name : t('fileTree.title')}</span>
@@ -664,7 +669,13 @@ export function FileTree() {
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-muted-foreground gap-3">
           <Folder className="h-10 w-10 opacity-30" />
           <p className="text-xs">{t('fileTree.noFolder')}</p>
-          <Button size="sm" onClick={handlePickFolder} className="text-xs">
+          <Button
+            size="sm"
+            onClick={handlePickFolder}
+            disabled={isLlmBusy}
+            title={isLlmBusy ? t('topMenu.folderChangeBlocked') : undefined}
+            className="text-xs"
+          >
             {t('fileTree.openFolder')}
           </Button>
         </div>

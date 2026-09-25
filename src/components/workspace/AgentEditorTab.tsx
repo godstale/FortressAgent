@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { Bot, CheckCircle2 } from 'lucide-react';
+import { Bot, CheckCircle2, MessageSquare } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import type { Agent } from '@/lib/types/agent';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
+import { useChatSessions } from '@/lib/context/ChatSessionsContext';
+import { useWorkspace } from '@/lib/context/WorkspaceContext';
+import { Button } from '@/components/ui/button';
 import { AgentEditorForm } from '@/components/agents/AgentEditorForm';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -13,7 +16,9 @@ export interface AgentEditorTabProps {
 
 export function AgentEditorTab({ tab }: AgentEditorTabProps) {
   const { getAgent } = useAgents();
-  const { updateTab, closeTab } = useWorkspaceTabs();
+  const { updateTab, closeTab, openTab } = useWorkspaceTabs();
+  const { createSession } = useChatSessions();
+  const { workspaceRoot } = useWorkspace();
 
   const rawId = (tab.meta?.agentId as string | undefined) ||
     (tab.id.startsWith('agent-editor:') ? tab.id.slice('agent-editor:'.length) : undefined);
@@ -35,6 +40,25 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
 
   const handleCancel = () => {
     closeTab(tab.id);
+  };
+
+  const handleStartChat = async () => {
+    if (!existingAgent) return;
+    try {
+      const session = await createSession({
+        title: t('agentList.chatWith', { name: existingAgent.name }),
+        agentId: existingAgent.id,
+        workspaceRoot: workspaceRoot ?? undefined,
+      });
+      openTab({
+        id: `chat:${session.id}`,
+        type: 'chat',
+        title: session.title,
+        meta: { sessionId: session.id, agentId: existingAgent.id },
+      });
+    } catch (err) {
+      console.error('Failed to start chat from agent editor:', err);
+    }
   };
 
   return (
@@ -66,6 +90,17 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
               <span>{t('agentEditor.saved')}</span>
             </span>
           )}
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleStartChat}
+            disabled={!existingAgent}
+            title={!existingAgent ? t('agentEditor.saveFirst') : undefined}
+            className="gap-1.5 text-xs cursor-pointer"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            <span>{t('agentEditor.startChat')}</span>
+          </Button>
         </div>
       </div>
 

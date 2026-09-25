@@ -5,11 +5,13 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   type ReactNode,
 } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import * as settingsRepo from '@/lib/db/repositories/settingsRepo';
 import { setActiveWorkspaceRoot } from '@/lib/db/client';
+import { chatQueueManager } from '@/lib/agent/chatQueueManager';
 
 const TRUST_STORAGE_KEY = 'fortress_trusted_workspaces';
 
@@ -51,7 +53,11 @@ function saveRecentWorkspaces(list: string[]): void {
 
 export interface WorkspaceContextValue {
   workspaceRoot: string | null;
-  setWorkspaceRoot: (root: string | null) => void;
+  /**
+   * 워크스페이스 변경. LLM 추론/대기 큐가 진행 중이면 변경을 거부하고 false를 반환한다.
+   * 동일 값으로의 호출(멱등)은 허용하고 true를 반환한다.
+   */
+  setWorkspaceRoot: (root: string | null) => boolean;
   recentWorkspaces: string[];
   isTrusted: boolean;
   trustModalOpen: boolean;
@@ -66,6 +72,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [workspaceRoot, setWorkspaceRootState] = useState<string | null>(() => {
     return localStorage.getItem('fortress_current_workspace_root');
   });
+  const workspaceRootRef = useRef<string | null>(workspaceRoot);
+  useEffect(() => {
+    workspaceRootRef.current = workspaceRoot;
+  }, [workspaceRoot]);
 
   const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(getStoredRecentWorkspaces);
 
@@ -138,6 +148,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [workspaceRoot]);
 
   const setWorkspaceRoot = useCallback((root: string | null) => {
+    if (root !== workspaceRootRef.current && chatQueueManager.getBusySessionId() !== null) {
+      console.warn('Workspace change blocked: LLM session is running.');
+      return false;
+    }
     setActiveWorkspaceRoot(root);
     setWorkspaceRootState(root);
     try {
@@ -168,6 +182,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setTrustModalOpen(false);
       void settingsRepo.updateSettings({ lastWorkspaceRoot: null });
     }
+    return true;
   }, []);
 
   const trustCurrentWorkspace = useCallback(() => {

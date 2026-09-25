@@ -30,6 +30,8 @@ export class OllamaRequestError extends Error {
 }
 
 export interface OllamaToolCall {
+  /** OpenAI 호환 청크에서 전달되는 호출 ID (상관관계 유지용, Ollama 네이티브에는 없음) */
+  id?: string;
   function: {
     name: string;
     arguments: Record<string, unknown>;
@@ -55,6 +57,14 @@ export interface OllamaChatRequest {
   }>;
   tools?: unknown[];
   temperature?: number;
+  /**
+   * Reasoning 제어 (최상위 필드 — 메시지/시스템 프롬프트를 바꾸지 않으므로
+   * 값을 바꿔도 프롬프트 토큰과 prefill 비용에 변화가 없다).
+   * - true/false: 사고 출력 요청/생략 (모델이 허용하는 경우)
+   * - 'low'|'medium'|'high' 등 문자열: /api/show thinking.values의 레벨 지정
+   * - undefined: 필드 생략 → 모델 기본값 사용
+   */
+  think?: boolean | string | null;
   options?: Record<string, unknown>;
 }
 
@@ -95,6 +105,7 @@ export async function* streamChat(
         messages: req.messages,
         tools: req.tools && req.tools.length > 0 ? req.tools : undefined,
         stream: true,
+        ...(req.think !== undefined ? { think: req.think } : {}),
         options: {
           temperature: req.temperature,
           ...req.options,
@@ -308,10 +319,17 @@ export async function getRunningModels(baseUrl?: string): Promise<import('@/lib/
   }
 }
 
+export interface OllamaThinkingInfo {
+  /** 모델이 지원하는 think 값 목록 (boolean on/off 또는 'low'/'medium'/'high' 등 레벨) */
+  values: Array<boolean | string>;
+  /** think를 생략했을 때 Ollama가 사용하는 기본값 */
+  default: boolean | string | null;
+}
+
 export async function showModel(
   baseUrl: string | undefined,
   model: string,
-): Promise<{ contextLength: number; supportsTools: boolean }> {
+): Promise<{ contextLength: number; supportsTools: boolean; thinking?: OllamaThinkingInfo }> {
   const host = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
   try {
     const res = await fetch(`${host}/api/show`, {
@@ -329,6 +347,10 @@ export async function showModel(
       model_info?: Record<string, unknown>;
       capabilities?: string[];
       details?: Record<string, unknown>;
+      thinking?: {
+        values?: Array<boolean | string>;
+        default?: boolean | string | null;
+      };
     };
 
     let contextLength = 4096;
@@ -346,7 +368,17 @@ export async function showModel(
       supportsTools = data.capabilities.includes('tools');
     }
 
-    return { contextLength, supportsTools };
+    // thinking 메타가 없으면 reasoning 미지원 구형 Ollama/모델로 간주 (undefined 유지).
+    // values:[false]는 "사고 기능 자체 없음"을 의미한다.
+    const thinking: OllamaThinkingInfo | undefined =
+      data.thinking && Array.isArray(data.thinking.values)
+        ? {
+            values: data.thinking.values,
+            default: data.thinking.default ?? null,
+          }
+        : undefined;
+
+    return { contextLength, supportsTools, thinking };
   } catch (err) {
     if (err instanceof OllamaRequestError || err instanceof OllamaModelNotFoundError) {
       throw err;

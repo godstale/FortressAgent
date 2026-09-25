@@ -8,13 +8,28 @@ import {
   AlertTriangle,
   Check,
   RotateCcw,
+  Brain,
+  Server,
+  RefreshCw,
+  PlugZap,
 } from 'lucide-react';
-import type { Agent, ApprovalMode, BuiltinToolId } from '@/lib/types/agent';
+import type { Agent, ApprovalMode, BuiltinToolId, LlmProviderKind, ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
 import { Button } from '@/components/ui/button';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { useAgents } from '@/lib/context/AgentsContext';
-import { listModels, showModel, type OllamaModel } from '@/lib/llm/ollamaClient';
+import { listModels, showModel, type OllamaModel, type OllamaThinkingInfo } from '@/lib/llm/ollamaClient';
+import {
+  LLM_PROVIDER_ORDER,
+  getProviderPreset,
+  normalizeProviderFields,
+  resolveAgentLlmRuntime,
+} from '@/lib/llm/providers';
+import {
+  checkProviderModel,
+  listProviderModels,
+  type ProviderModelInfo,
+} from '@/lib/llm/providerRuntime';
 import { resolveCompactionSettings } from '@/lib/compaction/settings';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -59,6 +74,18 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
   );
   const [model, setModel] = useState(initialAgent?.model || 'qwen3.5:9b');
   const [temperature, setTemperature] = useState(initialAgent?.temperature ?? 0.7);
+  // LLM Provider (기본 정보 카드 바로 아래 섹션)
+  const [llmProvider, setLlmProvider] = useState<LlmProviderKind>(
+    initialAgent?.llmProvider ?? 'ollama',
+  );
+  const [llmBaseUrl, setLlmBaseUrl] = useState(initialAgent?.llmBaseUrl ?? '');
+  const [llmApiKey, setLlmApiKey] = useState(initialAgent?.llmApiKey ?? '');
+  const [reasoning, setReasoning] = useState<ReasoningMode>(
+    initialAgent?.reasoning ?? 'default',
+  );
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>(
+    initialAgent?.reasoningEffort ?? 'medium',
+  );
   const [contextSize, setContextSize] = useState(initialAgent?.contextSize ?? 0);
   const [reserveTokens, setReserveTokens] = useState(initialAgent?.reserveTokens ?? 0);
   const [keepRecentTokens, setKeepRecentTokens] = useState(initialAgent?.keepRecentTokens ?? 0);
@@ -81,41 +108,134 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
     initialAgent?.enabledSkills || [],
   );
 
-  // Model list & capabilities
-  const [availableModels, setAvailableModels] = useState<OllamaModel[]>([]);
+  // Model list & capabilities (Provider-aware)
+  const [availableModels, setAvailableModels] = useState<ProviderModelInfo[]>([]);
   const [modelSupportsTools, setModelSupportsTools] = useState(true);
+  const [modelThinking, setModelThinking] = useState<OllamaThinkingInfo | undefined>(undefined);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
+  const [connMessage, setConnMessage] = useState<string>('');
+  const [legacyOllamaModels, setLegacyOllamaModels] = useState<OllamaModel[]>([]);
+
+  const providerPreset = getProviderPreset(llmProvider);
+  const isOllamaProvider = llmProvider === 'ollama';
+
+  const refreshModels = async () => {
+    setModelsLoading(true);
+    try {
+      const runtime = resolveAgentLlmRuntime(
+        { llmProvider, llmBaseUrl, llmApiKey },
+        settings.ollamaBaseUrl,
+      );
+      const models = await listProviderModels(runtime);
+      setAvailableModels(models);
+      if (isOllamaProvider) {
+        // Ollama 전용 상세 정보(용량 표시)는 기존 API로 보완
+        try {
+          setLegacyOllamaModels(await listModels(runtime.baseUrl));
+        } catch {
+          setLegacyOllamaModels([]);
+        }
+      } else {
+        setLegacyOllamaModels([]);
+      }
+    } catch {
+      setAvailableModels([]);
+      setLegacyOllamaModels([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  };
+
+  // Fetch installed models when provider / endpoint / key changes
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      if (!active) return;
+      setModelsLoading(true);
+      try {
+        const runtime = resolveAgentLlmRuntime(
+          { llmProvider, llmBaseUrl, llmApiKey },
+          settings.ollamaBaseUrl,
+        );
+        const models = await listProviderModels(runtime);
+        if (active) {
+          setAvailableModels(models);
+          if (isOllamaProvider) {
+            try {
+              setLegacyOllamaModels(await listModels(runtime.baseUrl));
+            } catch {
+              if (active) setLegacyOllamaModels([]);
+            }
+          } else {
+            setLegacyOllamaModels([]);
+          }
+        }
+      } catch {
+        if (active) {
+          setAvailableModels([]);
+          setLegacyOllamaModels([]);
+        }
+      } finally {
+        if (active) setModelsLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [llmProvider, llmBaseUrl, settings.ollamaBaseUrl]);
+
+  const handleTestConnection = async () => {
+    setConnStatus('checking');
+    setConnMessage('');
+    try {
+      const runtime = resolveAgentLlmRuntime(
+        { llmProvider, llmBaseUrl, llmApiKey },
+        settings.ollamaBaseUrl,
+      );
+      const status = await checkProviderModel(runtime, model.trim());
+      if (status === 'connected') {
+        setConnStatus('ok');
+      } else {
+        setConnStatus('fail');
+        setConnMessage(t('agentForm.connModelMissing'));
+      }
+    } catch (err) {
+      setConnStatus('fail');
+      setConnMessage(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // Check tool calling capability for selected model (Ollama만 /api/show 지원)
+  // 비-Ollama Provider는 도구 호출 가능으로 간주한다 (모델 의존적, 목록 API에 capability 없음).
+  useEffect(() => {
+    if (!isOllamaProvider) return;
+    let active = true;
+    const runtime = resolveAgentLlmRuntime(
+      { llmProvider, llmBaseUrl, llmApiKey },
+      settings.ollamaBaseUrl,
+    );
+    showModel(runtime.baseUrl, model)
+      .then((info) => {
+        if (active) {
+          setModelSupportsTools(info.supportsTools);
+          setModelThinking(info.thinking);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setModelSupportsTools(true);
+          setModelThinking(undefined);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [isOllamaProvider, llmProvider, llmBaseUrl, llmApiKey, settings.ollamaBaseUrl, model]);
+
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Fetch installed models
-  useEffect(() => {
-    let active = true;
-    listModels(settings.ollamaBaseUrl)
-      .then((models) => {
-        if (active) setAvailableModels(models);
-      })
-      .catch(() => {
-        // Ollama offline or empty
-      });
-    return () => {
-      active = false;
-    };
-  }, [settings.ollamaBaseUrl]);
-
-  // Check tool calling capability for selected model
-  useEffect(() => {
-    let active = true;
-    showModel(settings.ollamaBaseUrl, model)
-      .then((info) => {
-        if (active) setModelSupportsTools(info.supportsTools);
-      })
-      .catch(() => {
-        if (active) setModelSupportsTools(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [settings.ollamaBaseUrl, model]);
 
   // Sync form state when initialAgent changes or finishes loading from persistence
   const [prevInitialAgent, setPrevInitialAgent] = useState(initialAgent);
@@ -127,6 +247,11 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
       setSystemPrompt(initialAgent.systemPrompt);
       setModel(initialAgent.model);
       setTemperature(initialAgent.temperature);
+      setLlmProvider(initialAgent.llmProvider ?? 'ollama');
+      setLlmBaseUrl(initialAgent.llmBaseUrl ?? '');
+      setLlmApiKey(initialAgent.llmApiKey ?? '');
+      setReasoning(initialAgent.reasoning ?? 'default');
+      setReasoningEffort(initialAgent.reasoningEffort ?? 'medium');
       setContextSize(initialAgent.contextSize);
       setReserveTokens(initialAgent.reserveTokens);
       setKeepRecentTokens(initialAgent.keepRecentTokens);
@@ -181,12 +306,20 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
     setError(null);
 
     try {
+      const normalizedProvider = normalizeProviderFields({
+        llmProvider,
+        llmBaseUrl,
+        llmApiKey,
+      });
       const agentPayload = {
         name: name.trim(),
         description: description.trim() || undefined,
         systemPrompt: systemPrompt.trim(),
         model: model.trim(),
         temperature,
+        reasoning,
+        reasoningEffort,
+        ...normalizedProvider,
         contextSize: Number(contextSize) || 0,
         reserveTokens: Number(reserveTokens) || 0,
         keepRecentTokens: Number(keepRecentTokens) || 0,
@@ -279,7 +412,138 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         </div>
       </div>
 
-      {/* 2. Model & Generation Parameters */}
+      {/* 2. LLM Provider (Ollama / LM Studio / llama.cpp / vLLM / Jan / OpenAI 호환 / OpenAI) */}
+      <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
+        <div className="flex items-center gap-2">
+          <Server className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">{t('agentForm.providerSection')}</h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              {t('agentForm.provider')}
+            </label>
+            <select
+              value={llmProvider}
+              onChange={(e) => {
+                const next = e.target.value as LlmProviderKind;
+                setLlmProvider(next);
+                setConnStatus('idle');
+                setConnMessage('');
+                // 비-Ollama Provider는 /api/show 상당 API가 없어 capability를 알 수 없으므로
+                // 도구 지원 표시를 기본값으로 되돌린다.
+                if (next !== 'ollama') {
+                  setModelSupportsTools(true);
+                  setModelThinking(undefined);
+                }
+              }}
+              className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              {LLM_PROVIDER_ORDER.map((kind) => (
+                <option key={kind} value={kind}>
+                  {getProviderPreset(kind).label}
+                </option>
+              ))}
+            </select>
+            <span className="text-[10px] text-muted-foreground block leading-tight mt-1.5">
+              {providerPreset.hint}
+            </span>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-medium text-muted-foreground">
+                {t('agentForm.baseUrl')}
+              </label>
+              {llmBaseUrl.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setLlmBaseUrl('')}
+                  className="text-[11px] text-primary hover:underline"
+                >
+                  {t('agentForm.baseUrlReset')}
+                </button>
+              )}
+            </div>
+            <input
+              type="text"
+              value={llmBaseUrl}
+              onChange={(e) => {
+                setLlmBaseUrl(e.target.value);
+                setConnStatus('idle');
+              }}
+              placeholder={providerPreset.defaultBaseUrl}
+              className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <span className="text-[10px] text-muted-foreground block leading-tight mt-1.5">
+              {t('agentForm.baseUrlAuto', { url: providerPreset.defaultBaseUrl })}
+            </span>
+          </div>
+        </div>
+
+        {providerPreset.supportsApiKey && (
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              {t('agentForm.apiKey')}
+              {providerPreset.requiresApiKey && <span className="text-destructive"> *</span>}
+            </label>
+            <input
+              type="password"
+              value={llmApiKey}
+              onChange={(e) => {
+                setLlmApiKey(e.target.value);
+                setConnStatus('idle');
+              }}
+              placeholder={t('agentForm.apiKeyPlaceholder')}
+              autoComplete="off"
+              className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <span className="text-[10px] text-muted-foreground block leading-tight mt-1.5">
+              {t('agentForm.apiKeyHelp')}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={connStatus === 'checking'}
+            onClick={handleTestConnection}
+            className="flex items-center gap-1.5 text-xs"
+          >
+            {connStatus === 'checking' ? (
+              <RotateCcw className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <PlugZap className="h-3.5 w-3.5" />
+            )}
+            <span>
+              {connStatus === 'checking' ? t('agentForm.testing') : t('agentForm.testConnection')}
+            </span>
+          </Button>
+          {connStatus === 'ok' && (
+            <span className="text-[11px] text-success font-medium flex items-center gap-1">
+              <Check className="h-3.5 w-3.5" /> {t('agentForm.connected')}
+            </span>
+          )}
+          {connStatus === 'fail' && (
+            <span className="text-[11px] text-destructive font-medium flex items-center gap-1">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {connMessage || t('agentForm.disconnected')}
+            </span>
+          )}
+        </div>
+
+        {!isOllamaProvider && (
+          <div className="p-2.5 rounded bg-muted/40 border border-border/70 text-[11px] text-muted-foreground leading-relaxed">
+            {t('agentForm.manualContextNote')}
+          </div>
+        )}
+      </div>
+
+      {/* 3. Model & Generation Parameters */}
       <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
         <div className="flex items-center gap-2">
           <Cpu className="h-4 w-4 text-primary" />
@@ -290,23 +554,45 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-medium text-muted-foreground">{t('agentForm.model')}</label>
-              {!modelSupportsTools && (
-                <span className="text-[10px] text-warning font-medium flex items-center gap-0.5">
-                  <AlertTriangle className="h-3 w-3" /> {t('agentForm.noToolSupport')}
-                </span>
-              )}
+              <div className="flex items-center gap-1.5">
+                {!modelSupportsTools && (
+                  <span className="text-[10px] text-warning font-medium flex items-center gap-0.5">
+                    <AlertTriangle className="h-3 w-3" /> {t('agentForm.noToolSupport')}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={refreshModels}
+                  disabled={modelsLoading}
+                  title={t('agentForm.refreshModels')}
+                  className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3 w-3 ${modelsLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
             </div>
-            {availableModels.length > 0 ? (
+            {modelsLoading && availableModels.length === 0 ? (
+              <div className="text-[11px] text-muted-foreground py-1.5">
+                {t('agentForm.loadingModels')}
+              </div>
+            ) : availableModels.length > 0 ? (
               <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
+                value={availableModels.some((m) => m.name === model) ? model : '__custom__'}
+                onChange={(e) => {
+                  if (e.target.value !== '__custom__') setModel(e.target.value);
+                }}
                 className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
               >
-                {availableModels.map((m) => (
-                  <option key={m.name} value={m.name}>
-                    {m.name} ({(m.size / 1e9).toFixed(1)} GB)
-                  </option>
-                ))}
+                {availableModels.map((m) => {
+                  const legacy = legacyOllamaModels.find((l) => l.name === m.name);
+                  return (
+                    <option key={m.name} value={m.name}>
+                      {m.name}
+                      {legacy ? ` (${(legacy.size / 1e9).toFixed(1)} GB)` : ''}
+                    </option>
+                  );
+                })}
+                <option value="__custom__">{t('agentForm.customInput')}</option>
               </select>
             ) : (
               <input
@@ -317,6 +603,16 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
                 className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
               />
             )}
+            {availableModels.length > 0 &&
+              !availableModels.some((m) => m.name === model) && (
+                <input
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="qwen3.5:9b"
+                  className="mt-1.5 w-full px-3 py-1.5 text-xs rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              )}
           </div>
 
           <div>
@@ -335,6 +631,80 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
               onChange={(e) => setTemperature(parseFloat(e.target.value))}
               className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary mt-2"
             />
+          </div>
+        </div>
+
+        {/* Reasoning (사고모드) + Effort — Ollama 최상위 think 필드로 전달 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-border/50">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1 mb-1.5">
+              <Brain className="h-3 w-3" />
+              <span>{t('agentForm.reasoning')}</span>
+            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(
+                [
+                  { id: 'default', label: t('agentForm.reasoningDefault') },
+                  { id: 'on', label: t('agentForm.reasoningOn') },
+                  { id: 'off', label: t('agentForm.reasoningOff') },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setReasoning(opt.id)}
+                  className={`px-2 py-1.5 text-[11px] rounded-md border font-medium transition-colors cursor-pointer ${
+                    reasoning === opt.id
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-muted/40'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-muted-foreground block leading-tight mt-1.5">
+              {t('agentForm.reasoningHelp')}
+            </span>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+              {t('agentForm.effort')}
+            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(
+                [
+                  { id: 'low', label: t('agentForm.effortLow') },
+                  { id: 'medium', label: t('agentForm.effortMedium') },
+                  { id: 'high', label: t('agentForm.effortHigh') },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  disabled={reasoning === 'off'}
+                  onClick={() => setReasoningEffort(opt.id)}
+                  className={`px-2 py-1.5 text-[11px] rounded-md border font-medium font-mono transition-colors ${
+                    reasoning === 'off'
+                      ? 'border-border/50 text-muted-foreground/40 cursor-not-allowed'
+                      : reasoningEffort === opt.id
+                        ? 'border-primary bg-primary/10 text-primary cursor-pointer'
+                        : 'border-border text-muted-foreground hover:bg-muted/40 cursor-pointer'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-muted-foreground block leading-tight mt-1.5">
+              {modelThinking
+                ? t('agentForm.thinkingSupport', {
+                    values: modelThinking.values.map((v) => String(v)).join('/'),
+                    def: String(modelThinking.default ?? 'default'),
+                  })
+                : t('agentForm.thinkingUnknown')}
+            </span>
           </div>
         </div>
 
@@ -472,7 +842,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         </div>
       </div>
 
-      {/* 3. Approval Mode */}
+      {/* 4. Approval Mode */}
       <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -576,7 +946,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         )}
       </div>
 
-      {/* 4. Built-in Tools */}
+      {/* 5. Built-in Tools */}
       <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-primary" />
@@ -627,7 +997,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         </div>
       </div>
 
-      {/* 5. Enabled Skills */}
+      {/* 6. Enabled Skills */}
       {safeSkills.length > 0 && (
         <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
           <div className="flex items-center justify-between">
