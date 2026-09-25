@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Sliders, Cpu, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Sliders, Cpu, ShieldCheck, Plug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { path: '/settings', labelKey: 'settings.navGeneral', icon: Sliders, end: true },
   { path: '/settings/model', labelKey: 'settings.navModel', icon: Cpu, end: false },
   { path: '/settings/approval', labelKey: 'settings.navApproval', icon: ShieldCheck, end: false },
+  { path: '/settings/integrations', labelKey: 'eval.integrations.navTitle', icon: Plug, end: false },
 ];
 
 export function SettingsLayout() {

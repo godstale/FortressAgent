@@ -137,6 +137,134 @@ export const MIGRATION_STATEMENTS: string[] = [
     created_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_conv_tokens_agent_started ON conversation_token_summaries(agent_id, started_at)`,
+  `CREATE TABLE IF NOT EXISTS eval_runs (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    hardware_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT,
+    progress_done INTEGER NOT NULL DEFAULT 0,
+    progress_total INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT,
+    finished_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS eval_candidates (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    model_meta_json TEXT,
+    load_ms REAL,
+    status TEXT NOT NULL,
+    error TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_eval_candidates_run ON eval_candidates(run_id, position)`,
+  `CREATE TABLE IF NOT EXISTS eval_trials (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+    candidate_id TEXT NOT NULL REFERENCES eval_candidates(id) ON DELETE CASCADE,
+    pack_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL,
+    epoch INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    output_text TEXT,
+    reasoning_text TEXT,
+    transcript_json TEXT,
+    final_state_json TEXT,
+    extra_json TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    thinking_tokens INTEGER,
+    ttft_ms REAL,
+    prefill_tps REAL,
+    decode_tps REAL,
+    total_ms REAL,
+    timing_source TEXT,
+    cache_hit INTEGER,
+    vram_peak_mb INTEGER,
+    gpu_util_avg REAL,
+    gpu_temp_max REAL,
+    offload_ratio REAL,
+    turns INTEGER,
+    tool_calls INTEGER,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    UNIQUE(candidate_id, pack_id, sample_id, epoch)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_eval_trials_run ON eval_trials(run_id, candidate_id, pack_id)`,
+  `CREATE TABLE IF NOT EXISTS eval_scores (
+    id TEXT PRIMARY KEY,
+    trial_id TEXT NOT NULL REFERENCES eval_trials(id) ON DELETE CASCADE,
+    scorer_key TEXT NOT NULL,
+    scorer_type TEXT NOT NULL,
+    value REAL NOT NULL,
+    verdict TEXT NOT NULL,
+    reason TEXT,
+    extracted TEXT,
+    judge_raw TEXT,
+    source TEXT NOT NULL DEFAULT 'auto',
+    created_at TEXT NOT NULL,
+    UNIQUE(trial_id, scorer_key, source)
+  )`,
+  `CREATE TABLE IF NOT EXISTS eval_aggregates (
+    run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+    candidate_id TEXT NOT NULL,
+    level TEXT NOT NULL,
+    key TEXT NOT NULL,
+    raw REAL,
+    normalized REAL,
+    ci_low REAL,
+    ci_high REAL,
+    n INTEGER,
+    anchors_version TEXT,
+    computed_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, candidate_id, level, key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS eval_profiles (
+    id TEXT PRIMARY KEY,
+    profile_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS arena_votes (
+    id TEXT PRIMARY KEY,
+    prompt_hash TEXT NOT NULL,
+    prompt_preview TEXT,
+    a_snapshot_json TEXT NOT NULL,
+    b_snapshot_json TEXT NOT NULL,
+    a_label TEXT NOT NULL,
+    b_label TEXT NOT NULL,
+    winner TEXT NOT NULL,
+    workspace_root TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS external_integrations (
+    id TEXT PRIMARY KEY,
+    integration_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS integration_settings (
+    id TEXT PRIMARY KEY DEFAULT 'singleton',
+    settings_json TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS integration_audit_log (
+    id TEXT PRIMARY KEY,
+    integration_id TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    data_classes TEXT NOT NULL,
+    run_id TEXT,
+    request_count INTEGER NOT NULL,
+    bytes_sent INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_integration_audit_created ON integration_audit_log(created_at)`,
 ];
 
 export class MemorySqlFallback implements SqlDatabase {
@@ -150,6 +278,25 @@ export class MemorySqlFallback implements SqlDatabase {
     this.tables.set('execution_logs', new Map());
     this.tables.set('agent_monitoring_snapshots', new Map());
     this.tables.set('conversation_token_summaries', new Map());
+    this.tables.set('eval_runs', new Map());
+    this.tables.set('eval_candidates', new Map());
+    this.tables.set('eval_trials', new Map());
+    this.tables.set('eval_scores', new Map());
+    this.tables.set('eval_aggregates', new Map());
+    this.tables.set('eval_profiles', new Map());
+    this.tables.set('arena_votes', new Map());
+    this.tables.set('external_integrations', new Map());
+    this.tables.set('integration_settings', new Map());
+    this.tables.set('integration_audit_log', new Map());
+  }
+
+  private evalTable(name: string): Map<string, Record<string, unknown>> {
+    let table = this.tables.get(name);
+    if (!table) {
+      table = new Map();
+      this.tables.set(name, table);
+    }
+    return table;
   }
 
   async execute(
@@ -158,7 +305,11 @@ export class MemorySqlFallback implements SqlDatabase {
   ): Promise<QueryResult> {
     const q = query.trim().replace(/\s+/g, ' ');
 
-    if (q.startsWith('CREATE TABLE') || q.startsWith('CREATE UNIQUE INDEX')) {
+    if (
+      q.startsWith('CREATE TABLE') ||
+      q.startsWith('CREATE UNIQUE INDEX') ||
+      q.startsWith('CREATE INDEX')
+    ) {
       return { rowsAffected: 0 };
     }
 
@@ -832,6 +983,284 @@ export class MemorySqlFallback implements SqlDatabase {
       return { rowsAffected: 0 };
     }
 
+    // -- Phase 10 evaluation tables (global DB) --
+    if (q.startsWith('INSERT INTO eval_runs')) {
+      const [id, name, config_json, hardware_json, created_at, updated_at] = bindValues;
+      this.evalTable('eval_runs').set(id as string, {
+        id, name, config_json, hardware_json, status: 'pending', error: null,
+        progress_done: 0, progress_total: 0, started_at: null, finished_at: null,
+        created_at, updated_at,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith("UPDATE eval_runs SET status = 'interrupted'")) {
+      const [updated_at] = bindValues;
+      let affected = 0;
+      for (const row of this.evalTable('eval_runs').values()) {
+        if (row.status === 'running' || row.status === 'judging' || row.status === 'paused') {
+          row.status = 'interrupted';
+          row.updated_at = updated_at;
+          affected++;
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('UPDATE eval_runs SET status = ?')) {
+      const [status, error, started_at, finished_at, updated_at, id] = bindValues;
+      const row = this.evalTable('eval_runs').get(id as string);
+      if (row) {
+        Object.assign(row, { status, error, started_at, finished_at, updated_at });
+      }
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('UPDATE eval_runs SET progress_done = ?')) {
+      const [progress_done, progress_total, updated_at, id] = bindValues;
+      const row = this.evalTable('eval_runs').get(id as string);
+      if (row) {
+        Object.assign(row, { progress_done, progress_total, updated_at });
+      }
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('UPDATE eval_runs SET name = ?')) {
+      const [name, updated_at, id] = bindValues;
+      const row = this.evalTable('eval_runs').get(id as string);
+      if (row) {
+        Object.assign(row, { name, updated_at });
+      }
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM eval_runs WHERE id = ?')) {
+      const [id] = bindValues;
+      this.evalTable('eval_runs').delete(id as string);
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('INSERT INTO eval_candidates')) {
+      const [id, run_id, position, label, snapshot_json] = bindValues;
+      this.evalTable('eval_candidates').set(id as string, {
+        id, run_id, position, label, snapshot_json,
+        model_meta_json: null, load_ms: null, status: 'pending', error: null,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('UPDATE eval_candidates SET status = ?')) {
+      const [status, error, load_ms, model_meta_json, id] = bindValues;
+      const row = this.evalTable('eval_candidates').get(id as string);
+      if (row) {
+        Object.assign(row, { status, error, load_ms, model_meta_json });
+      }
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('INSERT INTO eval_trials')) {
+      const [
+        id, run_id, candidate_id, pack_id, sample_id, epoch, outcome,
+        output_text, reasoning_text, transcript_json, final_state_json, extra_json,
+        input_tokens, output_tokens, thinking_tokens, ttft_ms, prefill_tps,
+        decode_tps, total_ms, timing_source, cache_hit, vram_peak_mb,
+        gpu_util_avg, gpu_temp_max, offload_ratio, turns, tool_calls,
+        started_at, finished_at,
+      ] = bindValues;
+      const table = this.evalTable('eval_trials');
+      const tupleKey = `${candidate_id}|${pack_id}|${sample_id}|${epoch}`;
+      let existingId: string | null = null;
+      for (const [key, row] of table) {
+        if (`${row.candidate_id}|${row.pack_id}|${row.sample_id}|${row.epoch}` === tupleKey) {
+          existingId = key;
+          break;
+        }
+      }
+      const record = {
+        id: existingId ?? id, run_id, candidate_id, pack_id, sample_id, epoch, outcome,
+        output_text, reasoning_text, transcript_json, final_state_json, extra_json,
+        input_tokens, output_tokens, thinking_tokens, ttft_ms, prefill_tps,
+        decode_tps, total_ms, timing_source, cache_hit, vram_peak_mb,
+        gpu_util_avg, gpu_temp_max, offload_ratio, turns, tool_calls,
+        started_at, finished_at,
+      };
+      table.set((existingId ?? id) as string, record);
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('UPDATE eval_trials SET output_text = NULL')) {
+      const [cutoff] = bindValues;
+      let affected = 0;
+      for (const row of this.evalTable('eval_trials').values()) {
+        if ((row.started_at as string) < (cutoff as string)) {
+          row.output_text = null;
+          row.reasoning_text = null;
+          row.transcript_json = null;
+          row.final_state_json = null;
+          affected++;
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('DELETE FROM eval_trials WHERE run_id = ?')) {
+      const [runId] = bindValues;
+      const table = this.evalTable('eval_trials');
+      let affected = 0;
+      for (const [k, v] of table) {
+        if (v.run_id === runId) {
+          table.delete(k);
+          affected++;
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('INSERT INTO eval_scores')) {
+      const [id, trial_id, scorer_key, scorer_type, value, verdict, reason, extracted, judge_raw, source, created_at] = bindValues;
+      const table = this.evalTable('eval_scores');
+      const tripleKey = `${trial_id}|${scorer_key}|${source}`;
+      let existingId: string | null = null;
+      for (const [key, row] of table) {
+        if (`${row.trial_id}|${row.scorer_key}|${row.source}` === tripleKey) {
+          existingId = key;
+          break;
+        }
+      }
+      const record = {
+        id: existingId ?? id, trial_id, scorer_key, scorer_type, value, verdict,
+        reason, extracted, judge_raw, source, created_at,
+      };
+      table.set((existingId ?? id) as string, record);
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM eval_scores WHERE trial_id IN')) {
+      const [runId] = bindValues;
+      const trialIds = new Set<string>();
+      for (const row of this.evalTable('eval_trials').values()) {
+        if (row.run_id === runId) trialIds.add(row.id as string);
+      }
+      const table = this.evalTable('eval_scores');
+      let affected = 0;
+      for (const [k, v] of table) {
+        if (trialIds.has(v.trial_id as string)) {
+          table.delete(k);
+          affected++;
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('DELETE FROM eval_candidates WHERE run_id = ?')) {
+      const [runId] = bindValues;
+      const table = this.evalTable('eval_candidates');
+      let affected = 0;
+      for (const [k, v] of table) {
+        if (v.run_id === runId) {
+          table.delete(k);
+          affected++;
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('INSERT INTO eval_aggregates')) {
+      const [run_id, candidate_id, level, key, raw, normalized, ci_low, ci_high, n, anchors_version, computed_at] = bindValues;
+      this.evalTable('eval_aggregates').set(`${run_id}|${candidate_id}|${level}|${key}`, {
+        run_id, candidate_id, level, key, raw, normalized, ci_low, ci_high, n,
+        anchors_version, computed_at,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM eval_aggregates WHERE run_id = ?')) {
+      const [runId] = bindValues;
+      const table = this.evalTable('eval_aggregates');
+      let affected = 0;
+      for (const [k, v] of table) {
+        if (v.run_id === runId) {
+          table.delete(k);
+          affected++;
+        }
+      }
+      return { rowsAffected: affected };
+    }
+
+    if (q.startsWith('INSERT INTO eval_profiles')) {
+      const [id, profile_json, created_at, updated_at] = bindValues;
+      const table = this.evalTable('eval_profiles');
+      const existing = table.get(id as string);
+      table.set(id as string, {
+        id, profile_json,
+        created_at: existing?.created_at ?? created_at,
+        updated_at,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM eval_profiles WHERE id = ?')) {
+      const [id] = bindValues;
+      this.evalTable('eval_profiles').delete(id as string);
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('INSERT INTO arena_votes')) {
+      const [id, prompt_hash, prompt_preview, a_snapshot_json, b_snapshot_json, a_label, b_label, winner, workspace_root, created_at] = bindValues;
+      this.evalTable('arena_votes').set(id as string, {
+        id, prompt_hash, prompt_preview, a_snapshot_json, b_snapshot_json,
+        a_label, b_label, winner, workspace_root, created_at,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM arena_votes WHERE id = ?')) {
+      const [id] = bindValues;
+      this.evalTable('arena_votes').delete(id as string);
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('INSERT INTO external_integrations')) {
+      const [id, integration_json, created_at, updated_at] = bindValues;
+      const table = this.evalTable('external_integrations');
+      const existing = table.get(id as string);
+      table.set(id as string, {
+        id, integration_json,
+        created_at: existing?.created_at ?? created_at,
+        updated_at,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM external_integrations WHERE id = ?')) {
+      const [id] = bindValues;
+      this.evalTable('external_integrations').delete(id as string);
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('INSERT INTO integration_settings')) {
+      const [settings_json] = bindValues;
+      this.evalTable('integration_settings').set('singleton', {
+        id: 'singleton', settings_json,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('INSERT INTO integration_audit_log')) {
+      const [id, integration_id, purpose, data_classes, run_id, request_count, bytes_sent, status, error, created_at] = bindValues;
+      this.evalTable('integration_audit_log').set(id as string, {
+        id, integration_id, purpose, data_classes, run_id, request_count,
+        bytes_sent, status, error, created_at,
+      });
+      return { rowsAffected: 1 };
+    }
+
+    if (q.startsWith('DELETE FROM integration_audit_log')) {
+      const count = this.evalTable('integration_audit_log').size;
+      this.evalTable('integration_audit_log').clear();
+      return { rowsAffected: count };
+    }
+
     return { rowsAffected: 0 };
   }
 
@@ -1032,6 +1461,86 @@ export class MemorySqlFallback implements SqlDatabase {
     if (q.includes('FROM conversation_token_summaries')) {
       const rows = Array.from(this.tables.get('conversation_token_summaries')?.values() ?? [])
         .sort((a, b) => (b.started_at as string).localeCompare(a.started_at as string));
+      return rows as unknown as T;
+    }
+
+    // -- Phase 10 evaluation tables (global DB) --
+    if (q.startsWith('SELECT * FROM eval_runs WHERE id = ?')) {
+      const [id] = bindValues;
+      const found = this.evalTable('eval_runs').get(id as string);
+      return (found ? [found] : []) as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM eval_runs ORDER BY created_at DESC')) {
+      const rows = Array.from(this.evalTable('eval_runs').values())
+        .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string));
+      return rows as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM eval_candidates WHERE id = ?')) {
+      const [id] = bindValues;
+      const found = this.evalTable('eval_candidates').get(id as string);
+      return (found ? [found] : []) as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM eval_candidates WHERE run_id = ?')) {
+      const [runId] = bindValues;
+      const rows = Array.from(this.evalTable('eval_candidates').values())
+        .filter((r) => r.run_id === runId)
+        .sort((a, b) => (a.position as number) - (b.position as number));
+      return rows as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM eval_trials WHERE run_id = ?')) {
+      const [runId] = bindValues;
+      const rows = Array.from(this.evalTable('eval_trials').values())
+        .filter((r) => r.run_id === runId);
+      return rows as unknown as T;
+    }
+
+    if (q.startsWith('SELECT s.* FROM eval_scores s INNER JOIN eval_trials t')) {
+      const [runId] = bindValues;
+      const trialIds = new Set<string>();
+      for (const row of this.evalTable('eval_trials').values()) {
+        if (row.run_id === runId) trialIds.add(row.id as string);
+      }
+      const rows = Array.from(this.evalTable('eval_scores').values())
+        .filter((r) => trialIds.has(r.trial_id as string));
+      return rows as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM eval_aggregates WHERE run_id = ?')) {
+      const [runId] = bindValues;
+      const rows = Array.from(this.evalTable('eval_aggregates').values())
+        .filter((r) => r.run_id === runId);
+      return rows as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM eval_profiles ORDER BY id ASC')) {
+      const rows = Array.from(this.evalTable('eval_profiles').values())
+        .sort((a, b) => (a.id as string).localeCompare(b.id as string));
+      return rows as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM arena_votes ORDER BY created_at DESC')) {
+      const rows = Array.from(this.evalTable('arena_votes').values())
+        .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string));
+      return rows as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM external_integrations')) {
+      const rows = Array.from(this.evalTable('external_integrations').values());
+      return rows as unknown as T;
+    }
+
+    if (q.startsWith("SELECT * FROM integration_settings WHERE id = 'singleton'")) {
+      const found = this.evalTable('integration_settings').get('singleton');
+      return (found ? [found] : []) as unknown as T;
+    }
+
+    if (q.startsWith('SELECT * FROM integration_audit_log ORDER BY created_at DESC')) {
+      const rows = Array.from(this.evalTable('integration_audit_log').values())
+        .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string));
       return rows as unknown as T;
     }
 

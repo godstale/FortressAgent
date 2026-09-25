@@ -28,6 +28,9 @@ Tauri 2와 React 19로 구축되었으며, 외부 프레임워크 오버헤드(N
   - 대화 및 모니터링 스냅샷은 워크스페이스 내 `.fortress/project.db` (SQLite)에 Append-Only 이벤트 소싱 방식으로 안전하게 보관.
 - 🛡 **인간 개입 승인 (Human-in-the-Loop, HITL)**
   - 파일 쓰기/편집 및 중요 도구 호출 시 사용자의 사전 승인을 강제하는 보안 계층.
+- 🧪 **자동 평가 (Evaluation)**
+  - 같은 평가셋을 여러 후보(모델×설정)에 자동 실행해 품질·에이전트·성능·자원·신뢰성을 0~100으로 비교하고 최적 후보를 추천.
+  - 내장 FAB 11종 + 공개셋 9종 번들, 실행 마법사·진행 화면·리포트·Arena·개인 평가셋·EEE 내보내기 포함.
 - 📑 **생산성을 극대화하는 다중 탭 레이아웃**
   - 드래그 앤 드롭 탭 재정렬, 탭 컨텍스트 메뉴(우측/좌측/다른 탭 닫기), 3패널 반응형 분할, 파일 탐색기 CRUD.
 
@@ -98,6 +101,42 @@ pnpm tauri build
 5. **실시간 모니터링 확인**
    - `Agents` 패널에서 에이전트 카드의 모니터 아이콘(또는 상단 메뉴 `Agent` → `Monitor Dashboard`)을 클릭하면 실시간 모니터링 탭이 열립니다.
    - VRAM 점유율, KV 캐시 크기, 디코딩 속도(tokens/s)가 실시간 그래프로 시각화됩니다.
+6. **자동 평가로 모델 비교하기**
+   - 좌측 ActivityBar의 **평가(플라스크)** 아이콘 → [새 평가] → 마법사 4단계(**프로파일 → 평가셋 → 후보 → 확인**)를 진행합니다.
+   - 확인 단계에서 "확인했습니다"를 체크해야 [실행 생성]이 활성화되며, [지금 시작] 또는 [나중에 시작]을 고릅니다.
+   - 완료되면 같은 탭이 리포트로 전환되어 최적/빠른 대안/고품질 대안 추천, 순위표·레이더·파레토 차트를 확인합니다.
+   - ⚠️ 평가 중에는 모든 채팅 입력·전송이 차단되고(상단 배너 표시), 종료 후 자동 해제됩니다.
+   - 자세한 절차·옵션·결과 읽기는 **[Docs/EvaluationGuide.md](./Docs/EvaluationGuide.md)**를 참고하세요.
+
+---
+
+## 🧪 자동 평가 사용법 (Evaluation)
+
+**Fortress 평가**는 같은 평가셋을 같은 조건으로 여러 후보(모델×설정)에 자동 실행해
+품질·에이전트·성능·자원·신뢰성을 0~100 공통 척도로 비교하고, 이 PC와 작업에 가장 맞는 후보를 추천합니다.
+
+### 실행 흐름 (마법사 4단계)
+
+1. **프로파일 선택**: 내장 5종(균형 / 코딩 에이전트 / 한국어 문서 작성 / 빠른 응답 / 긴 문서 분석) 중 목적에 맞는 기준을 고릅니다. [복제·편집]으로 커스텀 저장도 가능합니다.
+2. **평가셋 선택**: 1개 이상 선택. 내장 20종(**FAB 11종** + **공개셋 9종**: `gsm8k`, `ifeval`, `ko-ifeval`, `humaneval-plus`, `bfcl`, `mmlu-pro`, `kmmlu`, `kobest` 등) + 내 개인 팩. 티어(**Smoke-all / Standard / Full**)로 분량 조절.
+3. **후보·Judge·옵션**: 비교할 에이전트를 1개 이상 선택(최대 24). 루브릭·작문 계열 팩은 Judge 필수. 외부 LLM을 Judge·후보로 쓰려면 **설정 > 외부 연동**을 먼저 켜야 합니다.
+4. **확인 후 생성**: 가중치·기준값 전체를 보고 "확인했습니다" 체크 → [실행 생성] → [지금 시작] / [나중에 시작]. 자동·예약 실행은 없습니다.
+
+### 결과 읽기
+
+- **추천 3종**(최적 / 빠른 대안 / 고품질 대안) + 사유 문장. 신뢰구간이 겹치면 "구분 불가".
+- **순위표 · 차원 레이더 · 파레토 산점도 · 카테고리 히트맵**으로 강점·약점 비교.
+- **이전 실행과 비교** (같은 팩 해시 기준, 회귀 ↓ 강조), **샘플 드릴다운**(팩 → 샘플 → 후보별 출력·채점 사유), **사람 직접 채점**(집계 재계산).
+
+### 알아두면 좋은 기능
+
+- **개인 평가셋**: 채팅 말풍선 메뉴(⋯) → "평가 케이스로 저장". 비밀값은 자동 마스킹되어 프로젝트 개인 팩(`personal-<폴더명>`)에 저장됩니다.
+- **가져오기**: 팩 관리 뷰의 [팩 가져오기]에서 Inspect JSONL·CSV·promptfoo YAML·HuggingFace를 전역 팩으로 변환.
+- **내보내기**: 리포트의 [내보내기]에서 EEE JSON·샘플 JSONL·Trials CSV 저장 (GPQA 원문은 제외).
+- **Arena**: 두 후보를 블라인드로 비교 투표 → Bradley-Terry 리더보드.
+- **평가 중 잠금**: 채팅·폴더 전환·에이전트 편집이 잠기며, 중단된 실행은 `interrupted` 표시 후 [이어하기] 가능.
+
+> 📖 전체 절차·옵션·문제 해결은 **[Docs/EvaluationGuide.md](./Docs/EvaluationGuide.md)**에 정리되어 있습니다.
 
 ---
 
@@ -132,6 +171,7 @@ Fortress의 내부 구조 파악, 커스텀 에이전트 개발, 벤치마크 �
 | **재구현 및 종합 청사진** | **[ReimplementationGuide.md](./Docs/ReimplementationGuide.md)**<br>현재까지의 구현사항, 계층별 아키텍처, 런타임 루프 분석, 디렉터리 구성, 신규 앱 개발 및 재구현 시 단계별 가이드라인을 집대성한 핵심 문서. | [바로가기](./Docs/ReimplementationGuide.md) |
 | **시스템 아키텍처 설계서** | **[Architecture.md](./Docs/Architecture.md)**<br>데이터 모델, 엔트리 스키마, 신뢰 경계(Security), 런타임 수명 주기, 도구 정의의 단일 진실 공급원(Single Source of Truth). | [바로가기](./Docs/Architecture.md) |
 | **사용자 가이드** | **[UserGuide.md](./Docs/UserGuide.md)**<br>화면 레이아웃 구성, 에이전트 편집, 도구 승인 절차, 시각화 기능 등 사용자를 위한 실전 매뉴얼. | [바로가기](./Docs/UserGuide.md) |
+| **자동 평가 사용법** | **[EvaluationGuide.md](./Docs/EvaluationGuide.md)**<br>평가 실행 마법사 4단계, 프로파일·평가셋·후보 설정, 리포트 읽기, 개인 평가셋·가져오기·내보내기·Arena 상세 가이드. | [바로가기](./Docs/EvaluationGuide.md) |
 | **Nemotron 64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Nemotron3.5_64k.md](./Docs/MonitoringAnalysis_Nemotron3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Nemotron-3.5-Lightning(30B MoE, A3B, Mamba-2 하이브리드) 64k 컨텍스트 실측 데이터 및 VRAM/속도 분석 리포트. | [바로가기](./Docs/MonitoringAnalysis_Nemotron3.5_64k.md) |
 | **Qwen 64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_64k.md](./Docs/MonitoringAnalysis_Qwen3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Qwen3.5 64k 컨텍스트 및 8개 도구/위키 연동 실측 데이터 분석 및 대용량 최적화 리포트. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_64k.md) |
 | **Qwen 8k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_8k.md](./Docs/MonitoringAnalysis_Qwen3.5_8k.md)**<br>8k 컨텍스트 환경의 하드웨어 리소스 병목 진단 및 VRAM 예산 산정 가이드. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_8k.md) |

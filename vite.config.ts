@@ -28,5 +28,11 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     passWithNoTests: true,
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/src-tauri/**',
+      '**/.fortress/**',
+    ],
   },
 });

@@ -1,4 +1,5 @@
 import type { Dict } from './ko';
+import { evalEn } from './eval/index';
 
 const en: Dict = {
   'languageSelect.title': 'Select language',
@@ -1015,6 +1016,8 @@ const en: Dict = {
   'monitoringList.emptyDesc': 'Start agent monitoring to collect records here.',
   'monitoringList.clearConfirmTitle': 'Delete all monitoring records',
   'monitoringList.clearConfirmDesc': 'Delete all {n} monitoring records? (cannot be undone)',
+
+  ...evalEn,
 };
 
 export default en;

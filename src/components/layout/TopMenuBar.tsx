@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Files,
   Activity,
+  FlaskConical,
   Clock,
   Minus,
   Square,
@@ -343,6 +344,13 @@ export function TopMenuBar() {
               >
                 <Activity className="h-3.5 w-3.5 text-warning" />
                 <span>{t('topMenu.monitoring')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setActiveView('evaluation')}
+                className="gap-2 cursor-pointer text-[11px] py-1"
+              >
+                <FlaskConical className="h-3.5 w-3.5 text-primary" />
+                <span>{t('eval.common.nav.evaluation')}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           )}
