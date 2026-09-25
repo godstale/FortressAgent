@@ -10,6 +10,7 @@ import {
   Legend,
   BarChart,
   Bar,
+  Cell,
 } from 'recharts';
 import {
   Activity,
@@ -22,7 +23,6 @@ import {
   Pause,
   FileDown,
   Trash2,
-  CheckCircle2,
   AlertCircle,
   Eye,
   Server,
@@ -39,6 +39,8 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Filter,
+  Brain,
 } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import { useAgents } from '@/lib/context/AgentsContext';
@@ -69,11 +71,40 @@ import { listModels } from '@/lib/llm/ollamaClient';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 const CHART_COLORS = {
-  gpu: 'hsl(var(--chart-3))', // 선명한 에메랄드 녹색 (GPU 점유율)
-  vram: 'hsl(var(--chart-2))', // 뚜렷이 대비되는 바이올렛 보라색 (VRAM 메모리)
-  prefill: 'hsl(var(--chart-4))', // 앰버 황색 (Prefill 속도 및 시간)
-  decoding: 'hsl(var(--chart-5))', // 시안 청록색 (디코딩 속도 및 시간)
+  gpu: 'hsl(var(--chart-3))',
+  vram: 'hsl(var(--chart-2))',
+  prefill: 'hsl(var(--chart-4))',
+  decoding: 'hsl(var(--chart-5))',
+  thinking: 'hsl(var(--chart-1))',
+  tool: '#f59e0b',
+  generating: 'hsl(var(--chart-3))',
+  approval: 'hsl(var(--destructive))',
 } as const;
+
+function isIdleLikeSnapshot(s: AgentMonitoringSnapshot): boolean {
+  if (s.agentStatus !== 'idle') return false;
+  if ((s.gpuUtilizationPct ?? 0) >= 5) return false;
+  const hasPrefill = (s.prefillSpeed ?? 0) > 0 || (s.prefillDurationMs ?? 0) > 0 || (s.prefillTokens ?? 0) > 0;
+  if (hasPrefill) return false;
+  const hasDecoding = (s.decodingSpeed ?? 0) > 0 || (s.decodingDurationMs ?? 0) > 0 || (s.decodingTokens ?? 0) > 0;
+  if (hasDecoding) return false;
+  return true;
+}
+
+function formatDurationMs(ms: number): string {
+  if (!ms || ms <= 0) return '0ms';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const sec = ms / 1000;
+  if (sec < 60) return `${sec.toFixed(1)}s`;
+  const min = Math.floor(sec / 60);
+  if (sec < 3600) {
+    const rest = (sec % 60).toFixed(0);
+    return `${min}m ${rest}s`;
+  }
+  const h = Math.floor(min / 60);
+  const restMin = min % 60;
+  return `${h}h ${restMin}m`;
+}
 
 const INTERVAL_OPTIONS = [
   { seconds: 1, value: 1000 },
@@ -206,6 +237,8 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [timelineOffset, setTimelineOffset] = useState(0);
+  const [hideIdleSnapshots, setHideIdleSnapshots] = useState(true);
+  const TIMELINE_WINDOW_SIZE = 25;
   const { t } = useLanguage();
 
   // Stop collector immediately when tab unmounts or agent changes
@@ -377,53 +410,151 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
   // Compute dynamic scale upper bounds for dual Y-axis charts with comfortable headroom
   const {
-    prefillSpeedMax,
-    decodingSpeedMax,
-    prefillDurationMax,
-    decodingDurationMax,
+    tokenSpeedMax,
+    inferenceMsMax,
   } = useMemo(() => {
-    let maxPrefillSpeed = 0;
-    let maxDecodingSpeed = 0;
-    let maxPrefillDuration = 0;
-    let maxDecodingDuration = 0;
+    let maxSpeed = 0;
+    let maxMs = 0;
 
     for (const d of timeSeriesData) {
-      if (d.prefillSpeed > maxPrefillSpeed) maxPrefillSpeed = d.prefillSpeed;
-      if (d.decodingSpeed > maxDecodingSpeed) maxDecodingSpeed = d.decodingSpeed;
-      if (d.prefillDurationMs > maxPrefillDuration) maxPrefillDuration = d.prefillDurationMs;
-      if (d.decodingDurationMs > maxDecodingDuration) maxDecodingDuration = d.decodingDurationMs;
+      if (d.prefillSpeed > maxSpeed) maxSpeed = d.prefillSpeed;
+      if (d.decodingSpeed > maxSpeed) maxSpeed = d.decodingSpeed;
+      if (d.prefillDurationMs > maxMs) maxMs = d.prefillDurationMs;
+      if (d.decodingDurationMs > maxMs) maxMs = d.decodingDurationMs;
     }
 
     return {
-      prefillSpeedMax: computeDynamicMax(maxPrefillSpeed, 100),
-      decodingSpeedMax: computeDynamicMax(maxDecodingSpeed, 40),
-      prefillDurationMax: computeDynamicMax(maxPrefillDuration, 200),
-      decodingDurationMax: computeDynamicMax(maxDecodingDuration, 1000),
+      tokenSpeedMax: computeDynamicMax(maxSpeed, 100),
+      inferenceMsMax: computeDynamicMax(maxMs, 1000),
     };
   }, [timeSeriesData]);
 
-  // Memory breakdown bar data (converted to GB)
-  const memoryBreakdownData = useMemo(() => {
+  // VRAM-only breakdown (weights resident in VRAM + KV resident in VRAM + other + free)
+  const vramBreakdownData = useMemo(() => {
     if (!currentSnapshot) return [];
-    const modelWeightGb = Number((currentSnapshot.modelWeightBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const kvCacheGb = Number((currentSnapshot.kvCacheBytes / (1024 * 1024 * 1024)).toFixed(2));
+    const details = (currentSnapshot.details || {}) as Record<string, unknown>;
+    const kvVramBytes = typeof details.kvVramBytes === 'number'
+      ? details.kvVramBytes
+      : Math.round(currentSnapshot.kvCacheBytes * (currentSnapshot.gpuOffloadPct / 100));
+    const kvVramGb = Number((kvVramBytes / (1024 * 1024 * 1024)).toFixed(2));
+    const modelVramGb = Number((currentSnapshot.vramAllocatedBytes / (1024 * 1024 * 1024)).toFixed(2));
+    const weightOnlyVramGb = Number(Math.max(0, modelVramGb - kvVramGb).toFixed(2));
     const freeVramGb = Number((Math.max(0, currentSnapshot.gpuVramFreeMb) / 1024).toFixed(2));
-    const otherVramMb = Math.max(
-      0,
-      currentSnapshot.gpuVramUsedMb - Math.round(currentSnapshot.modelWeightBytes / (1024 * 1024)),
-    );
-    const otherVramGb = Number((otherVramMb / 1024).toFixed(2));
+    const usedVramGb = currentSnapshot.gpuVramTotalMb > 0
+      ? Number((currentSnapshot.gpuVramUsedMb / 1024).toFixed(2))
+      : modelVramGb;
+    const otherVramGb = Number(Math.max(0, usedVramGb - modelVramGb).toFixed(2));
 
     return [
       {
-        name: t('monitor.vramDist'),
-        [t('monitor.weights')]: modelWeightGb,
-        [t('monitor.kvEst')]: kvCacheGb,
+        name: t('monitor.vramDistShort'),
+        [t('monitor.weightsVram')]: weightOnlyVramGb,
+        [t('monitor.kvVram')]: kvVramGb,
         [t('monitor.otherUsage')]: otherVramGb,
         [t('monitor.freeSpace')]: freeVramGb,
       },
     ];
   }, [currentSnapshot, t]);
+
+  // System RAM-only breakdown (weights in RAM + KV in RAM + other + free)
+  const ramBreakdownData = useMemo(() => {
+    if (!currentSnapshot) return [];
+    const details = (currentSnapshot.details || {}) as Record<string, unknown>;
+    const kvRamBytes = typeof details.kvRamBytes === 'number'
+      ? details.kvRamBytes
+      : Math.round(currentSnapshot.kvCacheBytes * (1 - currentSnapshot.gpuOffloadPct / 100));
+    const modelRamBytes = typeof details.modelRamBytes === 'number'
+      ? details.modelRamBytes
+      : Math.max(0, currentSnapshot.modelWeightBytes - currentSnapshot.vramAllocatedBytes);
+    const kvRamGb = Number((kvRamBytes / (1024 * 1024 * 1024)).toFixed(2));
+    const modelRamGb = Number((modelRamBytes / (1024 * 1024 * 1024)).toFixed(2));
+    const totalRamGb = Number((currentSnapshot.systemMemoryTotalMb / 1024).toFixed(2));
+    const freeRamGb = Number((Math.max(0, currentSnapshot.systemMemoryFreeMb) / 1024).toFixed(2));
+    const usedRamGb = Number(Math.max(0, totalRamGb - freeRamGb).toFixed(2));
+    const otherRamGb = Number(Math.max(0, usedRamGb - modelRamGb - kvRamGb).toFixed(2));
+    return [
+      {
+        name: t('monitor.ramDistShort'),
+        [t('monitor.weightsRam')]: modelRamGb,
+        [t('monitor.kvRam')]: kvRamGb,
+        [t('monitor.otherUsage')]: otherRamGb,
+        [t('monitor.freeSpace')]: freeRamGb,
+      },
+    ];
+  }, [currentSnapshot, t]);
+
+  // LLM phase time breakdown (total accumulated time per detailed phase)
+  const llmPhaseBreakdown = useMemo(() => {
+    let prefillMs = 0;
+    let decodingMs = 0;
+    let loadOverheadMs = 0;
+    const statusCounts: Record<string, number> = {
+      thinking: 0,
+      generating: 0,
+      executing_tool: 0,
+      waiting_approval: 0,
+      prefill: 0,
+      decoding: 0,
+    };
+    for (const s of snapshots) {
+      // IDLE 스냅샷은 CPU/기타 그래픽 작업의 영향을 받아 LLM 성능과 무관하게
+      // 변동하므로 항목별 합계 집계에서 제외한다.
+      if (s.agentStatus === 'idle' || isIdleLikeSnapshot(s)) continue;
+      prefillMs += s.prefillDurationMs ?? 0;
+      decodingMs += s.decodingDurationMs ?? 0;
+      const total = s.totalDurationMs ?? 0;
+      const overhead = total - (s.prefillDurationMs ?? 0) - (s.decodingDurationMs ?? 0);
+      if (overhead > 0) loadOverheadMs += overhead;
+      const st = s.agentStatus;
+      if (st in statusCounts) {
+        statusCounts[st] += 1;
+      } else if (st === 'unknown' || st === 'disconnected') {
+        // unknown/disconnected excluded from LLM analysis
+      } else {
+        statusCounts.generating = (statusCounts.generating ?? 0) + 1;
+      }
+    }
+    const wall = (count: number) => count * intervalMs;
+    const thinkingMs = wall(statusCounts.thinking);
+    const generatingMs = wall(statusCounts.generating);
+    const toolMs = wall(statusCounts.executing_tool);
+    const approvalMs = wall(statusCounts.waiting_approval);
+    // prefill/decoding snapshots counted in wall time would double-count metrics;
+    // prefer actual measured durations when available, else wall estimate
+    const prefillWall = wall(statusCounts.prefill);
+    const decodingWall = wall(statusCounts.decoding);
+    const prefillTotal = Math.max(prefillMs, prefillWall);
+    const decodingTotal = Math.max(decodingMs, decodingWall);
+    const total = thinkingMs + prefillTotal + decodingTotal + generatingMs + toolMs + approvalMs + loadOverheadMs;
+    const phases = [
+      { phase: t('monitor.phaseThinking'), ms: thinkingMs, fill: CHART_COLORS.thinking },
+      { phase: t('monitor.phasePrefill'), ms: Math.round(prefillTotal), fill: CHART_COLORS.prefill },
+      { phase: t('monitor.phaseDecoding'), ms: Math.round(decodingTotal), fill: CHART_COLORS.decoding },
+      { phase: t('monitor.phaseGenerating'), ms: generatingMs, fill: CHART_COLORS.generating },
+      { phase: t('monitor.phaseTool'), ms: toolMs, fill: CHART_COLORS.tool },
+      { phase: t('monitor.phaseApproval'), ms: approvalMs, fill: CHART_COLORS.approval },
+    ];
+    const phaseTotal = phases.reduce((sum, p) => sum + p.ms, 0);
+    return {
+      phases: phases.map((p) => ({
+        ...p,
+        pct: phaseTotal > 0 ? Math.round((p.ms / phaseTotal) * 1000) / 10 : 0,
+      })),
+      phaseTotal,
+      total,
+    };
+  }, [snapshots, intervalMs, t]);
+
+  const filteredSnapshots = useMemo(() => {
+    if (!hideIdleSnapshots) return snapshots;
+    return snapshots.filter((s) => !isIdleLikeSnapshot(s));
+  }, [snapshots, hideIdleSnapshots]);
+
+  // Max timeline offset is always recalculated from the remaining (filtered) item count
+  const maxTimelineOffset = useMemo(
+    () => Math.max(0, filteredSnapshots.length - TIMELINE_WINDOW_SIZE),
+    [filteredSnapshots.length],
+  );
 
   if (!agentId || !agent) {
     return (
@@ -454,25 +585,47 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
   const getStatusBadge = (status: AgentMonitoringSnapshot['agentStatus']) => {
     switch (status) {
+      case 'thinking':
+        return {
+          label: 'Thinking',
+          fullLabel: t('monitor.phaseThinking'),
+          className: 'bg-chart-1/20 text-chart-1 border-chart-1/30 animate-pulse',
+        };
+      case 'prefill':
+        return {
+          label: 'Prefill',
+          fullLabel: t('monitor.phasePrefill'),
+          className: 'bg-warning/20 text-warning border-warning/30 animate-pulse',
+        };
+      case 'decoding':
+        return {
+          label: 'Decoding',
+          fullLabel: t('monitor.phaseDecoding'),
+          className: 'bg-primary/20 text-primary border-primary/30 animate-pulse',
+        };
       case 'generating':
         return {
-          label: t('monitor.inferring'),
+          label: 'Generating',
+          fullLabel: t('monitor.inferring'),
           className: 'bg-success/20 text-success border-success/30 animate-pulse',
         };
       case 'executing_tool':
         return {
-          label: t('monitor.toolRunning'),
+          label: 'Executing_Tool',
+          fullLabel: t('monitor.toolRunning'),
           className: 'bg-warning/20 text-warning border-warning/30 animate-pulse',
         };
       case 'waiting_approval':
         return {
-          label: t('monitor.awaitingApproval'),
+          label: 'Waiting_Approval',
+          fullLabel: t('monitor.awaitingApproval'),
           className: 'bg-destructive/20 text-destructive border-destructive/30',
         };
       case 'idle':
       default:
         return {
-          label: t('monitor.idle'),
+          label: 'IDLE',
+          fullLabel: t('monitor.idle'),
           className: 'bg-muted text-foreground border-border',
         };
     }
@@ -811,7 +964,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
         </div>
 
-        {/* 6. Context Size & KV Cache */}
+        {/* 6. Context Size & KV Cache — RAM/VRAM split + MHA vs GQA actual */}
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
@@ -835,19 +988,26 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               ({currentSnapshot?.contextSize.toLocaleString() || '0'} tokens)
             </span>
           </div>
-          <div className="flex items-center justify-between text-xs pt-1">
-            <span className="text-muted-foreground text-[10px]" title={t('monitor.kvMaxTitle')}>
-              {t('monitor.kvMax')}
-            </span>
-            <span className="font-mono text-[10px] text-info font-semibold" title={t('monitor.kvMaxTitle2')}>
-              {currentSnapshot && currentSnapshot.kvCacheBytes > 0
-                ? formatMemoryBytes(currentSnapshot.kvCacheBytes)
-                : t('monitor.calculating')}
-            </span>
-          </div>
-          <div className="text-[10px] text-muted-foreground truncate" title={t('monitor.attnTitle')}>
-            {t('monitor.attention')} {rawDetails.headCount ? `${rawDetails.headCount}H / ${rawDetails.headCountKv}KV` : '—'}
-          </div>
+          {(() => {
+            const kvGqa = typeof rawDetails.kvCacheGqaBytes === 'number' ? rawDetails.kvCacheGqaBytes as number : (currentSnapshot?.kvCacheBytes ?? 0);
+            const kvVram = typeof rawDetails.kvVramBytes === 'number' ? rawDetails.kvVramBytes as number : 0;
+            const kvRam = typeof rawDetails.kvRamBytes === 'number' ? rawDetails.kvRamBytes as number : 0;
+            return (
+              <>
+                <div className="flex items-center justify-between text-xs pt-1 gap-2">
+                  <span className="text-muted-foreground text-[10px]" title={t('monitor.kvMaxTitle')}>
+                    {t('monitor.kvMaxActual')}
+                  </span>
+                  <span className="font-mono text-[11px] text-info font-bold px-1.5 py-0.5 rounded bg-info/10 border border-info/20" title={t('monitor.kvMaxTitle2')}>
+                    {kvGqa > 0 ? formatMemoryBytes(kvGqa) : t('monitor.calculating')}
+                  </span>
+                </div>
+                <div className="text-[10px] text-muted-foreground font-mono truncate">
+                  VRAM : {formatMemoryBytes(kvVram)}, RAM : {formatMemoryBytes(kvRam)}
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* 7. CPU / GPU Workload Offloading */}
@@ -889,7 +1049,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
         </div>
 
-        {/* 8. Current Operational State */}
+        {/* 8. Current Operational State — detailed phase (Thinking/Executing_Tool/Generating/Decoding/Prefill) */}
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
@@ -901,26 +1061,228 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 guide={undefined}
               />
             </span>
+            {currentSnapshot && currentSnapshot.agentStatus !== 'idle' && (
+              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+            )}
           </div>
-          <div className="text-sm font-bold text-foreground truncate">
-            {currentSnapshot?.agentStatus === 'idle'
-              ? t('monitor.statusIdle')
-              : currentSnapshot?.agentStatus === 'generating'
-              ? t('monitor.statusRunning')
-              : currentSnapshot?.agentStatus === 'executing_tool'
-              ? t('monitor.statusTools')
-              : t('monitor.statusWorking')}
+          {(() => {
+            const startIdx =
+              snapshots.length > 0 && snapshots[0]?.id === currentSnapshot?.id ? 1 : 0;
+            const prev = snapshots.slice(startIdx, startIdx + 2);
+            if (prev.length === 0) return null;
+            return (
+              <div className="space-y-1">
+                <div className="text-[10px] text-muted-foreground">{t('monitor.prevStates')}</div>
+                {prev.map((s) => {
+                  const b = getStatusBadge(s.agentStatus);
+                  return (
+                    <div key={s.id} className="flex items-center gap-1.5 text-[10px]">
+                      <span className={`px-1 py-0 rounded font-mono font-bold border ${b.className}`}>
+                        {b.label}
+                      </span>
+                      <span className="text-muted-foreground font-mono">
+                        {new Date(s.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-bold border ${statusBadge.className}`}
+            >
+              {statusBadge.label}
+            </span>
+            <span className="text-[11px] text-muted-foreground truncate">
+              {statusBadge.fullLabel}
+            </span>
           </div>
-          <p className="text-[11px] text-muted-foreground line-clamp-2 leading-tight">
-            {currentSnapshot?.currentTask || t('monitor.noPending')}
-          </p>
         </div>
       </div>
 
-      {/* Real-time Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Real-time GPU & VRAM Timeline Chart (2 cols) */}
-        <div className="lg:col-span-2 p-4 rounded-xl border border-border bg-card space-y-3">
+            {/* Row 1: CPU/GPU offloading status, VRAM distribution, System RAM distribution */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+<div className="p-4 rounded-xl border border-border bg-card space-y-3 min-w-0">
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <Zap className="h-4 w-4 text-warning shrink-0" />
+              <h3 className="text-xs font-semibold text-foreground whitespace-nowrap">
+                {t('monitor.sysResources')}
+              </h3>
+              <KpiCardHelp
+                i18n="sysres"
+                description={undefined}
+                guide={undefined}
+              />
+            </div>
+            <span
+              className="text-[11px] font-mono text-muted-foreground truncate max-w-[160px] text-right"
+              title={currentSnapshot?.gpuName}
+            >
+              {currentSnapshot?.gpuName}
+            </span>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            {/* GPU Offload Ratio Bar */}
+            <div className="space-y-1">
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <span>{t('monitor.offloadRatio')}</span>
+                  <KpiCardHelp
+                    i18n="offloadRatio"
+                    description={undefined}
+                    guide={undefined}
+                  />
+                </span>
+                <span className="font-mono font-bold text-warning">
+                  {currentSnapshot ? `${currentSnapshot.gpuOffloadPct}%` : '0%'}
+                </span>
+              </div>
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden flex">
+                <div
+                  className="h-full bg-warning"
+                  style={{ width: `${currentSnapshot?.gpuOffloadPct || 0}%` }}
+                  title={t('monitor.gpuOffload')}
+                />
+                <div
+                  className="h-full bg-primary"
+                  style={{ width: `${Math.max(0, 100 - (currentSnapshot?.gpuOffloadPct || 0))}%` }}
+                  title={t('monitor.cpuCompute')}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-muted-foreground pt-0.5">
+                <span>{t('monitor.gpuAccel', { v: currentSnapshot?.gpuOffloadPct || 0 })}</span>
+                <span>{t('monitor.cpuShare', { v: Math.max(0, 100 - (currentSnapshot?.gpuOffloadPct || 0)) })}</span>
+              </div>
+            </div>
+
+            {/* GPU VRAM Status (corresponding to GPU offload acceleration) */}
+            <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between gap-2 font-mono">
+              <span className="text-[11px] text-muted-foreground font-sans flex items-center gap-1 whitespace-nowrap shrink-0">
+                <span>{t('monitor.vramState')}</span>
+                <KpiCardHelp
+                  i18n="vramState"
+                  description={undefined}
+                  guide={undefined}
+                />
+              </span>
+              <span className="font-semibold text-foreground whitespace-nowrap text-right">
+                {currentSnapshot && currentSnapshot.gpuVramTotalMb > 0
+                  ? t('monitor.gbFree', {
+                      total: (currentSnapshot.gpuVramTotalMb / 1024).toFixed(1),
+                      free: (currentSnapshot.gpuVramFreeMb / 1024).toFixed(1),
+                    })
+                  : 'N/A'}
+              </span>
+            </div>
+
+            {/* Host System RAM (corresponding to CPU offload distribution) */}
+            <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between gap-2 font-mono">
+              <span className="text-[11px] text-muted-foreground font-sans flex items-center gap-1 whitespace-nowrap shrink-0">
+                <span>{t('monitor.hostRam')}</span>
+                <KpiCardHelp
+                  i18n="hostram"
+                  description={undefined}
+                  guide={undefined}
+                />
+              </span>
+              <span className="font-semibold text-foreground whitespace-nowrap text-right">
+                {currentSnapshot && currentSnapshot.systemMemoryTotalMb > 0
+                  ? t('monitor.gbFree', {
+                      total: (currentSnapshot.systemMemoryTotalMb / 1024).toFixed(1),
+                      free: (currentSnapshot.systemMemoryFreeMb / 1024).toFixed(1),
+                    })
+                  : 'N/A'}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Cpu className="h-4 w-4 text-tertiary" />
+              <h3 className="text-xs font-semibold text-foreground">{t('monitor.vramDist')}</h3>
+            </div>
+            <span className="text-[10px] text-muted-foreground font-mono">{t('monitor.unitGb')} · VRAM</span>
+          </div>
+
+          <div className="w-full h-64">
+            {vramBreakdownData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                {t('monitor.aggregating')}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={vramBreakdownData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} unit=" GB" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '10px' }} />
+                  <Bar dataKey={t('monitor.weightsVram')} stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey={t('monitor.kvVram')} stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey={t('monitor.otherUsage')} stackId="a" fill="hsl(var(--chart-4))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey={t('monitor.freeSpace')} stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} unit=" GB" isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <HardDrive className="h-4 w-4 text-success" />
+              <h3 className="text-xs font-semibold text-foreground">{t('monitor.ramDist')}</h3>
+            </div>
+            <span className="text-[10px] text-muted-foreground font-mono">{t('monitor.unitGb')} · RAM</span>
+          </div>
+
+          <div className="w-full h-64">
+            {ramBreakdownData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                {t('monitor.aggregating')}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={ramBreakdownData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} unit=" GB" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '10px' }} />
+                  <Bar dataKey={t('monitor.weightsRam')} stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey={t('monitor.kvRam')} stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey={t('monitor.otherUsage')} stackId="a" fill="hsl(var(--chart-4))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey={t('monitor.freeSpace')} stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} unit=" GB" isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: realtime GPU/VRAM usage, LLM architecture detail */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-success" />
@@ -1008,53 +1370,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             )}
           </div>
         </div>
-
-        {/* Memory Breakdown Composition Chart (1 col) */}
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-tertiary" />
-              <h3 className="text-xs font-semibold text-foreground">{t('monitor.vramDist')}</h3>
-            </div>
-            <span className="text-[10px] text-muted-foreground font-mono">{t('monitor.unitGb')}</span>
-          </div>
-
-          <div className="w-full h-64">
-            {memoryBreakdownData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                {t('monitor.aggregating')}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={memoryBreakdownData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} unit=" GB" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      color: 'hsl(var(--popover-foreground))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '10px' }} />
-                  <Bar dataKey={t('monitor.weights')} stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
-                  <Bar dataKey={t('monitor.kvEst')} stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
-                  <Bar dataKey={t('monitor.otherUsage')} stackId="a" fill="hsl(var(--chart-4))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
-                  <Bar dataKey={t('monitor.freeSpace')} stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} unit=" GB" isAnimationActive={false} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Architecture Spec Grid & Hardware Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Model Architecture Deep Specs */}
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+<div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-info" />
@@ -1158,145 +1474,47 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </div>
           </div>
         </div>
-
-        {/* System & Offloading Status */}
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-warning" />
-              <h3 className="text-xs font-semibold text-foreground">
-                {t('monitor.sysResources')}
-              </h3>
-              <KpiCardHelp
-                i18n="sysres"
-                description={undefined}
-                guide={undefined}
-              />
-            </div>
-            <span className="text-[11px] font-mono text-muted-foreground">
-              {currentSnapshot?.gpuName}
-            </span>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            {/* GPU Offload Ratio Bar */}
-            <div className="space-y-1">
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-muted-foreground flex items-center gap-1">
-                  <span>{t('monitor.offloadRatio')}</span>
-                  <KpiCardHelp
-                    i18n="offloadRatio"
-                    description={undefined}
-                    guide={undefined}
-                  />
-                </span>
-                <span className="font-mono font-bold text-warning">
-                  {currentSnapshot ? `${currentSnapshot.gpuOffloadPct}%` : '0%'}
-                </span>
-              </div>
-              <div className="w-full h-2 bg-muted rounded-full overflow-hidden flex">
-                <div
-                  className="h-full bg-warning"
-                  style={{ width: `${currentSnapshot?.gpuOffloadPct || 0}%` }}
-                  title={t('monitor.gpuOffload')}
-                />
-                <div
-                  className="h-full bg-primary"
-                  style={{ width: `${Math.max(0, 100 - (currentSnapshot?.gpuOffloadPct || 0))}%` }}
-                  title={t('monitor.cpuCompute')}
-                />
-              </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground pt-0.5">
-                <span>{t('monitor.gpuAccel', { v: currentSnapshot?.gpuOffloadPct || 0 })}</span>
-                <span>{t('monitor.cpuShare', { v: Math.max(0, 100 - (currentSnapshot?.gpuOffloadPct || 0)) })}</span>
-              </div>
-            </div>
-
-            {/* GPU VRAM Status (corresponding to GPU offload acceleration) */}
-            <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between font-mono">
-              <span className="text-[11px] text-muted-foreground font-sans flex items-center gap-1">
-                <span>{t('monitor.vramState')}</span>
-                <KpiCardHelp
-                  i18n="vramState"
-                  description={undefined}
-                  guide={undefined}
-                />
-              </span>
-              <div className="flex items-center gap-2">
-                {rawDetails.isModelLoadedInMemory ? (
-                  <span className="text-[10px] font-sans px-1.5 py-0.5 rounded bg-success/15 text-success border border-success/30 flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" />
-                    <span>
-                      {currentSnapshot && currentSnapshot.vramAllocatedBytes > 0
-                        ? t('monitor.gbLoaded', { v: (currentSnapshot.vramAllocatedBytes / (1024 * 1024 * 1024)).toFixed(1) })
-                        : t('monitor.enabled')}
-                    </span>
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-sans px-1.5 py-0.5 rounded bg-warning/15 text-warning border border-warning/30 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    <span>{t('monitor.standbyState')}</span>
-                  </span>
-                )}
-                <span className="font-semibold text-foreground">
-                  {currentSnapshot && currentSnapshot.gpuVramTotalMb > 0
-                    ? t('monitor.gbFree', {
-                        total: (currentSnapshot.gpuVramTotalMb / 1024).toFixed(1),
-                        free: (currentSnapshot.gpuVramFreeMb / 1024).toFixed(1),
-                      })
-                    : 'N/A'}
-                </span>
-              </div>
-            </div>
-
-            {/* Host System RAM (corresponding to CPU offload distribution) */}
-            <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between font-mono">
-              <span className="text-[11px] text-muted-foreground font-sans flex items-center gap-1">
-                <span>{t('monitor.hostRam')}</span>
-                <KpiCardHelp
-                  i18n="hostram"
-                  description={undefined}
-                  guide={undefined}
-                />
-              </span>
-              <span className="font-semibold text-foreground">
-                {currentSnapshot && currentSnapshot.systemMemoryTotalMb > 0
-                  ? t('monitor.gbFree', {
-                      total: (currentSnapshot.systemMemoryTotalMb / 1024).toFixed(1),
-                      free: (currentSnapshot.systemMemoryFreeMb / 1024).toFixed(1),
-                    })
-                  : 'N/A'}
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* Real-time Inference Performance Charts (Prefill & Decoding) */}
+{/* Row 3: Real-time Token/Inference Status + LLM Operation Analysis */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Token Generation Speed Chart (Prefill & Decoding Speed) */}
+        {/* Unified Token / Inference Status (speed + latency merged) */}
         <div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Gauge className="h-4 w-4 text-warning" />
               <h3 className="text-xs font-semibold text-foreground">
-                {t('monitor.tokenSpeed')}
+                {t('monitor.tokenInferenceUnified')}
               </h3>
             </div>
-            <div className="flex items-center gap-4 text-[11px] font-mono">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
+            <div className="flex items-center gap-3 text-[10px] font-mono flex-wrap justify-end">
+              <span className="flex items-center gap-1 text-muted-foreground">
                 <span
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.prefill }}
                 />
-                <span className="text-warning font-medium">{t('monitor.leftPrefill')}</span>
+                <span className="text-warning font-medium">{t('monitor.prefillSpeed')}</span>
               </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="flex items-center gap-1 text-muted-foreground">
                 <span
                   className="w-2.5 h-2.5 rounded-full shadow-sm"
                   style={{ backgroundColor: CHART_COLORS.decoding }}
                 />
-                <span className="text-primary font-medium">{t('monitor.rightDecode')}</span>
+                <span className="text-primary font-medium">{t('monitor.decodeSpeed')}</span>
+              </span>
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <span
+                  className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
+                  style={{ borderColor: CHART_COLORS.prefill, backgroundColor: 'transparent' }}
+                />
+                <span className="text-warning/80 font-medium">{t('monitor.prefillTime')}</span>
+              </span>
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <span
+                  className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
+                  style={{ borderColor: CHART_COLORS.decoding, backgroundColor: 'transparent' }}
+                />
+                <span className="text-primary/80 font-medium">{t('monitor.decodeTime')}</span>
               </span>
             </div>
           </div>
@@ -1314,7 +1532,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   <YAxis
                     yAxisId="left"
                     orientation="left"
-                    domain={[0, prefillSpeedMax]}
+                    domain={[0, tokenSpeedMax]}
                     stroke={CHART_COLORS.prefill}
                     tick={{ fontSize: 10 }}
                     tickFormatter={formatAxisNumber}
@@ -1324,12 +1542,12 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    domain={[0, decodingSpeedMax]}
+                    domain={[0, inferenceMsMax]}
                     stroke={CHART_COLORS.decoding}
                     tick={{ fontSize: 10 }}
                     tickFormatter={formatAxisNumber}
-                    unit=" t/s"
-                    width={42}
+                    unit=" ms"
+                    width={44}
                   />
                   <Tooltip
                     contentStyle={{
@@ -1349,108 +1567,37 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                     strokeWidth={2}
                     fill={CHART_COLORS.prefill}
                     fillOpacity={0.15}
-                    dot={{ r: 3, fill: CHART_COLORS.prefill, strokeWidth: 0 }}
-                    activeDot={{ r: 5 }}
+                    dot={false}
+                    activeDot={{ r: 4 }}
                     unit=" token/s"
                     isAnimationActive={false}
                   />
                   <Area
-                    yAxisId="right"
+                    yAxisId="left"
                     type="monotone"
                     dataKey="decodingSpeed"
                     name={t('monitor.decodeSpeed')}
                     stroke={CHART_COLORS.decoding}
                     strokeWidth={2.5}
                     fill={CHART_COLORS.decoding}
-                    fillOpacity={0.25}
-                    dot={{ r: 3.5, fill: CHART_COLORS.decoding, strokeWidth: 0 }}
-                    activeDot={{ r: 5.5 }}
+                    fillOpacity={0.2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
                     unit=" token/s"
                     isAnimationActive={false}
                   />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
-        {/* Inference Latency / Duration Chart (Prefill & Decoding Duration) */}
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Timer className="h-4 w-4 text-primary" />
-              <h3 className="text-xs font-semibold text-foreground">
-                {t('monitor.latencyTrend')}
-              </h3>
-            </div>
-            <div className="flex items-center gap-4 text-[11px] font-mono">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.prefill }}
-                />
-                <span className="text-warning font-medium">{t('monitor.leftPrefillMs')}</span>
-              </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.decoding }}
-                />
-                <span className="text-primary font-medium">{t('monitor.rightDecodeMs')}</span>
-              </span>
-            </div>
-          </div>
-
-          <div className="w-full h-60">
-            {timeSeriesData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                {t('monitor.noLatency')}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timeSeriesData} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="time" tick={{ fontSize: 10 }} />
-                  <YAxis
-                    yAxisId="left"
-                    orientation="left"
-                    domain={[0, prefillDurationMax]}
-                    stroke={CHART_COLORS.prefill}
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={formatAxisNumber}
-                    unit=" ms"
-                    width={44}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    domain={[0, decodingDurationMax]}
-                    stroke={CHART_COLORS.decoding}
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={formatAxisNumber}
-                    unit=" ms"
-                    width={44}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      color: 'hsl(var(--popover-foreground))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                    }}
-                  />
                   <Area
-                    yAxisId="left"
+                    yAxisId="right"
                     type="monotone"
                     dataKey="prefillDurationMs"
                     name={t('monitor.prefillTime')}
                     stroke={CHART_COLORS.prefill}
-                    strokeWidth={2}
-                    fill={CHART_COLORS.prefill}
-                    fillOpacity={0.15}
-                    dot={{ r: 3, fill: CHART_COLORS.prefill, strokeWidth: 0 }}
-                    activeDot={{ r: 5 }}
+                    strokeWidth={1.5}
+                    strokeDasharray="5 4"
+                    fill="transparent"
+                    fillOpacity={0}
+                    dot={false}
+                    activeDot={{ r: 3 }}
                     unit=" ms"
                     isAnimationActive={false}
                   />
@@ -1460,11 +1607,12 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                     dataKey="decodingDurationMs"
                     name={t('monitor.decodeTime')}
                     stroke={CHART_COLORS.decoding}
-                    strokeWidth={2.5}
-                    fill={CHART_COLORS.decoding}
-                    fillOpacity={0.25}
-                    dot={{ r: 3.5, fill: CHART_COLORS.decoding, strokeWidth: 0 }}
-                    activeDot={{ r: 5.5 }}
+                    strokeWidth={1.5}
+                    strokeDasharray="5 4"
+                    fill="transparent"
+                    fillOpacity={0}
+                    dot={false}
+                    activeDot={{ r: 3 }}
                     unit=" ms"
                     isAnimationActive={false}
                   />
@@ -1472,6 +1620,81 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               </ResponsiveContainer>
             )}
           </div>
+        </div>
+
+        {/* LLM Operation Analysis — total time per detailed phase */}
+        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Brain className="h-4 w-4 text-primary" />
+              <h3 className="text-xs font-semibold text-foreground">
+                {t('monitor.llmAnalysis')}
+              </h3>
+              <KpiCardHelp i18n="llmAnalysis" description={undefined} guide={undefined} />
+            </div>
+            <span className="text-[10px] font-mono text-muted-foreground">
+              {t('monitor.totalLabel')} {formatDurationMs(llmPhaseBreakdown.total)}
+            </span>
+          </div>
+
+          <div className="w-full h-52">
+            {snapshots.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                {t('monitor.noLatency')}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={llmPhaseBreakdown.phases} margin={{ top: 10, right: 10, left: -6, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                  <XAxis dataKey="phase" tick={{ fontSize: 9 }} interval={0} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => formatDurationMs(v)} width={52} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--popover))',
+                      color: 'hsl(var(--popover-foreground))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                    }}
+                    formatter={(value) => [`${Number(value).toLocaleString()} ms (${formatDurationMs(Number(value))})`, '']}
+                  />
+                  <Bar dataKey="ms" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                    {llmPhaseBreakdown.phases.map((p) => (
+                      <Cell key={p.phase} fill={p.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+          {snapshots.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-muted-foreground font-medium">{t('monitor.phaseShare')}</span>
+              </div>
+              <div className="w-full h-2.5 flex rounded-full overflow-hidden bg-muted">
+                {llmPhaseBreakdown.phases.map((p) =>
+                  p.ms > 0 ? (
+                    <div
+                      key={p.phase}
+                      style={{
+                        width: `${llmPhaseBreakdown.phaseTotal > 0 ? (p.ms / llmPhaseBreakdown.phaseTotal) * 100 : 0}%`,
+                        backgroundColor: p.fill,
+                      }}
+                      title={`${p.phase}: ${formatDurationMs(p.ms)} (${p.pct}%)`}
+                    />
+                  ) : null,
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[10px] font-mono">
+                {llmPhaseBreakdown.phases.map((p) => (
+                  <span key={p.phase} className="text-muted-foreground">
+                    {p.phase}: <b style={{ color: p.fill }}>{formatDurationMs(p.ms)} ({p.pct}%)</b>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1481,41 +1704,65 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-primary" />
             <h3 className="text-xs font-semibold text-foreground">
-              {t('monitor.snapshots', { n: snapshots.length })}
+              {t('monitor.snapshots', { n: filteredSnapshots.length })}
             </h3>
+            {hideIdleSnapshots && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-mono">
+                {t('monitor.idleFiltered', { n: snapshots.length - filteredSnapshots.length })}
+              </span>
+            )}
           </div>
-          <span className="text-[11px] text-muted-foreground">
-            {t('monitor.snapshotNote')}
-          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-muted-foreground">
+              {t('monitor.snapshotNote')}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setHideIdleSnapshots((v) => !v);
+                setTimelineOffset(0);
+              }}
+              className={`flex items-center gap-1.5 h-7 px-2.5 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer ${
+                hideIdleSnapshots
+                  ? 'bg-primary/15 border-primary/40 text-primary'
+                  : 'bg-card border-border text-muted-foreground hover:text-foreground'
+              }`}
+              title={t('monitor.idleFilterTitle')}
+            >
+              <Filter className="h-3 w-3" />
+              <span>{t('monitor.idleFilter')}</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${hideIdleSnapshots ? 'bg-primary' : 'bg-muted-foreground/40'}`} />
+            </button>
+          </div>
         </div>
 
-        {snapshots.length === 0 ? (
+        {filteredSnapshots.length === 0 ? (
           <div className="py-8 text-center text-xs text-muted-foreground">
-            {t('monitor.noSnapshots')}
+            {hideIdleSnapshots ? t('monitor.noSnapshotsAfterFilter') : t('monitor.noSnapshots')}
           </div>
         ) : (
           <>
             {/* Timeline Slider Widget */}
             {(() => {
-              const TIMELINE_WINDOW_SIZE = 25;
-              const maxOffset = Math.max(0, snapshots.length - TIMELINE_WINDOW_SIZE);
+              const sourceList = filteredSnapshots;
+              const maxOffset = maxTimelineOffset;
               const currentOffset = Math.min(timelineOffset, maxOffset);
-              const visibleSnapshots = snapshots.slice(
+              const visibleSnapshots = sourceList.slice(
                 currentOffset,
                 currentOffset + TIMELINE_WINDOW_SIZE,
               );
 
               return (
                 <>
-                  {snapshots.length > TIMELINE_WINDOW_SIZE && (
+                  {sourceList.length > TIMELINE_WINDOW_SIZE && (
                     <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-2 select-none">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-foreground">{t('monitor.slider')}</span>
                           <span className="text-[11px] text-muted-foreground font-mono">
                             {t('monitor.showing')} {currentOffset + 1} ~{' '}
-                            {t('monitor.rangeN', { n: Math.min(currentOffset + TIMELINE_WINDOW_SIZE, snapshots.length) })}
-                            {t('monitor.ofTotal', { n: snapshots.length })}
+                            {t('monitor.rangeN', { n: Math.min(currentOffset + TIMELINE_WINDOW_SIZE, sourceList.length) })}
+                            {t('monitor.ofTotal', { n: sourceList.length })}
                           </span>
                           {visibleSnapshots.length > 0 && (
                             <span className="text-[10px] text-primary/90 bg-primary/10 px-2 py-0.5 rounded font-mono border border-primary/20">
@@ -1596,7 +1843,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                           className="w-full h-1.5 bg-border rounded-lg appearance-none cursor-pointer accent-primary"
                         />
                         <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                          {t('monitor.rangeOldest', { n: snapshots.length })}
+                          {t('monitor.rangeOldest', { n: sourceList.length })}
                         </span>
                       </div>
                     </div>
@@ -1660,12 +1907,20 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                       </td>
                       <td className="p-2.5">
                         <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-sans font-medium ${
-                            snap.agentStatus === 'generating'
-                              ? 'bg-success/15 text-success'
+                          className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-mono font-bold border ${
+                            snap.agentStatus === 'thinking'
+                              ? 'bg-chart-1/15 text-chart-1 border-chart-1/30'
+                              : snap.agentStatus === 'prefill'
+                              ? 'bg-warning/15 text-warning border-warning/30'
+                              : snap.agentStatus === 'decoding' || snap.agentStatus === 'generating'
+                              ? snap.agentStatus === 'decoding'
+                                ? 'bg-primary/15 text-primary border-primary/30'
+                                : 'bg-success/15 text-success border-success/30'
                               : snap.agentStatus === 'executing_tool'
-                              ? 'bg-warning/15 text-warning'
-                              : 'bg-muted text-muted-foreground'
+                              ? 'bg-warning/15 text-warning border-warning/30'
+                              : snap.agentStatus === 'waiting_approval'
+                              ? 'bg-destructive/15 text-destructive border-destructive/30'
+                              : 'bg-muted text-muted-foreground border-border/40'
                           }`}
                         >
                           {snap.agentStatus}
