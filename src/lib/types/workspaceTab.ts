@@ -11,7 +11,7 @@ export type SidePanelView =
   | 'chat-sessions'
   | 'explorer'
   | 'agents'
-  | 'skills'
+  | 'monitoring'
   | null;
 
 export interface WorkspaceTab {

@@ -43,6 +43,15 @@ export interface LlmChatRequest {
   tools?: unknown[];
   temperature?: number;
   think?: boolean | string | null;
+  /** 생성 파라미터. 각 클라이언트가 자신의 규격에 맞는 필드만 읽는다. */
+  topP?: number;
+  topK?: number;
+  repeatPenalty?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  seed?: number;
+  stopSequences?: string[];
+  maxTokens?: number;
   options?: Record<string, unknown>;
 }
 

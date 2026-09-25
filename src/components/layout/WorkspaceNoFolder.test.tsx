@@ -59,8 +59,8 @@ describe('Workspace without selected folder', () => {
     const agentsBtn = screen.getByRole('button', { name: /에이전트 관리/i });
     expect(agentsBtn).toBeDisabled();
 
-    const skillsBtn = screen.getByRole('button', { name: /스킬 관리/i });
-    expect(skillsBtn).toBeDisabled();
+    const monitoringBtn = screen.getByRole('button', { name: /모니터링/i });
+    expect(monitoringBtn).toBeDisabled();
 
     // Settings in activity bar should be disabled
     const settingsBtn = screen.getByRole('button', { name: /설정/i });

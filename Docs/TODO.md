@@ -109,6 +109,19 @@
 - [x] P7-06 수동 QA 시나리오 실행
 - [x] P7-07 README/사용자 가이드
 
+## Phase 9 — Follow-ups (P9) `[x]`
+
+- [x] P9-06 채팅별 실행 설정 표시 ([i] 스냅샷·설정 변경 안내·동작 중 설정 잠금)
+- [x] P9-07 생성 파라미터 확장 (top-p/top-k/반복 억제/seed/stop/최대 토큰 + Provider·모델별 비활성화 + [i] 상세 설명)
+- [x] P9-08 대화 목록/사이드바/모니터링 개편 (삭제 에이전트명 취소선 표시·대화 전체삭제·스킬 사이드바 제거 후 에이전트 설정 카드+refresh·모니터링 사이드 패널 신설)
+
+## Phase 10 — Automated Evaluation (기획 단계) `[ ]`
+
+> 기획서: `Docs/plan/LLM_Evaluation_Plan.md` (조사: `Docs/plan/LLM_Evaluation_Research.md`). 승인 후 `Docs/phases/Phase10-Evaluation.md`로 확정하고 아래 작업을 착수합니다.
+
+- [x] P10-00 평가 프로세스·데이터셋·채점·정규화 스킴 조사 및 기획서 작성
+- [ ] P10-01 ~ P10-08 MVP (기획서 §10) — 승인 대기
+
 ---
 
 ## 이슈 로그
@@ -125,6 +138,10 @@
 | 2026-09-25 | P9-02 | 프로젝트 폴더 전환 규칙 강화: ① LLM 동작 중 폴더 변경 금지(`chatQueueManager` busy 가드 + `WorkspaceContext.setWorkspaceRoot` boolean 반환 + TopMenuBar/FileTree UI 비활성화), ② 에이전트는 전역 DB 그대로 공유(기존 `agentsRepo` 전역 분리 유지), 세션/엔트리/실행로그/탭은 프로젝트 `.fortress/fortress.db`에 저장(기존 `getDatabase` 라우팅 유지), ③ 전환 직전 이전 프로젝트 탭을 `saveProjectTabs`로 플러시하여 디바운스 경합 유실 방지(다음 로드 시 복원 보장), ④ `AgentEditorTab` 타이틀 라인에 "대화 시작" 버튼 추가. | 해결됨 |
 | 2026-09-25 | P9-03 | 다중 LLM Provider 지원: Agent에 `llmProvider`/`llmBaseUrl`/`llmApiKey` 추가(Ollama 기본, 구 행 호환). 신규 `src/lib/llm/providers.ts`(7종 프리셋: ollama/lmstudio/llamacpp/vllm/jan/openai-compatible/openai) + `openAiCompatibleClient.ts`(SSE, 외부 SDK 없음) + `providerRuntime.ts`(분기점). 턴 루프·압축 요약·연결 상태·모니터링을 Provider 분기 처리. 에이전트 편집 화면 기본 정보 카드 아래에 "LLM Provider" 섹션 추가(ko/en 문구 포함). 추가 웹 리서치 결과는 `Docs/plan/Multiple_LLM_Providers.md` §4~§5에 기록. **신규 의존성 없음**. | 해결됨 |
 | 2026-09-25 | P9-04 | 모니터링 토큰 추적: ① "대화"(요청 1건→agent_end) 단위 집계 — 턴별 usage 실측 합산(입력/출력), 사고 토큰은 출력 중 사고문 비율 안분, 상태별 출력은 prefill=입력/thinking=사고분/decoding=본문분 귀속. 신규 `src/lib/monitoring/tokenTracker.ts`(인메모리, 테스트 포함) + 루프 경계 훅(`loop.ts` begin/record/finish) + `conversation_token_summaries` 원장 테이블(영속, `monitoringRepo`+`client.ts` 메모리 폴백+`0001_init.sql` 동기화). ② 스냅샷에 `thinking_tokens`/`conversation_id`/`conversation_seq` + 타임라인 "토큰(입력/출력/사고)" 컬럼·대화 배지(`C#seq`). ③ 카드 재배치: VRAM+RAM → "메모리 분배" 병합, 빈 자리→GPU·VRAM 추이, 추이 자리→신규 "토큰 정보" 카드(전체 누적·상태별 점유·최근 대화 5건·진행 중 표시, ko/en 문구 포함). `pnpm lint`/`typecheck`/`test`(51파일 249건) 통과. **신규 의존성 없음**. | 해결됨 |
+| 2026-09-25 | P9-05 | 채팅-에이전트 귀속 강화: ① `ChatInput` 에이전트 전환 셀렉터 삭제(각 채팅은 단일 설정에 귀속, `agentReasoning` prop으로 effort 비활성화만 유지). ② "새 채팅" 경로(TopMenuBar/대화목록/Ctrl+N/빈 탭)는 기본 에이전트로 세션 생성(기존 `createSession` 기본값 유지, `ChatSessionList`는 `session.agentId`를 탭 meta에 전달). ③ 채팅 상단 배지에 Provider 표시(`이름 • Provider • 모델`), `/agent` 출력에 Provider 행 추가. ④ 대화 목록 행에 `Provider • 모델 • Ctx nK` 표시, 시간은 타이틀 우측으로 이동. ⑤ 에이전트 편집 잠금: 해당 에이전트를 쓰는 세션이 LLM 동작/대기 큐 중이면(`useGlobalLlmBusy`+세션 매핑, 미확인 시 보수적 잠금) `AgentEditorForm` 입력·저장 비활성화 + 고지 배너. ⑥ 근본 설정(Provider·Base URL·모델) 변경 시 기존 유지 + 새 에이전트로 분기 저장(이름 동일 시 ` (v2)` 접미, `isDefault: false`), 저장 전 `forkNotice` 배너 + 저장 버튼 `agentForm.saveAsNew` 전환, 새 설정 테스트는 “대화 시작” 새 채팅으로 유도. `pnpm lint`/`typecheck`/`test` 통과(신규 테스트 2건: 잠금·분기). **신규 의존성 없음**. | 해결됨 |
+| 2026-09-25 | P9-06 | 채팅별 실행 설정 표시: ① `ChatConfigSnapshot`(모델·Provider·temperature·ctx 크기·reasoning/effort·think 전달값 등) + `captureChatConfigSnapshot`/`chatConfigSignature` 신규(`src/lib/types/agent.ts`). 전송 시점 스냅샷을 사용자 메시지에 첨부(`useChat.sendMessage`, 메시지 JSON 저장이라 DB 마이그레이션 없음, 구 행은 현재 설정 폴백 + 폴백 고지). LLM 매핑·압축 직렬화는 `content`만 사용하므로 영향 없음. ② 사용자 말풍선 푸터에 [i] 버튼 + 설정 상세 패널(`MessageBubble`, ko/en 문구 포함). ③ 설정 변경 시 채팅 중간 중앙 배지로 안내(`ChatTab` 서명 감지 + `useChat.injectConfigNotice`, UI 전용 미저장·LLM 미전송). ④ LLM 동작/대기 큐 점유 중 reasoning/effort 셀렉터 비활성화(`ChatInput` settingsLocked + `settingsLocked` 문구). `pnpm lint`/`typecheck`/`test`(52파일 260건) 통과. **신규 의존성 없음**. 소유 파일 밖 수정(Phase 문서에 P9 소유 목록 없음): `ChatInput.test.tsx`에 잠금 테스트 2건 추가. | 해결됨 |
+| 2026-09-25 | P9-07 | 생성 파라미터 확장: Agent에 `topP`·`topK`·`repeatPenalty`·`frequencyPenalty`·`presencePenalty`·`seed`·`stopSequences`·`maxOutputTokens` 추가(미지정=자동, 필드 생략). 신규 `src/lib/llm/generationParams.ts`(Provider 지원 매트릭스·정규화·Ollama options/OpenAI body 매핑·effort 레벨 지원 판정, 테스트 포함). 런타임은 각 클라이언트가 자기 규격 키로만 변환(Ollama `top_p/top_k/repeat_penalty/seed/stop/num_predict`, OpenAI 호환 `top_p/frequency_penalty/presence_penalty/seed/stop/max_tokens`) + OpenAI 클라이언트의 Ollama 전용 키 제거 목록 확대. 편집 폼에 "생성 파라미터" 카드 + 전 파라미터 [i] 상세 설명(ko/en) + 미지원 항목 입력 잠금(값 유지, Ollama 전용/OpenAI 전용 뱃지) + effort 레벨 미지원 모델의 effort 잠금. 스냅샷·서명·말풍선 [i] 패널·`/agent` 출력에 생성 파라미터 반영. DB `agents`에 8컬럼 추가(기존 행은 자동 해석, `client.ts` 메모리 폴백·`0001_init.sql`·`agentsRepo`·테스트 목 동기화). `Architecture.md` §4.2·§5.8 갱신. **신규 의존성 없음**. | 해결됨 |
+| 2026-09-25 | P9-08 | 대화 목록/사이드바/모니터링 개편: ① 삭제 에이전트 세션도 기억된 이름 표시 + 취소선(`AgentsContext` id→name 캐시 localStorage 영속 + `getKnownAgentName`, 행/그룹헤더 `line-through`, 미확인분은 기존 `sessions.agentDeleted` + `(삭제됨)` 접미). ② 대화 목록 전체삭제(헤더 휴지통 + `clearSessions` + 관련 채팅탭 일괄 닫기 + 확인 팝업 필수). ③ 스킬 사이드바 제거(`SidePanelView.skills`→`monitoring`, ActivityBar/TopMenuBar/SidePanel 교체, `SkillListPanel` 파일은 유지) + `AgentEditorForm` "활성 스킬" 카드 상시 표시·on/off·refresh 버튼(스킬 0개/로딩/empty 안내 포함). ④ 모니터링 사이드 패널 신설(`MonitoringListPanel`: 최근 스냅샷 200건, 대화 목록과 동일한 전체/에이전트/Provider/모델/상태 필터·그룹화, 행 클릭 시 모니터 탭 오픈, 개별 삭제 + 전체삭제 확인 팝업). 신규 `monitoringRepo.listRecentMonitoringSnapshots`/`deleteMonitoringSnapshot`/`clearAllMonitoringSnapshots`/`clearAllConversationSummaries` + `client.ts` 메모리 폴백(id 단건삭제·LIMIT) + `monitoringGroups.ts`(테스트 포함). `Architecture.md` §3.1·§3.2·트리 갱신, ko/en 문구 추가. `pnpm lint`/`typecheck`/`test`(55파일 290건) 통과. **신규 의존성 없음**. | 해결됨 |
 
 ---
 

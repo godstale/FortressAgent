@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useContext, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useMemo, type KeyboardEvent } from 'react';
 import {
   Send,
   Square,
@@ -21,7 +21,6 @@ import { Button } from '@/components/ui/button';
 import type { SkillManifest } from '@/lib/types/skill';
 import type { ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
-import { AgentsContext } from '@/lib/context/AgentsContext';
 import { resolveSkillInvocation, parseSkillCommand } from '@/lib/skills/invokeSkill';
 
 import { ContextGauge } from './ContextGauge';
@@ -68,9 +67,8 @@ export interface ChatInputProps {
   busySessionTitle?: string;
   placeholder?: string;
   skills?: SkillManifest[];
-  selectedAgentId?: string;
-  onSelectAgent?: (agentId: string) => void;
-  isAgentLocked?: boolean;
+  /** 귀속된 에이전트의 reasoning 설정 (effort 셀렉터 비활성화 판단용) */
+  agentReasoning?: ReasoningMode;
   contextUsage?: { tokens: number; limit: number };
   yoloMode?: boolean;
   /**
@@ -83,6 +81,8 @@ export interface ChatInputProps {
   onEffortOverrideChange?: (v: ReasoningEffort | 'agent') => void;
   customHeight?: number | null;
   maxHeight?: number;
+  /** 삭제된 에이전트 설정을 쓰는 채팅이면 true. 입력 전체를 비활성화한다. */
+  isAgentDeleted?: boolean;
 }
 
 export function ChatInput({
@@ -99,9 +99,7 @@ export function ChatInput({
   busySessionTitle,
   placeholder,
   skills: skillsProp,
-  selectedAgentId,
-  onSelectAgent,
-  isAgentLocked,
+  agentReasoning = 'default',
   contextUsage,
   yoloMode,
   reasoningOverride = 'agent',
@@ -110,19 +108,13 @@ export function ChatInput({
   onEffortOverrideChange,
   customHeight,
   maxHeight = 180,
+  isAgentDeleted = false,
 }: ChatInputProps) {
   const { t } = useLanguage();
   const safeSkillsCtx = useSafeSkills();
   const availableSkills = useMemo(() => {
     return skillsProp ?? safeSkillsCtx?.skills ?? [];
   }, [skillsProp, safeSkillsCtx?.skills]);
-
-  const agentsCtx = useContext(AgentsContext);
-  const currentAgent = useMemo(() => {
-    if (!agentsCtx) return null;
-    const targetId = selectedAgentId || agentsCtx.defaultAgent.id;
-    return agentsCtx.getAgent(targetId) || agentsCtx.defaultAgent;
-  }, [agentsCtx, selectedAgentId]);
 
   const [text, setText] = useState('');
   const [autocompleteDismissed, setAutocompleteDismissed] = useState(false);
@@ -206,7 +198,7 @@ export function ChatInput({
   };
 
   const handleSubmit = async () => {
-    if (isLockedByOtherSession) return;
+    if (isLockedByOtherSession || isAgentDeleted) return;
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -378,11 +370,19 @@ export function ChatInput({
     }
   };
 
-  const defaultPlaceholder = isLockedByOtherSession
+  const defaultPlaceholder = isAgentDeleted
+    ? t('chatInput.agentDeletedPlaceholder')
+    : isLockedByOtherSession
     ? t('chatInput.lockedOther')
     : isThisSessionBusy || isStreaming
     ? t('chatInput.busySelf')
     : t('chatInput.placeholder');
+
+  // LLM 동작 중에는 다음 턴에 적용되는 실행 설정도 변경할 수 없다.
+  // (입력 텍스트의 대기 큐 추가는 허용하되 reasoning/effort 셀렉터만 잠근다.)
+  const settingsLocked =
+    isAgentDeleted || isStreaming || isThisSessionBusy || isLockedByOtherSession;
+  const settingsLockTitle = settingsLocked && !isAgentDeleted ? t('chatInput.settingsLocked') : undefined;
 
   return (
     <div
@@ -467,7 +467,7 @@ export function ChatInput({
       )}
 
       {/* Lock banner when another session is busy */}
-      {isLockedByOtherSession && (
+      {isLockedByOtherSession && !isAgentDeleted && (
         <div className="flex items-center gap-2 px-3.5 py-1.5 text-xs text-amber-500 bg-amber-500/10 border-b border-amber-500/20 font-medium select-none">
           <Lock className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">
@@ -478,56 +478,40 @@ export function ChatInput({
         </div>
       )}
 
-      {/* Agent Selector / Lock Bar */}
-      {agentsCtx && agentsCtx.agents.length > 0 && (
-        <div className="flex items-center justify-between px-3.5 pt-2 pb-1 text-[11px] text-muted-foreground border-b border-border/30 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <Bot className="h-3.5 w-3.5 text-primary shrink-0" />
-              <span className="text-[10px] uppercase font-mono tracking-wider text-muted-foreground/70 shrink-0">
-                {t('chatInput.agentLabel')}
-              </span>
-              {isAgentLocked ? (
-                <span className="font-semibold text-foreground truncate">
-                  {currentAgent?.name} ({currentAgent?.model})
-                </span>
-              ) : (
-                <select
-                  value={currentAgent?.id}
-                  onChange={(e) => onSelectAgent?.(e.target.value)}
-                  className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none pr-2 focus:ring-0 text-xs"
-                  title={t('chatInput.agentTitle')}
-                >
-                  {agentsCtx.agents.map((a) => (
-                    <option key={a.id} value={a.id} className="bg-card text-foreground">
-                      {a.name} ({a.model}) {a.isDefault ? '★' : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
+      {/* Deleted-agent banner: 이 채팅은 삭제된 설정을 사용하므로 입력을 막는다 */}
+      {isAgentDeleted && (
+        <div className="flex items-center gap-2 px-3.5 py-1.5 text-xs text-destructive bg-destructive/10 border-b border-destructive/20 font-medium select-none">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{t('chatInput.agentDeletedBanner')}</span>
+        </div>
+      )}
 
-            {/* YOLO Mode Badge */}
-            {yoloMode && (
-              <div
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/20 text-destructive border border-destructive/30 text-[10px] font-semibold animate-pulse"
-                title={t('chatInput.yoloBadge')}
-              >
-                <Zap className="h-3 w-3 fill-current" />
-                <span>{t('chatInput.yoloShort')}</span>
-              </div>
-            )}
-
-            {/* Session reasoning/effort override (Ollama think field — no prefill overhead) */}
+      {/* Session options bar (채팅은 하나의 에이전트 설정에 귀속되므로 에이전트 전환 UI 없음) */}
+      <div className="flex items-center justify-between px-3.5 pt-2 pb-1 text-[11px] text-muted-foreground border-b border-border/30 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* YOLO Mode Badge */}
+          {yoloMode && (
             <div
-              className="flex items-center gap-1 shrink-0"
-              title={t('chatInput.thinkTitle')}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/20 text-destructive border border-destructive/30 text-[10px] font-semibold animate-pulse"
+              title={t('chatInput.yoloBadge')}
             >
-              <Brain className="h-3.5 w-3.5 text-primary shrink-0" />
+              <Zap className="h-3 w-3 fill-current" />
+              <span>{t('chatInput.yoloShort')}</span>
+            </div>
+          )}
+
+          {/* Session reasoning/effort override (Ollama think field — no prefill overhead) */}
+          <div
+            className="flex items-center gap-1 shrink-0"
+            title={settingsLockTitle ?? t('chatInput.thinkTitle')}
+          >
+            <Brain className="h-3.5 w-3.5 text-primary shrink-0" />
               <select
                 value={reasoningOverride}
                 onChange={(e) => onReasoningOverrideChange?.(e.target.value as ReasoningMode | 'agent')}
-                className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none focus:ring-0 text-[11px] max-w-[86px]"
+                disabled={settingsLocked}
+                title={settingsLockTitle}
+                className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none focus:ring-0 text-[11px] max-w-[86px] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <option value="agent" className="bg-card text-foreground">
                   {t('chatInput.thinkFollowAgent')}
@@ -545,10 +529,10 @@ export function ChatInput({
               <select
                 value={effortOverride}
                 disabled={
-                  (reasoningOverride === 'agent'
-                    ? (currentAgent?.reasoning ?? 'default')
-                    : reasoningOverride) === 'off'
+                  settingsLocked ||
+                  (reasoningOverride === 'agent' ? agentReasoning : reasoningOverride) === 'off'
                 }
+                title={settingsLockTitle}
                 onChange={(e) => onEffortOverrideChange?.(e.target.value as ReasoningEffort | 'agent')}
                 className="bg-transparent text-foreground font-semibold cursor-pointer border-none outline-none focus:ring-0 text-[11px] font-mono max-w-[72px] disabled:opacity-40"
               >
@@ -566,19 +550,18 @@ export function ChatInput({
                 </option>
               </select>
             </div>
-          </div>
-
-          {contextUsage && (
-            <div className="shrink-0 pl-2">
-              <ContextGauge
-                tokens={contextUsage.tokens}
-                limit={contextUsage.limit}
-                onClick={onOpenCompactDialog}
-              />
-            </div>
-          )}
         </div>
-      )}
+
+        {contextUsage && (
+          <div className="shrink-0 pl-2">
+            <ContextGauge
+              tokens={contextUsage.tokens}
+              limit={contextUsage.limit}
+              onClick={onOpenCompactDialog}
+            />
+          </div>
+        )}
+      </div>
 
       <div className={cn('relative', customHeight ? 'flex-1 min-h-0 flex flex-col' : '')}>
         <textarea
@@ -587,12 +570,12 @@ export function ChatInput({
           value={text}
           onChange={(e) => handleTextChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isLockedByOtherSession}
+          disabled={isLockedByOtherSession || isAgentDeleted}
           placeholder={placeholder || defaultPlaceholder}
           style={customHeight ? undefined : { maxHeight: `${maxHeight}px` }}
           className={cn(
             'w-full resize-none bg-transparent px-3.5 py-2.5 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 border-0 outline-none focus:outline-none focus:ring-0 shadow-none leading-normal font-sans',
-            isLockedByOtherSession && 'opacity-60 cursor-not-allowed',
+            (isLockedByOtherSession || isAgentDeleted) && 'opacity-60 cursor-not-allowed',
             customHeight
               ? 'flex-1 min-h-0 h-full overflow-y-auto'
               : 'min-h-[38px] overflow-y-auto',
@@ -617,10 +600,12 @@ export function ChatInput({
             type="button"
             size="icon"
             onClick={() => void handleSubmit()}
-            disabled={isLockedByOtherSession || !text.trim()}
+            disabled={isLockedByOtherSession || isAgentDeleted || !text.trim()}
             className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:pointer-events-none"
             title={
-              isLockedByOtherSession
+              isAgentDeleted
+                ? t('chatInput.agentDeletedBanner')
+                : isLockedByOtherSession
                 ? t('chatInput.sendLocked')
                 : isThisSessionBusy || isStreaming
                 ? t('chatInput.sendQueue')

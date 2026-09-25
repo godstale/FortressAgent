@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, type UIEvent } from 'react';
 import { ArrowDown, Bot } from 'lucide-react';
 import type { AgentMessage } from '@/lib/agent/types';
+import type { ChatConfigSnapshot } from '@/lib/types/agent';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { MessageBubble } from './MessageBubble';
 import { CompactionBanner } from './CompactionBanner';
@@ -9,9 +10,11 @@ import { Button } from '@/components/ui/button';
 export interface MessageListProps {
   messages: AgentMessage[];
   isStreaming: boolean;
+  /** 스냅샷이 없는 구 메시지에 표시할 현재 설정 폴백. */
+  fallbackConfig?: ChatConfigSnapshot;
 }
 
-export function MessageList({ messages, isStreaming }: MessageListProps) {
+export function MessageList({ messages, isStreaming, fallbackConfig }: MessageListProps) {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
@@ -100,6 +103,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
               key={index}
               message={msg}
               isStreaming={isStreaming && index === messages.length - 1}
+              fallbackConfig={fallbackConfig}
             />
           );
         })}

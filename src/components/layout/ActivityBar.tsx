@@ -1,4 +1,4 @@
-import { MessageSquare, Bot, Files, Puzzle, Settings, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Bot, Files, Activity, Settings, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
@@ -26,7 +26,7 @@ const ITEMS: ActivityBarItem[] = [
   { view: 'explorer', icon: Files, labelKey: 'activityBar.explorer' },
   { view: 'chat-sessions', icon: MessageSquare, labelKey: 'activityBar.chatSessions' },
   { view: 'agents', icon: Bot, labelKey: 'activityBar.agents' },
-  { view: 'skills', icon: Puzzle, labelKey: 'activityBar.skills' },
+  { view: 'monitoring', icon: Activity, labelKey: 'activityBar.monitoring' },
 ];
 
 export function ActivityBar({ activeView, onSelect }: ActivityBarProps) {

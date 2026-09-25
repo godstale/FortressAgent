@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { Agent, ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
-import { resolveThinkValue } from '@/lib/types/agent';
+import { captureChatConfigSnapshot, resolveThinkValue } from '@/lib/types/agent';
+import type { ChatConfigSnapshot } from '@/lib/types/agent';
 import type { AgentEvent, AgentMessage } from '@/lib/agent/types';
 import type { SkillManifest } from '@/lib/types/skill';
 import type { ContextFileItem } from '@/lib/skills/contextFiles';
@@ -59,6 +60,8 @@ export interface UseChatReturn {
   contextUsage: { tokens: number; limit: number };
   /** 현재 턴에 적용되는 Ollama think 값 (Agent 기본값 + 세션 오버라이드 해석 결과) */
   effectiveThink: boolean | string | undefined;
+  /** 전송 시점에 캡처한 유효 실행 설정 (말풍선 [i]·변경 안내의 기준) */
+  configSnapshot: ChatConfigSnapshot;
   sendMessage: (text: string) => Promise<void>;
   steer: (text: string) => void;
   stop: () => void;
@@ -67,6 +70,8 @@ export interface UseChatReturn {
   compact: (customInstructions?: string) => Promise<void>;
   clearChat: () => Promise<void>;
   injectInfoMessage: (content: string) => void;
+  /** 설정 변경 안내를 채팅 중간에 표시한다 (UI 전용, 저장·LLM 전송 없음). */
+  injectConfigNotice: (snapshot: ChatConfigSnapshot, summary: string) => void;
 }
 
 export function useChat(
@@ -284,6 +289,23 @@ export function useChat(
     agentRef.current?.setThink(effectiveThink);
   }, [effectiveThink]);
 
+  // 전송 시점의 유효 실행 설정. 사용자 메시지 스냅샷·변경 감지의 기준이다.
+  const configSnapshot = useMemo(() => {
+    return captureChatConfigSnapshot(
+      agentConfig,
+      {
+        reasoning: options.thinkOverride?.reasoning,
+        effort: options.thinkOverride?.effort,
+      },
+      effectiveThink,
+    );
+  }, [
+    agentConfig,
+    options.thinkOverride?.reasoning,
+    options.thinkOverride?.effort,
+    effectiveThink,
+  ]);
+
   const createAgentInstance = useCallback(
     (initial: AgentMessage[]) => {
       const cfg = agentConfigRef.current;
@@ -318,6 +340,14 @@ export function useChat(
           keepRecentTokens: cfg.keepRecentTokens,
           provider: runtime.kind,
           apiKey: runtime.apiKey,
+          topP: cfg.topP,
+          topK: cfg.topK,
+          repeatPenalty: cfg.repeatPenalty,
+          frequencyPenalty: cfg.frequencyPenalty,
+          presencePenalty: cfg.presencePenalty,
+          seed: cfg.seed,
+          stopSequences: cfg.stopSequences,
+          maxOutputTokens: cfg.maxOutputTokens,
         },
         tools: toolsRef.current,
         baseUrl: runtime.baseUrl,
@@ -394,8 +424,19 @@ export function useChat(
       setError(null);
       bindSessionToAgent(sessionId, agentConfigRef.current.id);
 
-      // Eagerly show user message in UI
-      const userMsg: AgentMessage = { role: 'user', content: text };
+      // Eagerly show user message in UI (전송 시점의 실행 설정을 함께 기록)
+      const snapshot = captureChatConfigSnapshot(
+        agentConfigRef.current,
+        {
+          reasoning: optionsRef.current.thinkOverride?.reasoning,
+          effort: optionsRef.current.thinkOverride?.effort,
+        },
+        resolveThinkValue(
+          optionsRef.current.thinkOverride?.reasoning ?? agentConfigRef.current.reasoning,
+          optionsRef.current.thinkOverride?.effort ?? agentConfigRef.current.reasoningEffort,
+        ),
+      );
+      const userMsg: AgentMessage = { role: 'user', content: text, config: snapshot };
       setMessages((prev) => [...prev, userMsg]);
       persistedCountRef.current += 1;
       await persistence.saveUserMessage?.(sessionId, userMsg);
@@ -516,11 +557,28 @@ export function useChat(
     ]);
   }, []);
 
+  const injectConfigNotice = useCallback(
+    (snapshot: ChatConfigSnapshot, summary: string): void => {
+      // UI 전용 안내다. 저장하지 않고 에이전트 메모리에도 넣지 않으므로
+      // LLM 컨텍스트·DB에 영향을 주지 않는다.
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'system',
+          content: summary,
+          config: snapshot,
+        },
+      ]);
+    },
+    [],
+  );
+
   return {
     messages,
     isStreaming,
     contextUsage: { tokens: contextTokens, limit: contextLimit },
     effectiveThink,
+    configSnapshot,
     sendMessage,
     steer,
     stop,
@@ -529,5 +587,6 @@ export function useChat(
     compact,
     clearChat,
     injectInfoMessage,
+    injectConfigNotice,
   };
 }

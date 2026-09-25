@@ -8,7 +8,7 @@ import {
   Bot,
   MessageSquare,
   Files,
-  Puzzle,
+  Activity,
   Clock,
   Minus,
   Square,
@@ -338,11 +338,11 @@ export function TopMenuBar() {
                 <span>{t('topMenu.chatList')}</span>
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => setActiveView('skills')}
+                onClick={() => setActiveView('monitoring')}
                 className="gap-2 cursor-pointer text-[11px] py-1"
               >
-                <Puzzle className="h-3.5 w-3.5 text-warning" />
-                <span>{t('topMenu.skills')}</span>
+                <Activity className="h-3.5 w-3.5 text-warning" />
+                <span>{t('topMenu.monitoring')}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           )}

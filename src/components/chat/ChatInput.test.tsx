@@ -213,5 +213,38 @@ describe('ChatInput component', () => {
     const outerDiv = container.firstChild as HTMLElement;
     expect(outerDiv).toHaveStyle({ height: '240px' });
   });
+
+  it('locks reasoning/effort selects while the LLM is running (P9-06)', () => {
+    const { container } = render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming
+        isThisSessionBusy
+      />,
+    );
+
+    const selects = container.querySelectorAll('select');
+    expect(selects.length).toBe(2);
+    selects.forEach((select) => {
+      expect(select).toBeDisabled();
+    });
+  });
+
+  it('keeps reasoning/effort selects enabled when idle', () => {
+    const { container } = render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />,
+    );
+
+    const selects = container.querySelectorAll('select');
+    expect(selects.length).toBe(2);
+    expect(selects[0]).not.toBeDisabled();
+  });
 });
 

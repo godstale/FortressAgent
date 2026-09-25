@@ -79,6 +79,12 @@ export interface OpenAiChatRequest {
   think?: boolean | string | null;
   options?: Record<string, unknown>;
   maxTokens?: number;
+  /** 생성 파라미터 (12. body 병합보다 우선한다). */
+  topP?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  seed?: number;
+  stopSequences?: string[];
 }
 
 export interface OpenAiModel {
@@ -166,16 +172,28 @@ export async function* streamChat(
     messages: req.messages,
     stream: true,
     ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+    ...(req.topP !== undefined ? { top_p: req.topP } : {}),
+    ...(req.frequencyPenalty !== undefined
+      ? { frequency_penalty: req.frequencyPenalty }
+      : {}),
+    ...(req.presencePenalty !== undefined
+      ? { presence_penalty: req.presencePenalty }
+      : {}),
+    ...(req.seed !== undefined ? { seed: req.seed } : {}),
+    ...(req.stopSequences && req.stopSequences.length > 0
+      ? { stop: req.stopSequences }
+      : {}),
     ...(req.tools && req.tools.length > 0 ? { tools: req.tools } : {}),
     ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     stream_options: { include_usage: true },
     ...(req.options ?? {}),
   };
-  // Ollama 전용 옵션(num_ctx 등)이 섞여 들어오면 OpenAI 호환 서버가 400을
-  // 반환할 수 있으므로 제거한다.
-  if ('num_ctx' in body) delete body['num_ctx'];
-  if ('think' in body) delete body['think'];
+  // Ollama 전용 옵션(num_ctx, top_k, repeat_penalty, num_predict 등)이
+  // 섞여 들어오면 OpenAI 호환 서버가 400을 반환할 수 있으므로 제거한다.
+  for (const ollamaOnlyKey of ['num_ctx', 'num_predict', 'top_k', 'repeat_penalty', 'think']) {
+    if (ollamaOnlyKey in body) delete body[ollamaOnlyKey];
+  }
 
   let response: Response;
   try {

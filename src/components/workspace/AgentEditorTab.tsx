@@ -6,6 +6,7 @@ import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
+import { useGlobalLlmBusy } from '@/lib/agent/chatQueueManager';
 import { Button } from '@/components/ui/button';
 import { AgentEditorForm } from '@/components/agents/AgentEditorForm';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -17,14 +18,24 @@ export interface AgentEditorTabProps {
 export function AgentEditorTab({ tab }: AgentEditorTabProps) {
   const { getAgent } = useAgents();
   const { updateTab, closeTab, openTab } = useWorkspaceTabs();
-  const { createSession } = useChatSessions();
+  const { createSession, sessions } = useChatSessions();
   const { workspaceRoot } = useWorkspace();
+  const busySessionId = useGlobalLlmBusy();
 
   const rawId = (tab.meta?.agentId as string | undefined) ||
     (tab.id.startsWith('agent-editor:') ? tab.id.slice('agent-editor:'.length) : undefined);
   const isNew = !rawId || rawId.startsWith('new-');
   const existingAgent = isNew ? undefined : getAgent(rawId);
   const mode: 'create' | 'edit' = existingAgent ? 'edit' : (isNew ? 'create' : 'edit');
+
+  // 채팅 중(해당 에이전트를 쓰는 세션이 LLM 동작/대기 큐 상태)에는 저장을 제한한다.
+  // 바쁜 세션이 목록에 없으면(다른 워크스페이스 등) 보수적으로 잠근다.
+  const busySession = busySessionId ? sessions.find((s) => s.id === busySessionId) : undefined;
+  const saveLocked =
+    mode === 'edit' &&
+    !!existingAgent &&
+    busySessionId !== null &&
+    (!busySession || busySession.agentId === existingAgent.id);
 
   const [saveFeedback, setSaveFeedback] = useState(false);
   const { t } = useLanguage();
@@ -109,6 +120,7 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
         <AgentEditorForm
           mode={mode}
           initialAgent={existingAgent}
+          saveLocked={saveLocked}
           onSave={handleSave}
           onCancel={handleCancel}
         />

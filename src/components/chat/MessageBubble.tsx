@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain, Clock, AlertCircle } from 'lucide-react';
+import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain, Clock, AlertCircle, Info, Settings2 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentMessage } from '@/lib/agent/types';
+import type { ChatConfigSnapshot } from '@/lib/types/agent';
+import { getProviderPreset } from '@/lib/llm/providers';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { ToolCallCard } from './ToolCallCard';
 import { MermaidViewer } from './MermaidViewer';
@@ -14,12 +16,49 @@ import { isChartDsl } from '@/lib/types/chartDsl';
 export interface MessageBubbleProps {
   message: AgentMessage;
   isStreaming?: boolean;
+  /** 스냅샷이 없는 구 히스토리용 폴백 (현재 설정을 표시). */
+  fallbackConfig?: ChatConfigSnapshot;
 }
 
-export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
+function ConfigSnapshotRows({ snapshot }: { snapshot: ChatConfigSnapshot }) {
+  const { t } = useLanguage();
+  const providerLabel = getProviderPreset(snapshot.llmProvider).label;
+  const isOllama = (snapshot.llmProvider ?? 'ollama') === 'ollama';
+  // Provider별 샘플링 표시: Ollama는 top-k/반복 억제, OpenAI 호환은 빈도/주제 억제
+  const sampling = isOllama
+    ? `top-k ${snapshot.topK ?? 'auto'} / repeat ${snapshot.repeatPenalty ?? 'auto'}`
+    : `freq ${snapshot.frequencyPenalty ?? 'auto'} / pres ${snapshot.presencePenalty ?? 'auto'}`;
+  const rows: Array<[string, string]> = [
+    [t('chat.configModel'), `${snapshot.agentName} • ${snapshot.model}`],
+    [t('chat.configProvider'), providerLabel],
+    [t('chat.configTemperature'), String(snapshot.temperature ?? 0.7)],
+    [t('chat.configContextSize'), `${(snapshot.contextSize || 8192).toLocaleString()} tokens`],
+    [t('chat.configReasoning'), snapshot.reasoning],
+    [t('chat.configEffort'), snapshot.reasoningEffort],
+    [t('chat.configThink'), String(snapshot.think ?? 'default')],
+    [t('chat.configTopP'), String(snapshot.topP ?? 'auto')],
+    [t('chat.configSampling'), sampling],
+    [t('chat.configSeed'), String(snapshot.seed ?? 'auto')],
+    [t('chat.configStop'), snapshot.stopSequences?.join(', ') || 'auto'],
+    [t('chat.configMaxTokens'), String(snapshot.maxOutputTokens ?? 'auto')],
+  ];
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px] leading-relaxed">
+      {rows.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-muted-foreground font-sans">{label}</dt>
+          <dd className="text-foreground break-all">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageBubbleProps) {
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
 
   const handleCopy = () => {
     let textToCopy = '';
@@ -36,6 +75,22 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   const timeFormatted = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   if (message.role === 'system') {
+    // 설정 변경 안내는 채팅 중간에 중앙 배지로 표시한다 (LLM 컨텍스트·DB에 영향 없음).
+    if (message.config) {
+      return (
+        <div className="py-2 flex justify-center w-full">
+          <div className="max-w-3xl w-full px-4">
+            <div className="flex flex-col gap-2 px-3.5 py-2.5 rounded-xl bg-muted/50 border border-border/70 text-xs">
+              <div className="flex items-center justify-center gap-1.5 font-semibold text-foreground">
+                <Settings2 className="h-3.5 w-3.5 text-primary" />
+                <span>{message.content || t('chat.configChanged')}</span>
+              </div>
+              <ConfigSnapshotRows snapshot={message.config} />
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="py-2 text-center text-[11px] text-muted-foreground font-mono">
         <span className="px-2 py-0.5 rounded-full bg-muted/60">
@@ -60,19 +115,34 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 
   // User Message
   if (message.role === 'user') {
+    // 해당 요청이 실행된 설정. 구 히스토리(스냅샷 없음)는 현재 설정으로 폴백한다.
+    const configSnapshot = message.config ?? fallbackConfig;
+    const isConfigFallback = !message.config && !!fallbackConfig;
     return (
       <div className="flex justify-end my-3 w-full">
         <div className="flex items-start gap-2.5 max-w-[85%] md:max-w-2xl">
-          <div className="flex flex-col items-end gap-1">
+          <div className="flex flex-col items-end gap-1 min-w-0">
             <div className="p-3.5 rounded-2xl bg-primary text-primary-foreground text-sm leading-relaxed shadow-xs">
               <p className="whitespace-pre-wrap select-text">{message.content}</p>
             </div>
-            {/* Bubble Footer: Time & Copy outside */}
+            {/* Bubble Footer: Time & Copy & Config outside */}
             <div className="flex items-center gap-2 px-1 text-[10px] text-muted-foreground font-mono">
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3 opacity-70" />
                 <span>{timeFormatted}</span>
               </span>
+              {configSnapshot && (
+                <button
+                  type="button"
+                  onClick={() => setShowConfig((prev) => !prev)}
+                  aria-expanded={showConfig}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  title={t('chat.configShow')}
+                >
+                  <Info className="h-3 w-3" />
+                  <span>i</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleCopy}
@@ -83,6 +153,20 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                 <span>{copied ? t('chat.copied') : t('chat.copy')}</span>
               </button>
             </div>
+            {configSnapshot && showConfig && (
+              <div className="w-full max-w-md p-3 rounded-xl border border-border/70 bg-card/90 shadow-xs text-left">
+                <div className="flex items-center gap-1.5 mb-2 text-[11px] font-semibold text-foreground font-sans">
+                  <Settings2 className="h-3.5 w-3.5 text-primary" />
+                  <span>{t('chat.configTitle')}</span>
+                </div>
+                <ConfigSnapshotRows snapshot={configSnapshot} />
+                {isConfigFallback && (
+                  <p className="mt-2 text-[10px] text-muted-foreground font-sans">
+                    {t('chat.configFallbackNote')}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
           <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-primary shrink-0 mt-0.5">
             <User className="h-4 w-4" />

@@ -24,6 +24,14 @@ export const MIGRATION_STATEMENTS: string[] = [
     approval_mode TEXT NOT NULL DEFAULT 'dangerous-only',
     reasoning TEXT NOT NULL DEFAULT 'default',
     reasoning_effort TEXT NOT NULL DEFAULT 'medium',
+    top_p REAL,
+    top_k INTEGER,
+    repeat_penalty REAL,
+    frequency_penalty REAL,
+    presence_penalty REAL,
+    seed INTEGER,
+    stop_sequences TEXT NOT NULL DEFAULT '[]',
+    max_output_tokens INTEGER,
     llm_provider TEXT NOT NULL DEFAULT 'ollama',
     llm_base_url TEXT,
     llm_api_key TEXT,
@@ -174,15 +182,43 @@ export class MemorySqlFallback implements SqlDatabase {
         reasoning_effort,
         ...rest
       ] = bindValues;
-      // 신규 스키마(20개 바인드): [..., llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at]
+      // 신규 스키마(28개 바인드): [..., top_p, top_k, repeat_penalty, frequency_penalty,
+      //   presence_penalty, seed, stop_sequences, max_output_tokens,
+      //   llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at]
+      // 과도기 스키마(20개 바인드): [..., llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at]
       // 구 스키마(17개 바인드): [..., is_default, created_at, updated_at]
+      let top_p: unknown = null;
+      let top_k: unknown = null;
+      let repeat_penalty: unknown = null;
+      let frequency_penalty: unknown = null;
+      let presence_penalty: unknown = null;
+      let seed: unknown = null;
+      let stop_sequences: unknown = '[]';
+      let max_output_tokens: unknown = null;
       let llm_provider: unknown = 'ollama';
       let llm_base_url: unknown = null;
       let llm_api_key: unknown = null;
       let is_default: unknown;
       let created_at: unknown;
       let updated_at: unknown;
-      if (rest.length >= 6) {
+      if (rest.length >= 14) {
+        [
+          top_p,
+          top_k,
+          repeat_penalty,
+          frequency_penalty,
+          presence_penalty,
+          seed,
+          stop_sequences,
+          max_output_tokens,
+          llm_provider,
+          llm_base_url,
+          llm_api_key,
+          is_default,
+          created_at,
+          updated_at,
+        ] = rest;
+      } else if (rest.length >= 6) {
         [llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at] = rest;
       } else {
         [is_default, created_at, updated_at] = rest;
@@ -202,6 +238,14 @@ export class MemorySqlFallback implements SqlDatabase {
         approval_mode,
         reasoning,
         reasoning_effort,
+        top_p,
+        top_k,
+        repeat_penalty,
+        frequency_penalty,
+        presence_penalty,
+        seed,
+        stop_sequences,
+        max_output_tokens,
         llm_provider,
         llm_base_url,
         llm_api_key,
@@ -251,15 +295,43 @@ export class MemorySqlFallback implements SqlDatabase {
         reasoning_effort,
         ...rest
       ] = bindValues;
-      // 신규 스키마: [..., llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id]
+      // 신규 스키마: [..., top_p, top_k, repeat_penalty, frequency_penalty,
+      //   presence_penalty, seed, stop_sequences, max_output_tokens,
+      //   llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id]
+      // 과도기 스키마: [..., llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id]
       // 구 스키마: [..., is_default, updated_at, id]
+      let top_p: unknown;
+      let top_k: unknown;
+      let repeat_penalty: unknown;
+      let frequency_penalty: unknown;
+      let presence_penalty: unknown;
+      let seed: unknown;
+      let stop_sequences: unknown;
+      let max_output_tokens: unknown;
       let llm_provider: unknown;
       let llm_base_url: unknown;
       let llm_api_key: unknown;
       let is_default: unknown;
       let updated_at: unknown;
       let id: unknown;
-      if (rest.length >= 6) {
+      if (rest.length >= 14) {
+        [
+          top_p,
+          top_k,
+          repeat_penalty,
+          frequency_penalty,
+          presence_penalty,
+          seed,
+          stop_sequences,
+          max_output_tokens,
+          llm_provider,
+          llm_base_url,
+          llm_api_key,
+          is_default,
+          updated_at,
+          id,
+        ] = rest;
+      } else if (rest.length >= 6) {
         [llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id] = rest;
       } else {
         [is_default, updated_at, id] = rest;
@@ -280,6 +352,14 @@ export class MemorySqlFallback implements SqlDatabase {
           approval_mode,
           reasoning,
           reasoning_effort,
+          ...(top_p !== undefined ? { top_p } : {}),
+          ...(top_k !== undefined ? { top_k } : {}),
+          ...(repeat_penalty !== undefined ? { repeat_penalty } : {}),
+          ...(frequency_penalty !== undefined ? { frequency_penalty } : {}),
+          ...(presence_penalty !== undefined ? { presence_penalty } : {}),
+          ...(seed !== undefined ? { seed } : {}),
+          ...(stop_sequences !== undefined ? { stop_sequences } : {}),
+          ...(max_output_tokens !== undefined ? { max_output_tokens } : {}),
           ...(llm_provider !== undefined ? { llm_provider } : {}),
           ...(llm_base_url !== undefined ? { llm_base_url } : {}),
           ...(llm_api_key !== undefined ? { llm_api_key } : {}),
@@ -668,6 +748,16 @@ export class MemorySqlFallback implements SqlDatabase {
       return { rowsAffected: affected };
     }
 
+    if (q.startsWith('DELETE FROM agent_monitoring_snapshots WHERE id = ?')) {
+      const [id] = bindValues;
+      const snapMap = this.tables.get('agent_monitoring_snapshots');
+      let affected = 0;
+      if (snapMap?.delete(id as string)) {
+        affected = 1;
+      }
+      return { rowsAffected: affected };
+    }
+
     if (q.startsWith('DELETE FROM agent_monitoring_snapshots')) {
       const count = this.tables.get('agent_monitoring_snapshots')?.size ?? 0;
       this.tables.get('agent_monitoring_snapshots')?.clear();
@@ -863,7 +953,9 @@ export class MemorySqlFallback implements SqlDatabase {
     if (q.includes('FROM agent_monitoring_snapshots')) {
       const snaps = Array.from(this.tables.get('agent_monitoring_snapshots')?.values() ?? [])
         .sort((a, b) => (b.timestamp as string).localeCompare(a.timestamp as string));
-      return snaps as unknown as T;
+      const limit = bindValues.length > 0 ? bindValues[bindValues.length - 1] : undefined;
+      const capped = typeof limit === 'number' ? snaps.slice(0, limit) : snaps;
+      return capped as unknown as T;
     }
 
     if (q.includes('FROM conversation_token_summaries WHERE agent_id = ?')) {
@@ -932,6 +1024,14 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
     'ALTER TABLE app_settings ADD COLUMN monitoring_interval_ms INTEGER NOT NULL DEFAULT 1000',
     "ALTER TABLE agents ADD COLUMN reasoning TEXT NOT NULL DEFAULT 'default'",
     "ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'medium'",
+    'ALTER TABLE agents ADD COLUMN top_p REAL',
+    'ALTER TABLE agents ADD COLUMN top_k INTEGER',
+    'ALTER TABLE agents ADD COLUMN repeat_penalty REAL',
+    'ALTER TABLE agents ADD COLUMN frequency_penalty REAL',
+    'ALTER TABLE agents ADD COLUMN presence_penalty REAL',
+    'ALTER TABLE agents ADD COLUMN seed INTEGER',
+    "ALTER TABLE agents ADD COLUMN stop_sequences TEXT NOT NULL DEFAULT '[]'",
+    'ALTER TABLE agents ADD COLUMN max_output_tokens INTEGER',
     "ALTER TABLE agents ADD COLUMN llm_provider TEXT NOT NULL DEFAULT 'ollama'",
     'ALTER TABLE agents ADD COLUMN llm_base_url TEXT',
     'ALTER TABLE agents ADD COLUMN llm_api_key TEXT',
@@ -956,9 +1056,11 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
           id, name, description, system_prompt, model, temperature,
           context_size, reserve_tokens, keep_recent_tokens, enabled_skills,
           enabled_builtin_tools, approval_mode, reasoning, reasoning_effort,
+          top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty,
+          seed, stop_sequences, max_output_tokens,
           llm_provider, llm_base_url, llm_api_key,
           is_default, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           DEFAULT_AGENT.id,
           DEFAULT_AGENT.name,
@@ -974,6 +1076,14 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
           DEFAULT_AGENT.approvalMode,
           DEFAULT_AGENT.reasoning ?? 'default',
           DEFAULT_AGENT.reasoningEffort ?? 'medium',
+          DEFAULT_AGENT.topP ?? null,
+          DEFAULT_AGENT.topK ?? null,
+          DEFAULT_AGENT.repeatPenalty ?? null,
+          DEFAULT_AGENT.frequencyPenalty ?? null,
+          DEFAULT_AGENT.presencePenalty ?? null,
+          DEFAULT_AGENT.seed ?? null,
+          JSON.stringify(DEFAULT_AGENT.stopSequences ?? []),
+          DEFAULT_AGENT.maxOutputTokens ?? null,
           DEFAULT_AGENT.llmProvider ?? 'ollama',
           DEFAULT_AGENT.llmBaseUrl ?? null,
           DEFAULT_AGENT.llmApiKey ?? null,

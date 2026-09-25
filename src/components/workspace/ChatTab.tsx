@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Bot, Cpu, Sparkles, MessageSquare, Terminal, Zap, Layers, Activity } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import type { ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
+import { chatConfigSignature } from '@/lib/types/agent';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
@@ -27,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import * as sessionsRepo from '@/lib/db/repositories/sessionsRepo';
 import { setActiveApprovalMode } from '@/lib/approval/register';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { getProviderPreset } from '@/lib/llm/providers';
 import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
 import { cn } from '@/lib/utils';
 
@@ -36,7 +38,7 @@ export interface ChatTabProps {
 
 export function ChatTab({ tab }: ChatTabProps) {
   const { t } = useLanguage();
-  const { getAgent, defaultAgent } = useAgents();
+  const { getAgent, defaultAgent, loading: agentsLoading } = useAgents();
   const { settings } = useSettings();
   const { updateTab, openTab } = useWorkspaceTabs();
   const { workspaceRoot } = useWorkspace();
@@ -66,9 +68,16 @@ export function ChatTab({ tab }: ChatTabProps) {
   const busySessionTitle = busySession?.title || t('chatTab.otherSession');
 
   const tabAgentId = tab.meta?.agentId as string | undefined;
-  const [selectedAgentId, setSelectedAgentId] = useState<string>(
-    tabAgentId || defaultAgent.id,
+
+  // 채팅 화면은 하나의 에이전트 설정에 귀속된다. 에이전트 전환 UI는 제공하지 않으며,
+  // effectiveAgentId는 탭 meta → 세션 저장값 → 기본 에이전트 순으로 고정된다.
+  const session = useMemo(
+    () => sessions.find((s) => s.id === sessionId),
+    [sessions, sessionId],
   );
+  const effectiveAgentId = tabAgentId ?? session?.agentId ?? defaultAgent.id;
+  const isAgentDeleted =
+    !agentsLoading && !!effectiveAgentId && !getAgent(effectiveAgentId);
   // 세션 단위 reasoning/effort 오버라이드. 'agent'면 Agent 기본 설정을 따른다.
   // think 최상위 필드로만 전달되므로 변경해도 시스템 프롬프트가 변하지 않아 prefill 오버헤드가 없다.
   const [reasoningOverride, setReasoningOverride] = useState<ReasoningMode | 'agent'>('agent');
@@ -120,7 +129,8 @@ export function ChatTab({ tab }: ChatTabProps) {
     setCustomInputHeight(null);
   };
 
-  const activeAgent = getAgent(selectedAgentId) || defaultAgent;
+  const activeAgent = getAgent(effectiveAgentId) || defaultAgent;
+  const providerPreset = getProviderPreset(activeAgent.llmProvider);
 
   const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(() =>
     monitoringCollector.isRunning(activeAgent.id),
@@ -184,6 +194,7 @@ export function ChatTab({ tab }: ChatTabProps) {
     isStreaming,
     contextUsage,
     effectiveThink,
+    configSnapshot,
     sendMessage,
     steer,
     stop,
@@ -192,6 +203,7 @@ export function ChatTab({ tab }: ChatTabProps) {
     compact,
     clearChat,
     injectInfoMessage,
+    injectConfigNotice,
   } = useChat(sessionId, activeAgent, {
     cwd: effectiveCwd,
     thinkOverride,
@@ -200,18 +212,27 @@ export function ChatTab({ tab }: ChatTabProps) {
     baseUrl: settings.ollamaBaseUrl,
   });
 
-  const handleSelectAgent = (newAgentId: string) => {
-    setSelectedAgentId(newAgentId);
-    updateTab(tab.id, {
-      meta: { ...tab.meta, agentId: newAgentId },
-    });
-    void sessionsRepo.updateSession(sessionId, { agentId: newAgentId }).catch((err) => {
-      console.error('Failed to update session agent:', err);
-    });
-  };
+  // 실행 설정이 바뀌면 채팅 중간에 안내를 표시한다.
+  // 스냅샷이 각 사용자 말풍선에 이미 기록되므로 안내는 UI 전용(미저장)이다.
+  const prevConfigSigRef = useRef<string | null>(null);
+  useEffect(() => {
+    const sig = chatConfigSignature(configSnapshot);
+    if (prevConfigSigRef.current === null) {
+      prevConfigSigRef.current = sig;
+      return;
+    }
+    if (prevConfigSigRef.current === sig) return;
+    prevConfigSigRef.current = sig;
+    // 빈 채팅·삭제된 에이전트·스트리밍 중(셀렉터 잠금으로 원칙상 불가)의
+    // 변경은 안내하지 않는다. 다음 턴부터 새 설정이 적용된다.
+    if (messages.length === 0 || isAgentDeleted || isStreaming) return;
+    injectConfigNotice(configSnapshot, t('chatTab.configChanged'));
+  }, [configSnapshot, messages.length, isAgentDeleted, isStreaming, injectConfigNotice, t]);
 
   const handleSendMessage = useCallback(
     async (text: string) => {
+      // 삭제된 에이전트 설정의 채팅은 대화를 지속할 수 없다.
+      if (isAgentDeleted) return;
       chatQueueManager.setSessionBusy(sessionId);
       const isFirstUserMessage = messages.filter((m) => m.role === 'user').length === 0;
 
@@ -248,7 +269,7 @@ export function ChatTab({ tab }: ChatTabProps) {
         }
       }
     },
-    [messages, sessionId, activeAgent.id, workspaceRoot, tab.title, tab.id, sendMessage, updateSessionTitle, updateTab, refreshSessions, t],
+    [messages, sessionId, activeAgent.id, workspaceRoot, tab.title, tab.id, sendMessage, updateSessionTitle, updateTab, refreshSessions, t, isAgentDeleted],
   );
 
   const handleSlashCommand = useCallback(
@@ -279,11 +300,13 @@ export function ChatTab({ tab }: ChatTabProps) {
         case 'agent':
           injectInfoMessage(
             `### 🤖 ${t('chatTab.agentTitle')} (\`${activeAgent.name}\`)\n` +
+            `- **${t('chatTab.provider')}**: \`${providerPreset.label}\`\n` +
             `- **${t('chatTab.modelId')}**: \`${activeAgent.model}\`\n` +
             `- **${t('chatTab.approvalMode')}**: \`${yoloMode ? 'never (YOLO)' : activeAgent.approvalMode}\`\n` +
             `- **${t('chatTab.contextSize')}**: \`${(activeAgent.contextSize || 8192).toLocaleString()} tokens\`\n` +
             `- **${t('chatTab.temperature')}**: \`${activeAgent.temperature ?? 0.7}\`\n` +
             `- **${t('chatTab.reasoning')}**: \`${activeAgent.reasoning ?? 'default'}\` / \`${activeAgent.reasoningEffort ?? 'medium'}\` → think: \`${String(effectiveThink ?? 'default')}\`\n` +
+            `- **${t('chatTab.generation')}**: \`top-p ${activeAgent.topP ?? 'auto'} · top-k ${activeAgent.topK ?? 'auto'} · repeat ${activeAgent.repeatPenalty ?? 'auto'} · freq ${activeAgent.frequencyPenalty ?? 'auto'} · pres ${activeAgent.presencePenalty ?? 'auto'} · seed ${activeAgent.seed ?? 'auto'} · max ${activeAgent.maxOutputTokens ?? 'auto'}\`\n` +
             `- **${t('chatTab.enabledTools')}**: \`${(activeAgent.enabledBuiltinTools || []).join(', ')}\``,
           );
           return true;
@@ -354,6 +377,7 @@ export function ChatTab({ tab }: ChatTabProps) {
       injectInfoMessage,
       contextUsage,
       activeAgent,
+      providerPreset.label,
       messages,
       yoloMode,
       effectiveThink,
@@ -365,6 +389,10 @@ export function ChatTab({ tab }: ChatTabProps) {
   );
 
   const handleExecuteCompaction = async () => {
+    if (isAgentDeleted) {
+      setCompactDialogOpen(false);
+      return;
+    }
     setIsCompacting(true);
     try {
       await compact(compactCustomInstruction.trim() || undefined);
@@ -382,7 +410,7 @@ export function ChatTab({ tab }: ChatTabProps) {
   const isProcessingQueueRef = useRef(false);
 
   const processNextQueueItem = useCallback(async () => {
-    if (isStreaming || isProcessingQueueRef.current) return;
+    if (isStreaming || isProcessingQueueRef.current || isAgentDeleted) return;
     const nextItem = chatQueueManager.peek(sessionId);
     if (!nextItem) {
       chatQueueManager.setSessionIdle(sessionId);
@@ -407,7 +435,7 @@ export function ChatTab({ tab }: ChatTabProps) {
     } finally {
       isProcessingQueueRef.current = false;
     }
-  }, [isStreaming, sessionId, handleSlashCommand, handleSendMessage]);
+  }, [isStreaming, sessionId, handleSlashCommand, handleSendMessage, isAgentDeleted]);
 
   // Synchronize LLM streaming execution state with ChatQueueManager
   // Ensures any session running LLM inference immediately locks all other chat sessions even with 0 queued items
@@ -458,6 +486,7 @@ export function ChatTab({ tab }: ChatTabProps) {
 
   const handleRunItem = useCallback(
     async (itemId: string) => {
+      if (isAgentDeleted) return;
       resumeQueue();
       const item = dequeueItem(itemId);
       if (!item) return;
@@ -472,7 +501,7 @@ export function ChatTab({ tab }: ChatTabProps) {
         console.error('Error running selected queued item:', err);
       }
     },
-    [resumeQueue, dequeueItem, handleSlashCommand, handleSendMessage],
+    [resumeQueue, dequeueItem, handleSlashCommand, handleSendMessage, isAgentDeleted],
   );
 
   useEffect(() => {
@@ -495,6 +524,8 @@ export function ChatTab({ tab }: ChatTabProps) {
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md font-mono shrink-0">
             <Sparkles className="h-3 w-3 text-warning" />
             <span className="font-semibold text-foreground">{activeAgent.name}</span>
+            <span className="text-muted-foreground/60">•</span>
+            <span>{providerPreset.label}</span>
             <span className="text-muted-foreground/60">•</span>
             <Cpu className="h-3 w-3" />
             <span>{activeAgent.model}</span>
@@ -538,7 +569,15 @@ export function ChatTab({ tab }: ChatTabProps) {
       </div>
 
       {/* Error banner if present */}
-      <ErrorBanner error={error} onRetry={retry} />
+      <ErrorBanner error={error} onRetry={() => { if (!isAgentDeleted) void retry(); }} />
+
+      {/* Deleted-agent notice: 기록은 읽을 수 있지만 대화를 지속할 수 없다 */}
+      {isAgentDeleted && (
+        <div className="flex items-center gap-2 px-4 py-2 text-xs text-destructive bg-destructive/10 border-b border-destructive/20 font-medium shrink-0 select-none">
+          <Bot className="h-3.5 w-3.5 shrink-0" />
+          <span>{t('chatTab.agentDeleted')}</span>
+        </div>
+      )}
 
       {/* Content Area: Chat Messages OR Detailed Execution Log */}
       <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -568,7 +607,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           <span>{isMonitoringActive ? t('chatTab.monitoringActive') : t('chatTab.monitoringIdle')}</span>
         </button>
         {viewMode === 'chat' ? (
-          <MessageList messages={messages} isStreaming={isStreaming} />
+          <MessageList messages={messages} isStreaming={isStreaming} fallbackConfig={configSnapshot} />
         ) : (
           <ChatExecutionLog sessionId={tab.id} messages={messages} />
         )}
@@ -618,9 +657,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           isLockedByOtherSession={isLockedByOtherSession}
           isThisSessionBusy={isThisSessionBusy || isStreaming || queuedItems.length > 0}
           busySessionTitle={busySessionTitle}
-          selectedAgentId={selectedAgentId}
-          onSelectAgent={handleSelectAgent}
-          isAgentLocked={messages.length > 0}
+          agentReasoning={activeAgent.reasoning ?? 'default'}
           contextUsage={contextUsage}
           yoloMode={yoloMode}
           reasoningOverride={reasoningOverride}
@@ -628,6 +665,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           onReasoningOverrideChange={setReasoningOverride}
           onEffortOverrideChange={setEffortOverride}
           customHeight={customInputHeight ? Math.max(60, customInputHeight - 24) : null}
+          isAgentDeleted={isAgentDeleted}
         />
       </div>
 

@@ -10,6 +10,10 @@ import {
   saveConversationSummary,
   getConversationSummaries,
   clearConversationSummaries,
+  listRecentMonitoringSnapshots,
+  deleteMonitoringSnapshot,
+  clearAllMonitoringSnapshots,
+  clearAllConversationSummaries,
 } from './monitoringRepo';
 import type { AgentMonitoringSnapshot, ConversationTokenSummary } from '@/lib/types/monitoring';
 import { emptyStatusTokens } from '@/lib/types/monitoring';
@@ -171,6 +175,49 @@ describe('monitoringRepo', () => {
     expect(emptyForOther.length).toBe(0);
 
     await clearConversationSummaries('agent-1');
+    expect(await getConversationSummaries('agent-1')).toHaveLength(0);
+  });
+
+  it('lists snapshots across agents and deletes a single record', async () => {
+    await saveMonitoringSnapshot(sampleSnapshot);
+    await saveMonitoringSnapshot({
+      ...sampleSnapshot,
+      id: 'snap-2',
+      agentId: 'agent-2',
+      timestamp: new Date(Date.now() + 1000).toISOString(),
+    });
+
+    const all = await listRecentMonitoringSnapshots(10);
+    expect(all.map((s) => s.id)).toEqual(['snap-2', 'snap-1']);
+
+    // 단일 삭제는 해당 기록만 지우고 다른 에이전트 기록은 유지한다.
+    await deleteMonitoringSnapshot('snap-2');
+    expect(await listRecentMonitoringSnapshots(10)).toHaveLength(1);
+    expect(await getMonitoringSnapshots('agent-1')).toHaveLength(1);
+    expect(await getMonitoringSnapshots('agent-2')).toHaveLength(0);
+  });
+
+  it('clears all monitoring snapshots and conversation summaries', async () => {
+    await saveMonitoringSnapshot(sampleSnapshot);
+    await saveConversationSummary({
+      id: 'conv-agent-1-1',
+      agentId: 'agent-1',
+      sessionId: 'session-1',
+      seq: 1,
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      endedAt: new Date().toISOString(),
+      turnCount: 1,
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      thinkingTokens: 1,
+      contentTokens: 4,
+      statusTokens: emptyStatusTokens(),
+    });
+
+    await clearAllMonitoringSnapshots();
+    await clearAllConversationSummaries();
+    expect(await listRecentMonitoringSnapshots(10)).toHaveLength(0);
     expect(await getConversationSummaries('agent-1')).toHaveLength(0);
   });
 });

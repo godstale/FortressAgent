@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  LLM_PROVIDER_ORDER,
   LLM_PROVIDER_PRESETS,
   getProviderPreset,
   normalizeProviderFields,
@@ -18,16 +19,31 @@ describe('llm providers', () => {
 
   it('marks only ollama as native, everything else OpenAI-compatible', () => {
     expect(LLM_PROVIDER_PRESETS.ollama.openAiCompatible).toBe(false);
-    for (const kind of ['lmstudio', 'llamacpp', 'vllm', 'jan', 'openai-compatible', 'openai'] as const) {
+    for (const kind of LLM_PROVIDER_ORDER.filter((k) => k !== 'ollama')) {
       expect(LLM_PROVIDER_PRESETS[kind].openAiCompatible).toBe(true);
     }
   });
 
-  it('requires apiKey only for OpenAI cloud', () => {
+  it('requires apiKey for cloud/gateway presets, not for local runtimes', () => {
     expect(LLM_PROVIDER_PRESETS.openai.requiresApiKey).toBe(true);
+    expect(LLM_PROVIDER_PRESETS.anthropic.requiresApiKey).toBe(true);
+    expect(LLM_PROVIDER_PRESETS.gemini.requiresApiKey).toBe(true);
+    expect(LLM_PROVIDER_PRESETS.xai.requiresApiKey).toBe(true);
+    expect(LLM_PROVIDER_PRESETS.deepseek.requiresApiKey).toBe(true);
+    expect(LLM_PROVIDER_PRESETS.openrouter.requiresApiKey).toBe(true);
     expect(LLM_PROVIDER_PRESETS.lmstudio.requiresApiKey).toBe(false);
     expect(LLM_PROVIDER_PRESETS.jan.requiresApiKey).toBe(false);
     expect(LLM_PROVIDER_PRESETS.ollama.supportsApiKey).toBe(false);
+  });
+
+  it('exposes cloud preset endpoints and representative default models', () => {
+    expect(LLM_PROVIDER_PRESETS.gemini.defaultBaseUrl).toContain('googleapis');
+    expect(LLM_PROVIDER_PRESETS.xai.defaultBaseUrl).toBe('https://api.x.ai/v1');
+    expect(LLM_PROVIDER_PRESETS.deepseek.defaultBaseUrl).toBe('https://api.deepseek.com/v1');
+    expect(LLM_PROVIDER_PRESETS.openrouter.defaultBaseUrl).toBe('https://openrouter.ai/api/v1');
+    expect(LLM_PROVIDER_PRESETS.openai.defaultModel).toBe('gpt-4o-mini');
+    expect(LLM_PROVIDER_PRESETS['openai-compatible'].category).toBe('local');
+    expect(LLM_PROVIDER_PRESETS.openrouter.category).toBe('gateway');
   });
 
   it('falls back to ollama preset for unknown kinds', () => {

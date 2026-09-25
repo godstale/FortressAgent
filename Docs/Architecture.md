@@ -135,7 +135,9 @@ Fortress/
 │   │   │   ├── AgentCard.tsx
 │   │   │   └── AgentEditorForm.tsx
 │   │   ├── skills/
-│   │   │   └── SkillListPanel.tsx
+│   │   │   └── SkillListPanel.tsx       # 사이드바에서는 제거. 스킬 on/off는 AgentEditorForm 카드에서 수행
+│   │   ├── monitoring/
+│   │   │   └── MonitoringListPanel.tsx  # 저장된 모니터링 기록 목록 패널 (필터/그룹화/개별·전체 삭제)
 │   │   ├── workspace/
 │   │   │   ├── CenterWorkspace.tsx      # 탭 바 + 탭 콘텐츠 라우팅
 │   │   │   ├── ChatTab.tsx
@@ -243,7 +245,7 @@ Fortress/
 VivoStudio의 `ActivityBar.tsx` 패턴을 그대로 재사용합니다: 데이터 기반 배열, 순수 컨트롤드 컴포넌트, 활성 아이콘에 좌측 accent bar 표시.
 
 ```ts
-type SidePanelView = 'chat-sessions' | 'explorer' | 'agents' | 'skills' | null;
+type SidePanelView = 'chat-sessions' | 'explorer' | 'agents' | 'monitoring' | null;
 
 const ITEMS: {
   view: Exclude<SidePanelView, null>;
@@ -253,7 +255,7 @@ const ITEMS: {
   { view: 'chat-sessions', icon: MessageSquare, title: '채팅' },
   { view: 'agents', icon: Bot, title: '에이전트 관리' },
   { view: 'explorer', icon: Files, title: '파일 탐색기' },
-  { view: 'skills', icon: Puzzle, title: '스킬 관리' },
+  { view: 'monitoring', icon: Activity, title: '모니터링' },
 ];
 // 하단 고정: Settings (별도 라우트로 이동, 탭/패널 아님 — VivoStudio와 동일 패턴)
 ```
@@ -267,10 +269,11 @@ const ITEMS: {
 - 사이드패널: `defaultSize={20} minSize={16} collapsible collapsedSize={0}`, `ImperativePanelHandle` ref로 ActivityBar와 연동.
 - 센터 워크스페이스: `minSize={40}`.
 - `SidePanel.tsx`는 `activeView`에 따라 4개 컴포넌트 중 하나를 렌더링하는 얇은 라우터(VivoStudio `ExplorerPanel.tsx`와 동일한 패턴):
-  - `chat-sessions` → `ChatSessionList.tsx` (세션 목록, 클릭 시 해당 세션의 `chat` 탭을 열거나 포커스)
+  - `chat-sessions` → `ChatSessionList.tsx` (세션 목록, 클릭 시 해당 세션의 `chat` 탭을 열거나 포커스. 삭제된 에이전트의 세션도 기억된 이름으로 취소선 표시, 전체 삭제는 확인 팝업 후 일괄 삭제)
   - `agents` → `AgentListPanel.tsx` (Agent 카드 목록, "새 대화 시작"/"편집"/"삭제")
   - `explorer` → `FileTree.tsx`
-  - `skills` → `SkillListPanel.tsx` (`.agents/skills` 스캔 결과, 활성/비활성 토글)
+  - `monitoring` → `MonitoringListPanel.tsx` (저장된 모니터링 스냅샷 목록, 대화 목록과 동일한 필터/그룹화, 개별 삭제 + 전체 삭제(확인 팝업))
+- 스킬 사이드바는 제공하지 않는다. 스킬은 인식되면 자동으로 `AgentEditorForm`의 "활성 스킬 (Agent Skills)" 카드에 표시되며, 여기서 on/off + refresh 버튼으로 재스캔한다.
 
 ### 3.3 우측 탭 콘텐츠 영역 (`CenterWorkspace.tsx`)
 
@@ -321,6 +324,15 @@ export interface Agent {
   temperature: number; // 0.0 ~ 2.0, 기본 0.7
   reasoning?: ReasoningMode; // 사고모드: 'default'(모델 기본값) | 'off' | 'on'
   reasoningEffort?: ReasoningEffort; // reasoning==='on'일 때 think 레벨: 'low'|'medium'|'high'(기본 'medium')
+  // 생성 파라미터(샘플링/출력 제어). 전부 선택값이며 미지정(undefined) 시 Provider·모델 기본값("자동")
+  topP?: number; // nucleus sampling 0~1. Ollama top_p / OpenAI top_p
+  topK?: number; // 상위 K개 제한(1~1000). Ollama 전용(top_k)
+  repeatPenalty?: number; // 반복 억제 1~2. Ollama 전용(repeat_penalty)
+  frequencyPenalty?: number; // 빈도 억제 -2~2. OpenAI 호환 전용(frequency_penalty)
+  presencePenalty?: number; // 주제 억제 -2~2. OpenAI 호환 전용(presence_penalty)
+  seed?: number; // 재현용 시드. 양쪽 지원(미지정 시 랜덤)
+  stopSequences?: string[]; // 중단 문자열(최대 16개). Ollama stop / OpenAI stop
+  maxOutputTokens?: number; // 응답 최대 토큰. Ollama num_predict / OpenAI max_tokens
   contextSize: number; // 토큰 수. 0이면 전역값(app_settings) 상속
   reserveTokens: number; // 압축 트리거 여유분. 0이면 contextSize에서 파생 (§9.1)
   keepRecentTokens: number; // 압축 후 보존할 최근 대화량. 0이면 파생 (§9.1)
@@ -684,6 +696,7 @@ export function getRegisteredHooks(): AgentHooks; // 등록 순서대로 합성
 - 응답 마지막 청크의 `prompt_eval_count` / `eval_count`를 `TokenUsage`로 매핑합니다 — **압축 트리거의 토큰 계산은 이 실측값을 씁니다**(§9.2). 별도 토크나이저 라이브러리가 필요 없습니다.
 - `GET /api/tags`로 설치된 모델 목록, `POST /api/show`로 모델의 컨텍스트 길이(`model_info`의 `*.context_length`)를 조회합니다. Agent의 `contextSize`가 0이면 이 값을 씁니다.
 - **Reasoning 제어**: `POST /api/chat`의 최상위 `think` 필드에 Agent의 `reasoning`/`reasoningEffort` 해석값(`resolveThinkValue`)을 실어 보냅니다. `default`면 필드 생략(모델 기본값), `off`면 `false`, `on`이면 effort 문자열(`low`/`medium`/`high`). `/api/show` 응답의 `thinking.{values,default}`로 모델별 지원 범위를 확인해 Agent 편집 폼에 힌트로 표시합니다. `think`는 메시지 배열과 무관하므로 채팅 화면에서 세션 단위로 바꿔도 시스템 프롬프트 diff나 prefill 토큰 증가가 없습니다.
+- **생성 파라미터**: `src/lib/llm/generationParams.ts`의 지원 매트릭스가 단일 진실 공급원입니다. 양쪽 규격 공통(`top_p`·`seed`·`stop`·`max_tokens`/`num_predict`), Ollama 전용(`top_k`·`repeat_penalty`), OpenAI 호환 전용(`frequency_penalty`·`presence_penalty`)으로 나뉘며, Agent 편집 폼은 미지원 항목을 잠그고(값은 유지) 런타임은 각 클라이언트가 자신의 규격 키로만 변환합니다. `undefined`는 "자동"으로 필드 자체를 생략합니다.
 - 기본 baseUrl: `http://127.0.0.1:11434` (Settings에서 변경 가능, `SettingsContext`).
 - Tauri v2 CSP의 `connect-src`에 `http://127.0.0.1:11434`를 허용해야 합니다 (`src-tauri/tauri.conf.json`의 `app.security.csp`, Phase 0).
 - **모델 호환성**: tool-calling을 지원하지 않는 모델이 선택되면 도구 없이 동작하고 UI에 경고 배지를 표시합니다. 어떤 모델이 멀티턴 tool-calling을 견디는지는 P0-08 스파이크에서 먼저 확인합니다.

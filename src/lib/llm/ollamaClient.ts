@@ -65,6 +65,13 @@ export interface OllamaChatRequest {
    * - undefined: 필드 생략 → 모델 기본값 사용
    */
   think?: boolean | string | null;
+  /** 생성 파라미터 (12. options 병합보다 우선한다 — 명시도·검증이 명확하므로). */
+  topP?: number;
+  topK?: number;
+  repeatPenalty?: number;
+  seed?: number;
+  stopSequences?: string[];
+  maxOutputTokens?: number;
   options?: Record<string, unknown>;
 }
 
@@ -108,6 +115,14 @@ export async function* streamChat(
         ...(req.think !== undefined ? { think: req.think } : {}),
         options: {
           temperature: req.temperature,
+          ...(req.topP !== undefined ? { top_p: req.topP } : {}),
+          ...(req.topK !== undefined ? { top_k: req.topK } : {}),
+          ...(req.repeatPenalty !== undefined ? { repeat_penalty: req.repeatPenalty } : {}),
+          ...(req.seed !== undefined ? { seed: req.seed } : {}),
+          ...(req.stopSequences && req.stopSequences.length > 0
+            ? { stop: req.stopSequences }
+            : {}),
+          ...(req.maxOutputTokens !== undefined ? { num_predict: req.maxOutputTokens } : {}),
           ...req.options,
         },
       }),

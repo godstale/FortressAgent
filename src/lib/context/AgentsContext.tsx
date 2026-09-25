@@ -25,6 +25,36 @@ export interface AgentsContextValue {
   deleteAgent: (id: string) => Promise<boolean>;
   setDefaultAgent: (id: string) => Promise<void>;
   getAgent: (id: string) => Agent | undefined;
+  /** 삭제된 에이전트까지 포함한既知 이름 조회. 대화/모니터링 목록의 취소선 표시에 사용한다. */
+  getKnownAgentName: (id: string) => string | undefined;
+}
+
+const KNOWN_AGENT_NAMES_KEY = 'fortress_known_agent_names';
+
+function loadKnownAgentNames(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(KNOWN_AGENT_NAMES_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof v === 'string' && v.length > 0) out[k] = v;
+      }
+      return out;
+    }
+  } catch {
+    // ignore malformed storage
+  }
+  return {};
+}
+
+function persistKnownAgentNames(map: Record<string, string>): void {
+  try {
+    localStorage.setItem(KNOWN_AGENT_NAMES_KEY, JSON.stringify(map));
+  } catch {
+    // 저장 실패는 무시한다 (표시용 캐시이므로)
+  }
 }
 
 export const AgentsContext = createContext<AgentsContextValue | undefined>(undefined);
@@ -32,6 +62,25 @@ export const AgentsContext = createContext<AgentsContextValue | undefined>(undef
 export function AgentsProvider({ children }: { children: React.ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([DEFAULT_AGENT]);
   const [loading, setLoading] = useState(true);
+  // 삭제 후에도 대화 목록에서 이름을 표시하기 위한 id → name 캐시 (localStorage 영속).
+  const [knownNames, setKnownNames] = useState<Record<string, string>>(
+    loadKnownAgentNames,
+  );
+
+  const rememberNames = useCallback((list: Agent[]) => {
+    setKnownNames((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const a of list) {
+        if (next[a.id] !== a.name) {
+          next[a.id] = a.name;
+          changed = true;
+        }
+      }
+      if (changed) persistKnownAgentNames(next);
+      return changed ? next : prev;
+    });
+  }, []);
 
   const refreshAgents = useCallback(async () => {
     try {
@@ -63,12 +112,13 @@ export function AgentsProvider({ children }: { children: React.ReactNode }) {
       }
 
       setAgents(list);
+      rememberNames(list);
     } catch (err) {
       console.error('Failed to load agents from repository:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [rememberNames]);
 
   useEffect(() => {
     let active = true;
@@ -82,6 +132,15 @@ export function AgentsProvider({ children }: { children: React.ReactNode }) {
       active = false;
     };
   }, [refreshAgents]);
+
+  const getKnownAgentName = useCallback(
+    (id: string): string | undefined => {
+      const live = agents.find((a) => a.id === id);
+      if (live) return live.name;
+      return knownNames[id];
+    },
+    [agents, knownNames],
+  );
 
   const defaultAgent = useMemo(() => {
     return agents.find((a) => a.isDefault) || agents[0] || DEFAULT_AGENT;
@@ -154,6 +213,7 @@ export function AgentsProvider({ children }: { children: React.ReactNode }) {
         deleteAgent: remove,
         setDefaultAgent: setDefault,
         getAgent,
+        getKnownAgentName,
       }}
     >
       {children}
