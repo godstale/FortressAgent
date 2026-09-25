@@ -1,5 +1,6 @@
 import { registerHooks } from '@/lib/agent/hookRegistry';
 import type { AgentMessage } from '@/lib/agent/types';
+import type { LlmProviderKind } from '@/lib/types/agent';
 import { estimateContextTokens, shouldCompact } from './estimate';
 import { resolveCompactionSettings, type CompactionSettings } from './settings';
 import { prepareCompaction, executeCompact } from './compact';
@@ -10,6 +11,8 @@ import { appLogger } from '@/lib/logger/logger';
 let currentSessionId: string | null = null;
 let currentModel = 'qwen3.5:9b';
 let currentBaseUrl: string | undefined;
+let currentApiKey: string | undefined;
+let currentProvider: LlmProviderKind = 'ollama';
 let currentSettings: CompactionSettings = resolveCompactionSettings();
 
 /**
@@ -19,11 +22,15 @@ export function setActiveCompactionSession(opts: {
   sessionId: string;
   model: string;
   baseUrl?: string;
+  apiKey?: string;
+  provider?: LlmProviderKind;
   settings?: CompactionSettings;
 }): void {
   currentSessionId = opts.sessionId;
   currentModel = opts.model;
   currentBaseUrl = opts.baseUrl;
+  currentApiKey = opts.apiKey;
+  if (opts.provider) currentProvider = opts.provider;
   if (opts.settings) {
     currentSettings = opts.settings;
   }
@@ -75,6 +82,8 @@ async function performCompaction(
       {
         model: currentModel,
         baseUrl: currentBaseUrl,
+        apiKey: currentApiKey,
+        provider: currentProvider,
         reason,
       },
       signal,

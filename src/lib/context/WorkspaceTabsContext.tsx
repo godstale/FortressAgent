@@ -67,6 +67,11 @@ export function WorkspaceTabsProvider({
   const [splitDirection, setSplitDirection] = useState<'horizontal' | 'vertical'>('horizontal');
   const [isLoaded, setIsLoaded] = useState(false);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // 폴더 전환 시 이전 프로젝트의 탭이 디바운스 저장 전에 유실되지 않도록 스냅샷을 유지한다.
+  const prevRootRef = useRef<string | null | undefined>(undefined);
+  const tabsSnapshotRef = useRef<WorkspaceTab[]>([]);
+  const activeTabSnapshotRef = useRef<string | null>(null);
+  const isLoadedRef = useRef(false);
 
   const isWithoutWorkspace = hasWorkspaceContext && !workspaceRoot;
   const tabs = isWithoutWorkspace ? [] : internalTabs;
@@ -78,7 +83,26 @@ export function WorkspaceTabsProvider({
   const isSplit = secondaryTabs.length > 0 && primaryTabs.length > 0;
 
   // Restore saved tabs from app_settings on mount
+  // 프로젝트별 탭 영속화: 전환 직전에 이전 프로젝트의 탭을 해당 프로젝트 DB에 먼저
+  // 플러시한 뒤 새 프로젝트의 탭을 로드한다. (디바운스 500ms 경합으로 인한 유실 방지)
   useEffect(() => {
+    const prevRoot = prevRootRef.current;
+    if (
+      prevRoot !== undefined &&
+      prevRoot !== workspaceRoot &&
+      isLoadedRef.current &&
+      prevRoot
+    ) {
+      const snapshotTabs = tabsSnapshotRef.current;
+      const snapshotActive = activeTabSnapshotRef.current;
+      void settingsRepo
+        .saveProjectTabs(prevRoot, snapshotTabs, snapshotActive)
+        .catch((err) => {
+          console.error('Failed to flush workspace tabs before switch:', err);
+        });
+    }
+    prevRootRef.current = workspaceRoot;
+
     let active = true;
     void (async () => {
       try {
@@ -106,6 +130,7 @@ export function WorkspaceTabsProvider({
       } finally {
         if (active) {
           setIsLoaded(true);
+          isLoadedRef.current = true;
         }
       }
     })();
@@ -135,6 +160,12 @@ export function WorkspaceTabsProvider({
       }
     };
   }, [internalTabs, internalActiveTabId, isLoaded, isWithoutWorkspace]);
+
+  // 전환 시 플러시용 스냅샷을 최신으로 유지한다.
+  useEffect(() => {
+    tabsSnapshotRef.current = internalTabs;
+    activeTabSnapshotRef.current = internalActiveTabId;
+  }, [internalTabs, internalActiveTabId]);
 
   const openTab = useCallback(
     (

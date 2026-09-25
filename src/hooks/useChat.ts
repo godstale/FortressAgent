@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { Agent } from '@/lib/types/agent';
+import type { Agent, ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
+import { resolveThinkValue } from '@/lib/types/agent';
 import type { AgentEvent, AgentMessage } from '@/lib/agent/types';
 import type { SkillManifest } from '@/lib/types/skill';
 import type { ContextFileItem } from '@/lib/skills/contextFiles';
@@ -10,7 +11,11 @@ import { getVisualizationPromptSection } from '@/lib/prompt/visualizationSection
 import { diffSections } from '@/lib/prompt/diffSections';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
 import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
-import type { streamChat } from '@/lib/llm/ollamaClient';
+import {
+  getStreamChatFn,
+  resolveAgentLlmRuntime,
+  type LlmStreamChatFn,
+} from '@/lib/llm/providerRuntime';
 
 import {
   type ChatPersistence,
@@ -31,16 +36,29 @@ export type { ChatPersistence };
 export interface UseChatOptions {
   persistence?: ChatPersistence;
   baseUrl?: string;
-  streamChatFn?: typeof streamChat;
+  /** 클라우드/인증 서버용 API 키 (Agent 고유값이 있으면 그쪽이 우선) */
+  apiKey?: string;
+  streamChatFn?: LlmStreamChatFn;
   cwd?: string;
   skills?: SkillManifest[];
   contextFiles?: ContextFileItem[];
+  /**
+   * 세션 단위 reasoning 오버라이드 (채팅 화면의 effort 셀렉터).
+   * undefined 필드는 Agent 기본값을 따른다. think는 요청 최상위 필드로만 전달되므로
+   * 여기서 값을 바꿔도 시스템 프롬프트/메시지가 변하지 않아 prefill 오버헤드가 없다.
+   */
+  thinkOverride?: {
+    reasoning?: ReasoningMode;
+    effort?: ReasoningEffort;
+  };
 }
 
 export interface UseChatReturn {
   messages: AgentMessage[];
   isStreaming: boolean;
   contextUsage: { tokens: number; limit: number };
+  /** 현재 턴에 적용되는 Ollama think 값 (Agent 기본값 + 세션 오버라이드 해석 결과) */
+  effectiveThink: boolean | string | undefined;
   sendMessage: (text: string) => Promise<void>;
   steer: (text: string) => void;
   stop: () => void;
@@ -76,14 +94,29 @@ export function useChat(
     return resolveCompactionSettings(agentConfig);
   }, [agentConfig]);
 
+  // Agent의 LLM Provider 설정을 실제 접속 정보로 해석한다.
+  // Agent 고유값이 있으면 우선하고, 없으면 useChat 옵션(전역 설정 전달용)을 사용한다.
+  const llmRuntime = useMemo(() => {
+    return resolveAgentLlmRuntime(
+      {
+        llmProvider: agentConfig.llmProvider,
+        llmBaseUrl: agentConfig.llmBaseUrl ?? options.baseUrl,
+        llmApiKey: agentConfig.llmApiKey ?? options.apiKey,
+      },
+      options.baseUrl,
+    );
+  }, [agentConfig.llmProvider, agentConfig.llmBaseUrl, agentConfig.llmApiKey, options.baseUrl, options.apiKey]);
+
   useEffect(() => {
     setActiveCompactionSession({
       sessionId,
       model: agentConfig.model,
-      baseUrl: options.baseUrl,
+      baseUrl: llmRuntime.baseUrl,
+      apiKey: llmRuntime.apiKey,
+      provider: llmRuntime.kind,
       settings: compactionSettings,
     });
-  }, [sessionId, agentConfig.model, options.baseUrl, compactionSettings]);
+  }, [sessionId, agentConfig.model, llmRuntime, compactionSettings]);
 
   // Build tools from agent's enabledBuiltinTools
   const tools = useMemo(() => {
@@ -236,12 +269,35 @@ export function useChat(
     optionsRef.current = options;
   });
 
+  // Agent 기본값 + 세션 오버라이드를 Ollama think 값으로 해석.
+  // 메시지 배열에 손대지 않으므로 동적 변경 시에도 prefill 토큰이 늘지 않는다.
+  const effectiveThink = useMemo(() => {
+    return resolveThinkValue(
+      options.thinkOverride?.reasoning ?? agentConfig.reasoning,
+      options.thinkOverride?.effort ?? agentConfig.reasoningEffort,
+    );
+  }, [options.thinkOverride?.reasoning, options.thinkOverride?.effort, agentConfig.reasoning, agentConfig.reasoningEffort]);
+
+  // 세션 오버라이드/Agent 설정이 바뀌면 실행 중인 인스턴스에도 즉시 반영.
+  // 다음 LLM 호출(다음 턴)부터 적용되며, 진행 중인 스트림은 끊지 않는다.
+  useEffect(() => {
+    agentRef.current?.setThink(effectiveThink);
+  }, [effectiveThink]);
+
   const createAgentInstance = useCallback(
     (initial: AgentMessage[]) => {
       const cfg = agentConfigRef.current;
       const opts = optionsRef.current;
       const effectiveNumCtx =
         cfg.contextSize > 0 ? cfg.contextSize : (contextLimit > 0 ? contextLimit : 8192);
+      const runtime = resolveAgentLlmRuntime(
+        {
+          llmProvider: cfg.llmProvider,
+          llmBaseUrl: cfg.llmBaseUrl ?? opts.baseUrl,
+          llmApiKey: cfg.llmApiKey ?? opts.apiKey,
+        },
+        opts.baseUrl,
+      );
 
       const newAgent = new FortressAgent({
         sessionId,
@@ -250,17 +306,24 @@ export function useChat(
           model: cfg.model,
           systemPrompt: systemPromptRef.current,
           temperature: cfg.temperature,
+          think: resolveThinkValue(
+            opts.thinkOverride?.reasoning ?? cfg.reasoning,
+            opts.thinkOverride?.effort ?? cfg.reasoningEffort,
+          ),
           options: {
             num_ctx: effectiveNumCtx,
           },
           contextSize: effectiveNumCtx,
           reserveTokens: cfg.reserveTokens,
           keepRecentTokens: cfg.keepRecentTokens,
+          provider: runtime.kind,
+          apiKey: runtime.apiKey,
         },
         tools: toolsRef.current,
-        baseUrl: opts.baseUrl,
+        baseUrl: runtime.baseUrl,
+        apiKey: runtime.apiKey,
         initialMessages: initial,
-        streamChatFn: opts.streamChatFn,
+        streamChatFn: getStreamChatFn(runtime, opts.streamChatFn),
       });
 
       newAgent.subscribe((e) => eventHandlerRef.current(e));
@@ -395,7 +458,9 @@ export function useChat(
         if (!prep) return;
         await executeCompact(prep, {
           model: agentConfig.model,
-          baseUrl: options.baseUrl,
+          baseUrl: llmRuntime.baseUrl,
+          apiKey: llmRuntime.apiKey,
+          provider: llmRuntime.kind,
           reason: 'manual',
           customInstructions,
           streamChatFn: options.streamChatFn,
@@ -415,7 +480,7 @@ export function useChat(
       sessionId,
       compactionSettings,
       agentConfig.model,
-      options.baseUrl,
+      llmRuntime,
       options.streamChatFn,
     ],
   );
@@ -455,6 +520,7 @@ export function useChat(
     messages,
     isStreaming,
     contextUsage: { tokens: contextTokens, limit: contextLimit },
+    effectiveThink,
     sendMessage,
     steer,
     stop,

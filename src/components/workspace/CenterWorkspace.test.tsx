@@ -18,6 +18,7 @@ vi.mock('@/lib/db/repositories/settingsRepo', () => ({
     activeTabId: null,
   }),
   updateSettings: vi.fn().mockResolvedValue(undefined),
+  saveProjectTabs: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock tab contents to keep test lightweight

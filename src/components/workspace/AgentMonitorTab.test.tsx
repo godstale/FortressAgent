@@ -24,7 +24,9 @@ vi.mock('@/lib/monitoring/monitoringCollector', () => ({
 
 vi.mock('@/lib/db/repositories/monitoringRepo', () => ({
   getMonitoringSnapshots: vi.fn().mockResolvedValue([]),
+  getConversationSummaries: vi.fn().mockResolvedValue([]),
   clearMonitoringSnapshots: vi.fn().mockResolvedValue(undefined),
+  clearConversationSummaries: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/context/AgentsContext', () => ({
@@ -115,6 +117,20 @@ describe('AgentMonitorTab', () => {
       expect(screen.getByText('Ollama 연결 실패')).toBeInTheDocument();
       expect(screen.getByText(/Ollama 서버에 연결할 수 없어 모니터링을 시작할 수 없습니다/)).toBeInTheDocument();
     });
+  });
+
+  it('shows merged memory breakdown, relocated GPU trend, and token info cards', async () => {
+    render(<AgentMonitorTab tab={mockTab} />);
+
+    // VRAM + RAM 병합 카드
+    expect(screen.getByText('메모리 분배')).toBeInTheDocument();
+    // Row 1으로 이동한 GPU·VRAM 추이 (스냅샷 0건)
+    expect(screen.getByText('GPU · VRAM 추이 (0)')).toBeInTheDocument();
+    // 기존 추이 자리(Row 2)의 새 토큰 정보 카드 + 빈 상태 문구
+    expect(screen.getByText('토큰 정보')).toBeInTheDocument();
+    expect(
+      screen.getByText('아직 수집된 대화 토큰 데이터가 없습니다. 채팅에서 질문을 보내면 대화 단위로 집계됩니다.'),
+    ).toBeInTheDocument();
   });
 
   it('stops monitoring collector when tab is unmounted', () => {

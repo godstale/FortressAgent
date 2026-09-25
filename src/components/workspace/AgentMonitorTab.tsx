@@ -41,6 +41,7 @@ import {
   ChevronsRight,
   Filter,
   Brain,
+  Coins,
 } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import { useAgents } from '@/lib/context/AgentsContext';
@@ -61,13 +62,34 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import type { AgentMonitoringSnapshot } from '@/lib/types/monitoring';
+import type {
+  AgentMonitoringSnapshot,
+  ConversationTokenSummary,
+  ConversationTokenTotals,
+  TokenStatusKey,
+  TurnTokenContribution,
+} from '@/lib/types/monitoring';
+import { emptyStatusTokens } from '@/lib/types/monitoring';
 import {
   getMonitoringSnapshots,
+  getConversationSummaries,
   clearMonitoringSnapshots,
+  clearConversationSummaries,
 } from '@/lib/db/repositories/monitoringRepo';
+import {
+  getConversations as getLiveConversations,
+  getActiveConversationId,
+  getActiveTotals,
+  subscribe as subscribeTokenTracker,
+  clear as clearTokenTracker,
+} from '@/lib/monitoring/tokenTracker';
 import { monitoringCollector, DEFAULT_MONITORING_INTERVAL_MS } from '@/lib/monitoring/monitoringCollector';
 import { listModels } from '@/lib/llm/ollamaClient';
+import {
+  listProviderModels,
+  resolveBaseUrlForAgent,
+  resolveRuntimeForAgent,
+} from '@/lib/llm/providerRuntime';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
 const CHART_COLORS = {
@@ -81,6 +103,52 @@ const CHART_COLORS = {
   approval: 'hsl(var(--destructive))',
 } as const;
 
+const TOKEN_STATUS_ORDER: Array<{ key: TokenStatusKey; label: string; color: string }> = [
+  { key: 'thinking', label: 'Thinking', color: 'hsl(var(--chart-1))' },
+  { key: 'prefill', label: 'Prefill', color: 'hsl(var(--chart-4))' },
+  { key: 'decoding', label: 'Decoding', color: 'hsl(var(--chart-5))' },
+  { key: 'generating', label: 'Generating', color: 'hsl(var(--chart-3))' },
+  { key: 'executing_tool', label: 'Tool', color: '#f59e0b' },
+  { key: 'waiting_approval', label: 'Wait', color: 'hsl(var(--destructive))' },
+];
+
+/** 원장(영속) + 실시간(live) 대화 합산. id 중복 제거 후 최신순, 최대 50건. */
+function mergeConversationLists(
+  ledger: ConversationTokenSummary[],
+  live: ConversationTokenSummary[],
+): ConversationTokenSummary[] {
+  const seen = new Set(ledger.map((c) => c.id));
+  const merged = [...live.filter((c) => !seen.has(c.id)), ...ledger];
+  merged.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  return merged.slice(0, 50);
+}
+
+/** 대화 목록 전체의 토큰 합계 (대화별 카드 + 전체 누적 표시용) */
+function sumConversationTotals(list: ConversationTokenSummary[]): ConversationTokenTotals {
+  const totals: ConversationTokenTotals = {
+    conversationCount: list.length,
+    turnCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    thinkingTokens: 0,
+    contentTokens: 0,
+    totalTokens: 0,
+    statusTokens: emptyStatusTokens(),
+  };
+  for (const c of list) {
+    totals.turnCount += c.turnCount;
+    totals.inputTokens += c.inputTokens;
+    totals.outputTokens += c.outputTokens;
+    totals.thinkingTokens += c.thinkingTokens;
+    totals.contentTokens += c.contentTokens;
+    for (const key of Object.keys(totals.statusTokens) as Array<TokenStatusKey>) {
+      totals.statusTokens[key] += c.statusTokens[key] ?? 0;
+    }
+  }
+  totals.totalTokens = totals.inputTokens + totals.outputTokens;
+  return totals;
+}
+
 function isIdleLikeSnapshot(s: AgentMonitoringSnapshot): boolean {
   if (s.agentStatus !== 'idle') return false;
   if ((s.gpuUtilizationPct ?? 0) >= 5) return false;
@@ -88,6 +156,7 @@ function isIdleLikeSnapshot(s: AgentMonitoringSnapshot): boolean {
   if (hasPrefill) return false;
   const hasDecoding = (s.decodingSpeed ?? 0) > 0 || (s.decodingDurationMs ?? 0) > 0 || (s.decodingTokens ?? 0) > 0;
   if (hasDecoding) return false;
+  if ((s.thinkingTokens ?? 0) > 0) return false;
   return true;
 }
 
@@ -104,6 +173,17 @@ function formatDurationMs(ms: number): string {
   const h = Math.floor(min / 60);
   const restMin = min % 60;
   return `${h}h ${restMin}m`;
+}
+
+/** 앱 표시 언어 기준 시각 포맷. 시스템 로케일(ko Windows) 고정 방지를 위해 명시적 로케일 전달. */
+function formatTimeOfDay(
+  value: string | number | Date,
+  locale: string,
+  opts?: Intl.DateTimeFormatOptions,
+): string {
+  const date = value instanceof Date ? value : new Date(value);
+  const tag = locale === 'ko' ? 'ko-KR' : 'en-US';
+  return date.toLocaleTimeString(tag, opts);
 }
 
 const INTERVAL_OPTIONS = [
@@ -239,8 +319,16 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const [timelineOffset, setTimelineOffset] = useState(0);
   const [hideIdleSnapshots, setHideIdleSnapshots] = useState(true);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // 대화 단위 토큰: 원장(영속 DB) + 실시간(live) + 진행 중(active). 모두 state로 보관해
+  // 렌더 중에는 외부 저장소를 직접 읽지 않는다(React Compiler purity).
+  const [ledgerConversations, setLedgerConversations] = useState<ConversationTokenSummary[]>([]);
+  const [liveConversations, setLiveConversations] = useState<ConversationTokenSummary[]>([]);
+  const [activeToken, setActiveToken] = useState<{
+    id: string | undefined;
+    totals: TurnTokenContribution | null;
+  }>({ id: undefined, totals: null });
   const TIMELINE_WINDOW_SIZE = 25;
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
 
   // Settings default applies until the user picks another interval in this tab.
   const settingsDefaultInterval = settings.monitoringIntervalMs ?? DEFAULT_MONITORING_INTERVAL_MS;
@@ -279,12 +367,53 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     };
   }, [agentId, workspaceRoot]);
 
+  // 대화 토큰 상태 새로고침: 트래커(live/active) + 원장(영속 DB).
+  // 동기 읽기는 이펙트 본문에서만 수행하고, setState는 비동기 연속/구독 콜백에서만
+  // 호출한다(react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (!agentId) return;
+    let active = true;
+    const live = getLiveConversations(agentId);
+    const activeInfo = {
+      id: getActiveConversationId(agentId),
+      totals: getActiveTotals(agentId),
+    };
+    void (async () => {
+      try {
+        const rows = await getConversationSummaries(agentId, 50, workspaceRoot);
+        if (!active) return;
+        setLiveConversations(live);
+        setActiveToken(activeInfo);
+        setLedgerConversations(rows);
+      } catch (err) {
+        console.error('Failed to load conversation token summaries:', err);
+      }
+    })();
+    const unsubscribe = subscribeTokenTracker(agentId, () => {
+      setLiveConversations(getLiveConversations(agentId));
+      setActiveToken({
+        id: getActiveConversationId(agentId),
+        totals: getActiveTotals(agentId),
+      });
+      void getConversationSummaries(agentId, 50, workspaceRoot)
+        .then((rows) => {
+          setLedgerConversations(rows);
+        })
+        .catch(() => undefined);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [agentId, workspaceRoot]);
+
   // Start periodic collector and subscribe to real-time events
   useEffect(() => {
     if (!agent) return;
 
+    const agentBaseUrl = resolveBaseUrlForAgent(agent, settings.ollamaBaseUrl);
     if (isCollecting) {
-      monitoringCollector.start(agent, settings.ollamaBaseUrl, activeIntervalMs, workspaceRoot);
+      monitoringCollector.start(agent, agentBaseUrl, activeIntervalMs, workspaceRoot);
     } else {
       monitoringCollector.stop(agent.id);
     }
@@ -354,9 +483,14 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     } else {
       setIsStarting(true);
       try {
-        // Verify Ollama connectivity before starting periodic monitoring
-        await listModels(settings.ollamaBaseUrl);
-        monitoringCollector.start(agent, settings.ollamaBaseUrl, activeIntervalMs, workspaceRoot);
+        // Verify provider connectivity before starting periodic monitoring
+        const agentBaseUrl = resolveBaseUrlForAgent(agent, settings.ollamaBaseUrl);
+        if ((agent.llmProvider ?? 'ollama') !== 'ollama') {
+          await listProviderModels(resolveRuntimeForAgent(agent, settings.ollamaBaseUrl));
+        } else {
+          await listModels(agentBaseUrl);
+        }
+        monitoringCollector.start(agent, agentBaseUrl, activeIntervalMs, workspaceRoot);
         setIsCollecting(true);
       } catch (err) {
         const errMsg =
@@ -373,7 +507,13 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const handleIntervalChange = (newInterval: number) => {
     setIntervalMs(newInterval);
     if (agent && isCollecting) {
-      monitoringCollector.setInterval(agent.id, newInterval, agent, settings.ollamaBaseUrl, workspaceRoot);
+      monitoringCollector.setInterval(
+        agent.id,
+        newInterval,
+        agent,
+        resolveBaseUrlForAgent(agent, settings.ollamaBaseUrl),
+        workspaceRoot,
+      );
     }
   };
 
@@ -381,8 +521,13 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     if (!agent) return;
     setManualRefreshing(true);
     try {
-      await listModels(settings.ollamaBaseUrl);
-      const snap = await monitoringCollector.collectNow(agent, settings.ollamaBaseUrl, workspaceRoot);
+      const agentBaseUrl = resolveBaseUrlForAgent(agent, settings.ollamaBaseUrl);
+      if ((agent.llmProvider ?? 'ollama') !== 'ollama') {
+        await listProviderModels(resolveRuntimeForAgent(agent, settings.ollamaBaseUrl));
+      } else {
+        await listModels(agentBaseUrl);
+      }
+      const snap = await monitoringCollector.collectNow(agent, agentBaseUrl, workspaceRoot);
       if (snap) {
         setCurrentSnapshot(snap);
         setSnapshots((prev) => [snap, ...prev.filter((s) => s.id !== snap.id)].slice(0, 100));
@@ -400,18 +545,29 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const handleClearHistory = async () => {
     if (!agentId) return;
     await clearMonitoringSnapshots(agentId, workspaceRoot);
+    await clearConversationSummaries(agentId, workspaceRoot);
+    clearTokenTracker(agentId);
     setSnapshots(currentSnapshot ? [currentSnapshot] : []);
+    setLedgerConversations([]);
+    setLiveConversations([]);
+    setActiveToken({ id: undefined, totals: null });
     setClearConfirmOpen(false);
   };
 
   const handleExportJson = () => {
     if (!agent) return;
+    // 대화 토큰 집계는 클릭 시점에 state로부터 직접 계산한다.
+    // (렌더 본문의 파생값을 클로저로 캡처하면 purity 분석이 핸들러를 오판한다)
+    const tokenConversations = mergeConversationLists(ledgerConversations, liveConversations);
     const payload = {
       agent,
       collectedAt: new Date().toISOString(),
       currentSnapshot,
       historyCount: snapshots.length,
       history: snapshots,
+      tokenConversationCount: tokenConversations.length,
+      tokenTotals: sumConversationTotals(tokenConversations),
+      tokenConversations,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -435,7 +591,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   // Prepare chart data (reverse to chronological order left-to-right)
   const timeSeriesData = useMemo(() => {
     return [...snapshots].reverse().map((s) => ({
-      time: new Date(s.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      time: formatTimeOfDay(s.timestamp, locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       gpuUtilization: s.gpuUtilizationPct,
       vramUsedMb: s.gpuVramUsedMb,
       vramUsedGb: Number((s.gpuVramUsedMb / 1024).toFixed(2)),
@@ -450,7 +606,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       prefillTokens: s.prefillTokens ?? 0,
       decodingTokens: s.decodingTokens ?? 0,
     }));
-  }, [snapshots]);
+  }, [snapshots, locale]);
 
   // Compute dynamic scale upper bounds for dual Y-axis charts with comfortable headroom
   const {
@@ -473,10 +629,15 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     };
   }, [timeSeriesData]);
 
-  // VRAM-only breakdown (weights resident in VRAM + KV resident in VRAM + other + free)
-  const vramBreakdownData = useMemo(() => {
+  // VRAM + RAM unified breakdown — single stacked chart with two bars (VRAM / RAM)
+  const memoryBreakdownData = useMemo(() => {
     if (!currentSnapshot) return [];
+    const weightsKey = t('monitor.weights');
+    const kvKey = t('monitor.kvEst');
+    const otherKey = t('monitor.otherUsage');
+    const freeKey = t('monitor.freeSpace');
     const details = (currentSnapshot.details || {}) as Record<string, unknown>;
+
     const kvVramBytes = typeof details.kvVramBytes === 'number'
       ? details.kvVramBytes
       : Math.round(currentSnapshot.kvCacheBytes * (currentSnapshot.gpuOffloadPct / 100));
@@ -489,21 +650,6 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       : modelVramGb;
     const otherVramGb = Number(Math.max(0, usedVramGb - modelVramGb).toFixed(2));
 
-    return [
-      {
-        name: t('monitor.vramDistShort'),
-        [t('monitor.weightsVram')]: weightOnlyVramGb,
-        [t('monitor.kvVram')]: kvVramGb,
-        [t('monitor.otherUsage')]: otherVramGb,
-        [t('monitor.freeSpace')]: freeVramGb,
-      },
-    ];
-  }, [currentSnapshot, t]);
-
-  // System RAM-only breakdown (weights in RAM + KV in RAM + other + free)
-  const ramBreakdownData = useMemo(() => {
-    if (!currentSnapshot) return [];
-    const details = (currentSnapshot.details || {}) as Record<string, unknown>;
     const kvRamBytes = typeof details.kvRamBytes === 'number'
       ? details.kvRamBytes
       : Math.round(currentSnapshot.kvCacheBytes * (1 - currentSnapshot.gpuOffloadPct / 100));
@@ -516,13 +662,21 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     const freeRamGb = Number((Math.max(0, currentSnapshot.systemMemoryFreeMb) / 1024).toFixed(2));
     const usedRamGb = Number(Math.max(0, totalRamGb - freeRamGb).toFixed(2));
     const otherRamGb = Number(Math.max(0, usedRamGb - modelRamGb - kvRamGb).toFixed(2));
+
     return [
       {
+        name: t('monitor.vramDistShort'),
+        [weightsKey]: weightOnlyVramGb,
+        [kvKey]: kvVramGb,
+        [otherKey]: otherVramGb,
+        [freeKey]: freeVramGb,
+      },
+      {
         name: t('monitor.ramDistShort'),
-        [t('monitor.weightsRam')]: modelRamGb,
-        [t('monitor.kvRam')]: kvRamGb,
-        [t('monitor.otherUsage')]: otherRamGb,
-        [t('monitor.freeSpace')]: freeRamGb,
+        [weightsKey]: modelRamGb,
+        [kvKey]: kvRamGb,
+        [otherKey]: otherRamGb,
+        [freeKey]: freeRamGb,
       },
     ];
   }, [currentSnapshot, t]);
@@ -588,6 +742,15 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       total,
     };
   }, [snapshots, activeIntervalMs, t]);
+
+  // 원장(영속) + 실시간(live) 대화 합산 및 전체 누적. 항목이 적어(≤50) 메모 없이
+  // 직접 계산한다 — React Compiler가 자동 최적화한다.
+  const mergedConversations = mergeConversationLists(ledgerConversations, liveConversations);
+  const tokenTotalsAll = sumConversationTotals(mergedConversations);
+  const tokenStatusTotal = TOKEN_STATUS_ORDER.reduce(
+    (sum, d) => sum + (tokenTotalsAll.statusTokens[d.key] ?? 0),
+    0,
+  );
 
   const filteredSnapshots = useMemo(() => {
     if (!hideIdleSnapshots) return snapshots;
@@ -1112,20 +1275,51 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           {(() => {
             const startIdx =
               snapshots.length > 0 && snapshots[0]?.id === currentSnapshot?.id ? 1 : 0;
-            const prev = snapshots.slice(startIdx, startIdx + 2);
-            if (prev.length === 0) return null;
+            // 연속된 동일 상태는 하나의 작업(run)으로 묶는다 (최신순 스캔).
+            const runs: Array<{
+              status: AgentMonitoringSnapshot['agentStatus'];
+              newest: string;
+              oldest: string;
+              count: number;
+              id: string;
+            }> = [];
+            for (const s of snapshots.slice(startIdx, startIdx + 30)) {
+              const last = runs[runs.length - 1];
+              if (last && last.status === s.agentStatus) {
+                last.oldest = s.timestamp;
+                last.count += 1;
+              } else {
+                if (runs.length >= 3) break;
+                runs.push({
+                  status: s.agentStatus,
+                  newest: s.timestamp,
+                  oldest: s.timestamp,
+                  count: 1,
+                  id: s.id,
+                });
+              }
+            }
+            if (runs.length === 0) return null;
             return (
               <div className="space-y-1">
-                <div className="text-[10px] text-muted-foreground">{t('monitor.prevStates')}</div>
-                {prev.map((s) => {
-                  const b = getStatusBadge(s.agentStatus);
+                {runs.map((r) => {
+                  const b = getStatusBadge(r.status);
+                  const newestMs = new Date(r.newest).getTime();
+                  const oldestMs = new Date(r.oldest).getTime();
+                  const spanMs =
+                    Number.isFinite(newestMs) && Number.isFinite(oldestMs)
+                      ? Math.max(0, newestMs - oldestMs) + activeIntervalMs
+                      : activeIntervalMs;
                   return (
-                    <div key={s.id} className="flex items-center gap-1.5 text-[10px]">
+                    <div key={r.id} className="flex items-center gap-1.5 text-[10px]">
                       <span className={`px-1 py-0 rounded font-mono font-bold border ${b.className}`}>
                         {b.label}
                       </span>
                       <span className="text-muted-foreground font-mono">
-                        {new Date(s.timestamp).toLocaleTimeString()}
+                        {formatTimeOfDay(r.newest, locale)}
+                      </span>
+                      <span className="text-muted-foreground/80 font-mono">
+                        ({formatDurationMs(spanMs)}{r.count > 1 ? ` ×${r.count}` : ''})
                       </span>
                     </div>
                   );
@@ -1157,7 +1351,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         </div>
       </div>
 
-            {/* Row 1: CPU/GPU offloading status, VRAM distribution, System RAM distribution */}
+            {/* Row 1: CPU/GPU 오프로딩 상태 + 메모리 분배(VRAM+RAM 병합) + GPU·VRAM 추이 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 <div className="p-4 rounded-xl border border-border bg-card space-y-3 min-w-0">
           <div className="flex items-center justify-between gap-2 min-w-0">
@@ -1255,23 +1449,28 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </div>
           </div>
         </div>
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+        <div className="p-4 rounded-xl border border-border bg-card space-y-3 min-w-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Cpu className="h-4 w-4 text-tertiary" />
-              <h3 className="text-xs font-semibold text-foreground">{t('monitor.vramDist')}</h3>
+              <h3 className="text-xs font-semibold text-foreground">{t('monitor.memDist')}</h3>
+              <KpiCardHelp
+                i18n="memDist"
+                description={undefined}
+                guide={undefined}
+              />
             </div>
-            <span className="text-[10px] text-muted-foreground font-mono">{t('monitor.unitGb')} · VRAM</span>
+            <span className="text-[10px] text-muted-foreground font-mono">{t('monitor.unitGb')}</span>
           </div>
 
-          <div className="w-full h-64">
-            {vramBreakdownData.length === 0 ? (
+          <div className="w-full h-48">
+            {memoryBreakdownData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
                 {t('monitor.aggregating')}
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={vramBreakdownData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
+                <BarChart data={memoryBreakdownData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                   <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 10 }} unit=" GB" />
@@ -1285,8 +1484,8 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: '10px' }} />
-                  <Bar dataKey={t('monitor.weightsVram')} stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
-                  <Bar dataKey={t('monitor.kvVram')} stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey={t('monitor.weights')} stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
+                  <Bar dataKey={t('monitor.kvEst')} stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
                   <Bar dataKey={t('monitor.otherUsage')} stackId="a" fill="hsl(var(--chart-4))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
                   <Bar dataKey={t('monitor.freeSpace')} stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} unit=" GB" isAnimationActive={false} />
                 </BarChart>
@@ -1294,50 +1493,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             )}
           </div>
         </div>
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <HardDrive className="h-4 w-4 text-success" />
-              <h3 className="text-xs font-semibold text-foreground">{t('monitor.ramDist')}</h3>
-            </div>
-            <span className="text-[10px] text-muted-foreground font-mono">{t('monitor.unitGb')} · RAM</span>
-          </div>
-
-          <div className="w-full h-64">
-            {ramBreakdownData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                {t('monitor.aggregating')}
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={ramBreakdownData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} unit=" GB" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      color: 'hsl(var(--popover-foreground))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                      fontSize: '11px',
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '10px' }} />
-                  <Bar dataKey={t('monitor.weightsRam')} stackId="a" fill="hsl(var(--chart-2))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
-                  <Bar dataKey={t('monitor.kvRam')} stackId="a" fill="hsl(var(--chart-5))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
-                  <Bar dataKey={t('monitor.otherUsage')} stackId="a" fill="hsl(var(--chart-4))" radius={[0, 0, 0, 0]} unit=" GB" isAnimationActive={false} />
-                  <Bar dataKey={t('monitor.freeSpace')} stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} unit=" GB" isAnimationActive={false} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Row 2: realtime GPU/VRAM usage, LLM architecture detail */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-<div className="p-4 rounded-xl border border-border bg-card space-y-3">
+        <div className="p-4 rounded-xl border border-border bg-card space-y-3 min-w-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-success" />
@@ -1363,7 +1519,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </div>
           </div>
 
-          <div className="w-full h-64">
+          <div className="w-full h-48">
             {timeSeriesData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
                 {t('monitor.noRealtime')}
@@ -1424,6 +1580,139 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               </ResponsiveContainer>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Row 2: 대화 단위 토큰 정보 + LLM 아키텍처 상세 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div className="p-4 rounded-xl border border-border bg-card space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Coins className="h-4 w-4 text-warning" />
+              <h3 className="text-xs font-semibold text-foreground">
+                {t('monitor.tokenInfo')}
+              </h3>
+              <KpiCardHelp
+                i18n="tokenInfo"
+                description={undefined}
+                guide={undefined}
+              />
+            </div>
+            <span className="text-[11px] font-mono text-muted-foreground">
+              {t('monitor.convCount', { n: tokenTotalsAll.conversationCount })}
+            </span>
+          </div>
+
+          {mergedConversations.length === 0 && !activeToken.totals ? (
+            <div className="py-8 text-center text-xs text-muted-foreground">
+              {t('monitor.noTokenData')}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
+                  <div className="text-[10px] text-muted-foreground font-sans">{t('monitor.inputTok')}</div>
+                  <div className="font-bold text-warning mt-0.5">
+                    {tokenTotalsAll.inputTokens.toLocaleString()}
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
+                  <div className="text-[10px] text-muted-foreground font-sans">{t('monitor.outputTok')}</div>
+                  <div className="font-bold text-primary mt-0.5">
+                    {tokenTotalsAll.outputTokens.toLocaleString()}
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
+                  <div className="text-[10px] text-muted-foreground font-sans">{t('monitor.thinkTok')}</div>
+                  <div className="font-bold text-chart-1 mt-0.5">
+                    {tokenTotalsAll.thinkingTokens.toLocaleString()}
+                  </div>
+                </div>
+                <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
+                  <div className="text-[10px] text-muted-foreground font-sans">{t('monitor.totalTok')}</div>
+                  <div className="font-bold text-foreground mt-0.5">
+                    {tokenTotalsAll.totalTokens.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {tokenStatusTotal > 0 && (
+                <div className="space-y-1.5">
+                  <div className="text-[10px] text-muted-foreground font-medium">{t('monitor.statusTok')}</div>
+                  <div className="w-full h-2.5 flex rounded-full overflow-hidden bg-muted">
+                    {TOKEN_STATUS_ORDER.map((d) => {
+                      const v = tokenTotalsAll.statusTokens[d.key] ?? 0;
+                      if (v <= 0) return null;
+                      return (
+                        <div
+                          key={d.key}
+                          style={{
+                            width: `${(v / tokenStatusTotal) * 100}%`,
+                            backgroundColor: d.color,
+                          }}
+                          title={`${d.label}: ${v.toLocaleString()}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 text-[10px] font-mono">
+                    {TOKEN_STATUS_ORDER.map((d) => {
+                      const v = tokenTotalsAll.statusTokens[d.key] ?? 0;
+                      if (v <= 0) return null;
+                      return (
+                        <span key={d.key} className="text-muted-foreground">
+                          {d.label}: <b style={{ color: d.color }}>{v.toLocaleString()}</b>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {activeToken.totals && activeToken.id && (
+                <div className="p-2 rounded-lg bg-primary/5 border border-primary/20 text-[11px] font-mono flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+                  <span className="text-primary font-semibold shrink-0">{t('monitor.inProgress')}</span>
+                  <span className="text-muted-foreground truncate">
+                    {t('monitor.inputTok')} {activeToken.totals.inputTokens.toLocaleString()} ·{' '}
+                    {t('monitor.outputTok')} {activeToken.totals.outputTokens.toLocaleString()} ·{' '}
+                    {t('monitor.thinkTok')} {activeToken.totals.thinkingTokens.toLocaleString()}
+                  </span>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <div className="text-[10px] text-muted-foreground font-medium">{t('monitor.recentConvs')}</div>
+                <div className="space-y-1 max-h-44 overflow-y-auto">
+                  {mergedConversations.slice(0, 5).map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/40 border border-border/50 text-[11px] font-mono"
+                    >
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className="px-1 rounded bg-primary/10 text-primary border border-primary/20 text-[10px] font-bold shrink-0">
+                          #{c.seq}
+                        </span>
+                        <span className="text-muted-foreground truncate">
+                          {formatTimeOfDay(c.startedAt, locale)}
+                        </span>
+                        <span className="text-muted-foreground shrink-0">
+                          · {t('monitor.turns', { n: c.turnCount })}
+                        </span>
+                      </span>
+                      <span className="shrink-0" title={`${t('monitor.inputTok')}: ${c.inputTokens.toLocaleString()}, ${t('monitor.outputTok')}: ${c.outputTokens.toLocaleString()}, ${t('monitor.thinkTok')}: ${c.thinkingTokens.toLocaleString()}`}>
+                        <span className="text-warning">{c.inputTokens.toLocaleString()}</span>
+                        <span className="text-muted-foreground"> / </span>
+                        <span className="text-primary">{c.outputTokens.toLocaleString()}</span>
+                        <span className="text-muted-foreground"> / </span>
+                        <span className="text-chart-1">+{c.thinkingTokens.toLocaleString()}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 <div className="p-4 rounded-xl border border-border bg-card space-y-3">
           <div className="flex items-center justify-between">
@@ -1821,10 +2110,11 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                           </span>
                           {visibleSnapshots.length > 0 && (
                             <span className="text-[10px] text-primary/90 bg-primary/10 px-2 py-0.5 rounded font-mono border border-primary/20">
-                              {new Date(
+                              {formatTimeOfDay(
                                 visibleSnapshots[visibleSnapshots.length - 1].timestamp,
-                              ).toLocaleTimeString()}{' '}
-                              ~ {new Date(visibleSnapshots[0].timestamp).toLocaleTimeString()}
+                                locale,
+                              )}{' '}
+                              ~ {formatTimeOfDay(visibleSnapshots[0].timestamp, locale)}
                             </span>
                           )}
                         </div>
@@ -1913,6 +2203,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                           <th className="p-2.5">{t('monitor.vramUsageShort')}</th>
                           <th className="p-2.5">{t('monitor.prefill')}</th>
                           <th className="p-2.5">{t('monitor.decoding')}</th>
+                          <th className="p-2.5">{t('monitor.tokens')}</th>
                           <th className="p-2.5">{t('monitor.kvEst')}</th>
                           <th className="p-2.5">{t('monitor.offload')}</th>
                           <th className="p-2.5">{t('monitor.currentStatus')}</th>
@@ -1933,7 +2224,15 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                                   <span className="px-1 py-0.2 rounded bg-muted/60 text-[9px] font-mono text-muted-foreground/80 border border-border/40">
                                     #{globalIdx}
                                   </span>
-                                  <span>{new Date(snap.timestamp).toLocaleTimeString()}</span>
+                                  {snap.conversationSeq !== undefined && (
+                                    <span
+                                      className="px-1 py-0.2 rounded bg-primary/10 text-[9px] font-mono text-primary border border-primary/20"
+                                      title={snap.conversationId}
+                                    >
+                                      C#{snap.conversationSeq}
+                                    </span>
+                                  )}
+                                  <span>{formatTimeOfDay(snap.timestamp, locale)}</span>
                                 </div>
                               </td>
                       <td className="p-2.5 font-semibold text-success">
@@ -1951,6 +2250,19 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                         {snap.decodingSpeed !== undefined && snap.decodingSpeed > 0
                           ? `${snap.decodingSpeed.toFixed(1)} t/s (${snap.decodingDurationMs ?? 0}ms)`
                           : '—'}
+                      </td>
+                      <td className="p-2.5 font-medium whitespace-nowrap">
+                        {(snap.prefillTokens ?? 0) > 0 || (snap.decodingTokens ?? 0) > 0 || (snap.thinkingTokens ?? 0) > 0 ? (
+                          <span title={`${t('monitor.inputTok')}: ${(snap.prefillTokens ?? 0).toLocaleString()}, ${t('monitor.outputTok')}: ${(snap.decodingTokens ?? 0).toLocaleString()}, ${t('monitor.thinkTok')}: ${(snap.thinkingTokens ?? 0).toLocaleString()}`}>
+                            <span className="text-warning">{(snap.prefillTokens ?? 0).toLocaleString()}</span>
+                            <span className="text-muted-foreground"> / </span>
+                            <span className="text-primary">{(snap.decodingTokens ?? 0).toLocaleString()}</span>
+                            <span className="text-muted-foreground"> / </span>
+                            <span className="text-chart-1">+{(snap.thinkingTokens ?? 0).toLocaleString()}</span>
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="p-2.5 text-info font-medium">
                         {snap.kvCacheBytes > 0
@@ -2111,7 +2423,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <br />
               {t('monitor.connFailHint')}
               <span className="block mt-2 font-mono text-[11px] p-2 bg-destructive/10 text-destructive rounded border border-destructive/20 break-all">
-                URL: {settings.ollamaBaseUrl}
+                URL: {agent ? resolveBaseUrlForAgent(agent, settings.ollamaBaseUrl) : settings.ollamaBaseUrl}
                 {ollamaErrorMessage ? `\n${t('monitor.errorPrefix', { msg: ollamaErrorMessage })}` : ''}
               </span>
             </DialogDescription>

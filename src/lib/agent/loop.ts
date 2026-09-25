@@ -13,15 +13,26 @@ import {
   OllamaContextOverflowError,
   streamChat as defaultStreamChat,
 } from '@/lib/llm/ollamaClient';
+import { OpenAiContextOverflowError } from '@/lib/llm/openAiCompatibleClient';
+import { streamChat as streamOpenAiChat } from '@/lib/llm/openAiCompatibleClient';
+import type { LlmProviderKind } from '@/lib/types/agent';
+import type { LlmStreamChatFn } from '@/lib/llm/providerRuntime';
 import {
   cleanThinkingText,
   mapAgentMessagesToOllama,
+  mapAgentMessagesToOpenAi,
   mapAgentToolsToOllama,
+  mapAgentToolsToOpenAi,
 } from '@/lib/llm/messageMapper';
 import { appLogger } from '@/lib/logger/logger';
 import { recordAgentError, recordLlmCall } from '@/lib/metrics/agentMetrics';
 import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
 import { setAgentPhase } from '@/lib/monitoring/agentPhaseTracker';
+import {
+  beginConversation,
+  buildTurnContribution,
+  recordTurn,
+} from '@/lib/monitoring/tokenTracker';
 import type { LlmPerformanceMetrics } from '@/lib/types/monitoring';
 
 export interface LoopAgentConfig {
@@ -30,9 +41,15 @@ export interface LoopAgentConfig {
   systemPrompt?: string;
   temperature?: number;
   options?: Record<string, unknown>;
+  /** Ollama 최상위 think 값. 메시지 배열과 무관하므로 턴 중간에 바꿔도 prefill 오버헤드 없음. */
+  think?: boolean | string | null;
   contextSize?: number;
   reserveTokens?: number;
   keepRecentTokens?: number;
+  /** LLM Provider 종류. 미지정 시 'ollama' (기존 동작 유지) */
+  provider?: LlmProviderKind;
+  /** 클라우드/인증 서버용 API 키 (Ollama는 미사용) */
+  apiKey?: string;
 }
 
 export interface RunAgentLoopOptions {
@@ -46,8 +63,9 @@ export interface RunAgentLoopOptions {
   followUpQueue: MessageQueue;
   emit: (event: AgentEvent) => void;
   baseUrl?: string;
+  apiKey?: string;
   retryPolicy?: Partial<RetryPolicy>;
-  streamChatFn?: typeof defaultStreamChat;
+  streamChatFn?: LlmStreamChatFn;
   onRetry?: (attempt: number, maxRetries: number, error: unknown) => void;
 }
 
@@ -63,9 +81,14 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
     emit,
     baseUrl,
     retryPolicy,
-    streamChatFn = defaultStreamChat,
     onRetry,
   } = options;
+
+  const provider: LlmProviderKind = agent.provider ?? 'ollama';
+  const apiKey = options.apiKey ?? agent.apiKey;
+  const useOpenAi = provider !== 'ollama';
+  const streamChatFn: LlmStreamChatFn =
+    options.streamChatFn ?? (useOpenAi ? (streamOpenAiChat as unknown as LlmStreamChatFn) : (defaultStreamChat as unknown as LlmStreamChatFn));
 
   // Clone messages so caller's original array isn't directly mutated
   const messages: AgentMessage[] = [...options.messages];
@@ -77,6 +100,8 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
   emit({ type: 'agent_start' });
   if (agent.id) {
     setAgentPhase(agent.id, 'thinking', `에이전트 루프 시작 (모델: ${agent.model})`, sessionId);
+    // "대화" 경계 시작: 이번 prompt() 호출 1건 = 토큰 집계 단위 1건
+    beginConversation(agent.id, sessionId);
   }
   appLogger.info(
     'agent',
@@ -119,9 +144,11 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         agent.id,
       );
 
-      // 2. Prepare Ollama request
-      const ollamaMessages = mapAgentMessagesToOllama(activeMessages);
-      const ollamaTools = mapAgentToolsToOllama(tools);
+      // 2. Prepare LLM request (Provider별 메시지/도구 매핑)
+      const ollamaMessages = useOpenAi
+        ? (mapAgentMessagesToOpenAi(activeMessages) as unknown as import('@/lib/llm/providerRuntime').LlmChatRequest['messages'])
+        : (mapAgentMessagesToOllama(activeMessages) as unknown as import('@/lib/llm/providerRuntime').LlmChatRequest['messages']);
+      const ollamaTools = useOpenAi ? mapAgentToolsToOpenAi(tools) : mapAgentToolsToOllama(tools);
       appLogger.info(
         'ollama',
         `[Turn #${turnIndex}] LLM 추론 요청 전송 (모델: ${agent.model}, 입력 메시지: ${ollamaMessages.length}개, 도구: ${ollamaTools.length}개)`,
@@ -134,6 +161,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
             description: t.description,
           })),
           options: agent.options,
+          think: agent.think,
         },
         sessionId,
         agent.id,
@@ -168,10 +196,12 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                 const stream = streamChatFn(
                   {
                     baseUrl,
+                    apiKey,
                     model: agent.model,
                     messages: ollamaMessages,
                     tools: ollamaTools.length > 0 ? ollamaTools : undefined,
                     temperature: agent.temperature,
+                    think: agent.think,
                     options: agent.options,
                   },
                   signal,
@@ -193,14 +223,17 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
 
                   if (chunk.toolCalls && chunk.toolCalls.length > 0) {
                     for (const tc of chunk.toolCalls) {
-                      const existing = assistantToolCalls.find(
-                        (call) => call.name === tc.function.name,
+                      // OpenAI 호환 청크는 index별 id를 유지하므로 id 우선 매칭.
+                      // Ollama 네이티브 청크에는 id가 없어 이름 매칭으로 폴백한다.
+                      const incomingId = (tc as { id?: string }).id;
+                      const existing = assistantToolCalls.find((call) =>
+                        incomingId ? call.id === incomingId : call.name === tc.function.name,
                       );
                       if (existing) {
                         existing.arguments = tc.function.arguments;
                       } else {
                         assistantToolCalls.push({
-                          id: `call_${Math.random().toString(36).slice(2, 11)}`,
+                          id: incomingId || `call_${Math.random().toString(36).slice(2, 11)}`,
                           name: tc.function.name,
                           arguments: tc.function.arguments,
                         });
@@ -256,6 +289,22 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
 
             if (agent.id && finalMetrics) {
               monitoringCollector.recordInferenceMetrics(agent.id, finalMetrics);
+            }
+
+            // 대화 단위 토큰 집계: 턴마다 usage 실측 + 사고문/본문 비율 안분
+            if (agent.id) {
+              const turnInput = finalUsage?.input ?? finalMetrics?.promptEvalCount ?? 0;
+              const turnOutput = finalUsage?.output ?? finalMetrics?.evalCount ?? 0;
+              if (turnInput > 0 || turnOutput > 0) {
+                const contribution = buildTurnContribution({
+                  inputTokens: turnInput,
+                  outputTokens: turnOutput,
+                  thinkingChars: assistantThinking.length,
+                  contentChars: assistantContent.length,
+                });
+                recordTurn(agent.id, contribution);
+                monitoringCollector.recordTurnTokens(agent.id, contribution);
+              }
             }
 
             if (agent.id) {
@@ -315,9 +364,10 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
               break;
             }
 
-            // Check for context overflow hook
+            // Check for context overflow hook (Ollama/OpenAI 호환 공통)
             if (
-              err instanceof OllamaContextOverflowError &&
+              (err instanceof OllamaContextOverflowError ||
+                err instanceof OpenAiContextOverflowError) &&
               !overflowRetried &&
               hooks.onContextOverflow
             ) {
@@ -325,7 +375,7 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
               emit({ type: 'compaction_start' });
               appLogger.warn(
                 'context',
-                `[Turn #${turnIndex}] Ollama 컨텍스트 초과 오류 발생. 컨텍스트 압축 후 재시도합니다.`,
+                `[Turn #${turnIndex}] LLM 컨텍스트 초과 오류 발생. 컨텍스트 압축 후 재시도합니다.`,
                 { error: err.message },
                 sessionId,
                 agent.id,
@@ -336,9 +386,13 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                 messages.length = 0;
                 messages.push(...compacted);
                 emit({ type: 'compaction_end', entry: { compactedCount: compacted.length } });
-                const newOllamaMsgs = mapAgentMessagesToOllama(messages);
+                const newOllamaMsgs = useOpenAi
+                  ? mapAgentMessagesToOpenAi(messages)
+                  : mapAgentMessagesToOllama(messages);
                 ollamaMessages.length = 0;
-                ollamaMessages.push(...newOllamaMsgs);
+                ollamaMessages.push(
+                  ...(newOllamaMsgs as unknown as typeof ollamaMessages),
+                );
                 assistantContent = '';
                 assistantThinking = '';
                 assistantToolCalls = [];
@@ -768,6 +822,8 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
 
   if (agent.id) {
     setAgentPhase(agent.id, 'idle', '대기 중 (유휴 상태)', sessionId);
+    // "대화" 경계 종료: 턴 누적분을 대화 요약으로 확정하고 원장에 영속화
+    await monitoringCollector.finishConversation(agent.id);
   }
   emit({ type: 'agent_end', messages });
   return messages;

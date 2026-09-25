@@ -35,6 +35,7 @@ vi.mock('@/lib/db/repositories/settingsRepo', () => ({
     activeTabId: null,
   }),
   updateSettings: vi.fn().mockResolvedValue(undefined),
+  saveProjectTabs: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe('Workspace without selected folder', () => {
