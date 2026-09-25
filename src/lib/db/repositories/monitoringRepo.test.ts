@@ -6,6 +6,7 @@ import {
   getRecentMonitoringSnapshots,
   clearMonitoringSnapshots,
   getMonitoringSummary,
+  getMonitoringAgentStats,
   pruneOldMonitoringSnapshots,
   saveConversationSummary,
   getConversationSummaries,
@@ -195,6 +196,27 @@ describe('monitoringRepo', () => {
     expect(await listRecentMonitoringSnapshots(10)).toHaveLength(1);
     expect(await getMonitoringSnapshots('agent-1')).toHaveLength(1);
     expect(await getMonitoringSnapshots('agent-2')).toHaveLength(0);
+  });
+
+  it('aggregates per-agent stats across the full history', async () => {
+    const ts1 = new Date(Date.now() - 2000).toISOString();
+    const ts2 = new Date(Date.now() - 1000).toISOString();
+    const ts3 = new Date().toISOString();
+    await saveMonitoringSnapshot({ ...sampleSnapshot, timestamp: ts1 });
+    await saveMonitoringSnapshot({
+      ...sampleSnapshot,
+      id: 'snap-2',
+      agentId: 'agent-2',
+      timestamp: ts2,
+    });
+    await saveMonitoringSnapshot({ ...sampleSnapshot, id: 'snap-3', timestamp: ts3 });
+
+    const stats = await getMonitoringAgentStats();
+    expect(stats).toHaveLength(2);
+    // 최신 스냅샷 순으로 정렬된다.
+    expect(stats.map((s) => s.agentId)).toEqual(['agent-1', 'agent-2']);
+    expect(stats[0]).toEqual({ agentId: 'agent-1', count: 2, latestTimestamp: ts3 });
+    expect(stats[1]).toEqual({ agentId: 'agent-2', count: 1, latestTimestamp: ts2 });
   });
 
   it('clears all monitoring snapshots and conversation summaries', async () => {

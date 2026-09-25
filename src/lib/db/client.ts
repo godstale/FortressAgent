@@ -993,6 +993,25 @@ export class MemorySqlFallback implements SqlDatabase {
       return snaps as unknown as T;
     }
 
+    if (q.includes('GROUP BY agent_id')) {
+      const grouped = new Map<string, { count: number; latest_timestamp: string }>();
+      for (const s of this.tables.get('agent_monitoring_snapshots')?.values() ?? []) {
+        const agentId = s.agent_id as string;
+        const timestamp = s.timestamp as string;
+        const entry = grouped.get(agentId);
+        if (entry) {
+          entry.count += 1;
+          if (timestamp > entry.latest_timestamp) entry.latest_timestamp = timestamp;
+        } else {
+          grouped.set(agentId, { count: 1, latest_timestamp: timestamp });
+        }
+      }
+      const rows = Array.from(grouped.entries())
+        .map(([agent_id, v]) => ({ agent_id, ...v }))
+        .sort((a, b) => b.latest_timestamp.localeCompare(a.latest_timestamp));
+      return rows as unknown as T;
+    }
+
     if (q.includes('FROM agent_monitoring_snapshots')) {
       const snaps = Array.from(this.tables.get('agent_monitoring_snapshots')?.values() ?? [])
         .sort((a, b) => (b.timestamp as string).localeCompare(a.timestamp as string));

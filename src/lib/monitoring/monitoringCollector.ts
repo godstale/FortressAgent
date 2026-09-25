@@ -36,6 +36,8 @@ export const DEFAULT_MONITORING_INTERVAL_MS = 1000;
 class MonitoringCollectorService {
   private activeTimers = new Map<string, NodeJS.Timeout>();
   private listeners = new Map<string, Set<MonitoringListener>>();
+  /** 에이전트 구분 없이 모든 스냅샷을 받는 전역 리스너 (기록 패널 실시간 반영용). */
+  private globalListeners = new Set<MonitoringListener>();
   private archCache = new Map<string, { info: OllamaModelArchitectureInfo; timestamp: number }>();
   private intervals = new Map<string, number>();
   /** 대화 시작 시 자동으로 시작된 모니터링 에이전트 집합. 수동 시작분과 구분해 자동 중단한다. */
@@ -147,6 +149,14 @@ class MonitoringCollectorService {
           this.listeners.delete(agentId);
         }
       }
+    };
+  }
+
+  /** 모든 에이전트의 스냅샷을 구독한다. DB 저장 여부와 무관하게 의미 있는 상태 변화 시점에 호출된다. */
+  public subscribeAll(listener: MonitoringListener): () => void {
+    this.globalListeners.add(listener);
+    return () => {
+      this.globalListeners.delete(listener);
     };
   }
 
@@ -622,6 +632,13 @@ class MonitoringCollectorService {
           } catch (e) {
             console.error('Error in monitoring listener:', e);
           }
+        }
+      }
+      for (const listener of this.globalListeners) {
+        try {
+          listener(snapshot);
+        } catch (e) {
+          console.error('Error in global monitoring listener:', e);
         }
       }
 
