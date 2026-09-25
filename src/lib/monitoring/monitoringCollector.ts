@@ -15,8 +15,12 @@ import {
 } from '@/lib/llm/ollamaClient';
 import { saveMonitoringSnapshot } from '@/lib/db/repositories/monitoringRepo';
 import { appLogger } from '@/lib/logger/logger';
+import { getAgentPhase, getAgentIdForSession } from '@/lib/monitoring/agentPhaseTracker';
+import { chatQueueManager } from '@/lib/agent/chatQueueManager';
 
 export type MonitoringListener = (snapshot: AgentMonitoringSnapshot) => void;
+
+export const DEFAULT_MONITORING_INTERVAL_MS = 1000;
 
 class MonitoringCollectorService {
   private activeTimers = new Map<string, NodeJS.Timeout>();
@@ -94,7 +98,7 @@ class MonitoringCollectorService {
   }
 
   public getInterval(agentId: string): number {
-    return this.intervals.get(agentId) || 3000;
+    return this.intervals.get(agentId) || DEFAULT_MONITORING_INTERVAL_MS;
   }
 
   public isRunning(agentId: string): boolean {
@@ -104,7 +108,7 @@ class MonitoringCollectorService {
   public start(
     agent: Agent,
     baseUrl: string,
-    intervalMs = 3000,
+    intervalMs = DEFAULT_MONITORING_INTERVAL_MS,
     workspaceRoot?: string | null,
   ): void {
     this.activeAgentContexts.set(agent.id, { agent, baseUrl, workspaceRoot });
@@ -147,7 +151,7 @@ class MonitoringCollectorService {
     baseUrl: string,
     workspaceRoot?: string | null,
   ): Promise<AgentMonitoringSnapshot | null> {
-    return this.collect(agent, baseUrl, workspaceRoot);
+    return this.collect(agent, baseUrl, workspaceRoot, { forceEmit: true });
   }
 
   private async getArchitectureCached(
@@ -175,14 +179,59 @@ class MonitoringCollectorService {
     status: AgentOperationalStatus;
     task: string;
   } {
+    // 0. Live phase tracker has highest priority (updated on every chunk/tool event)
+    const livePhase = getAgentPhase(agentId);
+    if (livePhase && livePhase.phase !== 'idle') {
+      return { status: livePhase.phase as AgentOperationalStatus, task: livePhase.task };
+    }
+
+    // 0b. Pending inference metrics mean Ollama just finished prefill/decoding
+    const pending = this.latestInferenceMetrics.get(agentId);
+    if (pending) {
+      if ((pending.evalCount ?? 0) > 0) {
+        return {
+          status: 'decoding',
+          task: `Decoding — ${pending.evalCount} 토큰 생성 (${pending.evalDurationMs}ms, ${pending.decodingSpeed} t/s)`,
+        };
+      }
+      if ((pending.promptEvalCount ?? 0) > 0) {
+        return {
+          status: 'prefill',
+          task: `Prefill — ${pending.promptEvalCount} 토큰 평가 (${pending.promptEvalDurationMs}ms, ${pending.prefillSpeed} t/s)`,
+        };
+      }
+    }
+
+    // 0c. If any chat session bound to this agent is currently running LLM, never report idle
+    try {
+      const busySession = chatQueueManager.getBusySessionId();
+      if (busySession) {
+        const busyAgent = getAgentIdForSession(busySession);
+        if (busyAgent === agentId) {
+          if (livePhase) {
+            return { status: livePhase.phase as AgentOperationalStatus, task: livePhase.task };
+          }
+          return { status: 'generating', task: 'LLM 응답 생성/추론 중 (세션 실행 잠금 활성)' };
+        }
+      }
+    } catch {
+      // ignore — chatQueueManager may be unavailable in tests
+    }
+
     const logs = appLogger.getAgentLogs(agentId);
     if (!logs || logs.length === 0) {
+      if (livePhase) {
+        return { status: livePhase.phase as AgentOperationalStatus, task: livePhase.task };
+      }
       return { status: 'idle', task: '대기 중 (유휴 상태)' };
     }
 
     const now = Date.now();
-    const recentLogs = logs.filter((l) => now - new Date(l.timestamp).getTime() < 15_000);
+    const recentLogs = logs.filter((l) => now - new Date(l.timestamp).getTime() < 30_000);
     if (recentLogs.length === 0) {
+      if (livePhase) {
+        return { status: livePhase.phase as AgentOperationalStatus, task: livePhase.task };
+      }
       return { status: 'idle', task: '대기 중 (유휴 상태)' };
     }
 
@@ -197,16 +246,41 @@ class MonitoringCollectorService {
     }
 
     if (latest.category === 'ollama' || latest.category === 'chat') {
-      return { status: 'generating', task: `LLM 응답 생성/추론 중: ${latest.message}` };
+      const msg = latest.message || '';
+      if (msg.includes('사고 과정') || msg.includes('Thinking')) {
+        return { status: 'thinking', task: `Thinking: ${latest.message}` };
+      }
+      if (msg.includes('Prefill') || msg.includes('입력') || msg.includes('평가')) {
+        return { status: 'prefill', task: `Prefill: ${latest.message}` };
+      }
+      if (msg.includes('디코딩') || msg.includes('Decoding') || msg.includes('토큰')) {
+        return { status: 'decoding', task: `Decoding: ${latest.message}` };
+      }
+      return { status: 'generating', task: `Generating: ${latest.message}` };
     }
 
-    return { status: 'idle', task: `최근 활동: ${latest.message}` };
+    if (latest.category === 'agent') {
+      const msg = latest.message || '';
+      if (msg.includes('Thinking') || msg.includes('사고')) {
+        return { status: 'thinking', task: `Thinking: ${latest.message}` };
+      }
+      if (msg.includes('도구')) {
+        return { status: 'executing_tool', task: `Executing_Tool: ${latest.message}` };
+      }
+      if (msg.includes('루프 시작') || msg.includes('턴 시작')) {
+        return { status: 'thinking', task: `Thinking: ${latest.message}` };
+      }
+      return { status: 'generating', task: `Generating: ${latest.message}` };
+    }
+
+    return { status: 'generating', task: `작업 중: ${latest.message}` };
   }
 
   private async collect(
     agent: Agent,
     baseUrl: string,
     workspaceRoot?: string | null,
+    opts?: { forceEmit?: boolean },
   ): Promise<AgentMonitoringSnapshot | null> {
     if (this.isCollectingMap.get(agent.id)) {
       return null;
@@ -284,9 +358,9 @@ class MonitoringCollectorService {
           ? Math.min(100, Number(((vramAllocatedBytes / modelWeightBytes) * 100).toFixed(1)))
           : 0;
 
-      // 5. Calculate KV cache size
+      // 5. Calculate KV cache size (GQA-aware actual + MHA reference for comparison)
       const targetContextSize = agent.contextSize > 0 ? agent.contextSize : 8192;
-      const kvCacheBytes = arch
+      const kvCacheGqaBytes = arch
         ? calculateEstimatedKvCacheBytes(
             arch.blockCount,
             arch.headCountKv,
@@ -295,6 +369,21 @@ class MonitoringCollectorService {
             targetContextSize,
           )
         : 0;
+      const kvCacheMhaBytes = arch
+        ? calculateEstimatedKvCacheBytes(
+            arch.blockCount,
+            arch.headCount,
+            arch.embeddingLength,
+            arch.headCount,
+            targetContextSize,
+          )
+        : 0;
+      const kvCacheBytes = kvCacheGqaBytes;
+      const offloadRatio = gpuOffloadPct / 100;
+      const kvVramBytes = Math.round(kvCacheGqaBytes * offloadRatio);
+      const kvRamBytes = kvCacheGqaBytes - kvVramBytes;
+      const modelVramBytes = vramAllocatedBytes;
+      const modelRamBytes = Math.max(0, modelWeightBytes - vramAllocatedBytes);
 
       // 6. Get pending inference performance metrics and last completed inference
       const pendingPerf = this.latestInferenceMetrics.get(agent.id);
@@ -346,6 +435,12 @@ class MonitoringCollectorService {
           parameterCount: arch?.parameterCount ?? 0,
           isModelLoadedInMemory: Boolean(matchedRunning),
           runningExpiresAt: matchedRunning?.expires_at,
+          kvCacheMhaBytes,
+          kvCacheGqaBytes,
+          kvVramBytes,
+          kvRamBytes,
+          modelVramBytes,
+          modelRamBytes,
           lastCompletedInference: lastCompleted
             ? {
                 prefillSpeed: lastCompleted.prefillSpeed,
@@ -367,16 +462,18 @@ class MonitoringCollectorService {
       };
 
       // Intelligent DB persistence:
-      // Always persist when active (generating, executing tool, or state changed),
-      // but throttle writes to max once per 15s when agent is completely idle with low GPU to prevent DB bloat.
+      // Active states are always persisted. IDLE is persisted only once when
+      // entering IDLE from another state (or when it carries fresh inference
+      // metrics) — pure CPU/GPU fluctuations while staying IDLE are skipped
+      // to prevent DB bloat and timeline noise.
       const currentMs = Date.now();
-      const lastSaved = this.lastDbSavedTime.get(agent.id) ?? 0;
       const prevStatus = this.lastSavedStatus.get(agent.id);
       const isStatusChanged = prevStatus !== snapshot.agentStatus;
-      const isActivelyWorking = snapshot.agentStatus !== 'idle';
+      const isIdle = snapshot.agentStatus === 'idle';
       const hasRecentInference = (snapshot.prefillTokens ?? 0) > 0 || (snapshot.decodingTokens ?? 0) > 0;
-      const isGpuActive = snapshot.gpuUtilizationPct > 10;
-      const shouldSaveToDb = isActivelyWorking || isStatusChanged || hasRecentInference || isGpuActive || (currentMs - lastSaved >= 15_000);
+      const shouldSaveToDb = isIdle
+        ? isStatusChanged || hasRecentInference
+        : true;
 
       if (shouldSaveToDb) {
         try {
@@ -388,7 +485,14 @@ class MonitoringCollectorService {
         }
       }
 
-      // Notify active listeners
+      // Notify active listeners, except for consecutive IDLE ticks with no
+      // state change (CPU/GPU-only fluctuations). The transition snapshot
+      // into IDLE is still emitted once. Manual refresh forces emission.
+      const shouldNotify =
+        opts?.forceEmit === true || !isIdle || isStatusChanged || hasRecentInference;
+      if (!shouldNotify) {
+        return snapshot;
+      }
       const listenersSet = this.listeners.get(agent.id);
       if (listenersSet) {
         for (const listener of listenersSet) {

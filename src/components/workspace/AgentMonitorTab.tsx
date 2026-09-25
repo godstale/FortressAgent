@@ -66,7 +66,7 @@ import {
   getMonitoringSnapshots,
   clearMonitoringSnapshots,
 } from '@/lib/db/repositories/monitoringRepo';
-import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
+import { monitoringCollector, DEFAULT_MONITORING_INTERVAL_MS } from '@/lib/monitoring/monitoringCollector';
 import { listModels } from '@/lib/llm/ollamaClient';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 
@@ -231,15 +231,20 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const [isStarting, setIsStarting] = useState(false);
   const [ollamaErrorDialogOpen, setOllamaErrorDialogOpen] = useState(false);
   const [ollamaErrorMessage, setOllamaErrorMessage] = useState('');
-  const [intervalMs, setIntervalMs] = useState(3000);
+  const [intervalMs, setIntervalMs] = useState<number | null>(null);
   const [selectedSnapshot, setSelectedSnapshot] = useState<AgentMonitoringSnapshot | null>(null);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [timelineOffset, setTimelineOffset] = useState(0);
   const [hideIdleSnapshots, setHideIdleSnapshots] = useState(true);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const TIMELINE_WINDOW_SIZE = 25;
   const { t } = useLanguage();
+
+  // Settings default applies until the user picks another interval in this tab.
+  const settingsDefaultInterval = settings.monitoringIntervalMs ?? DEFAULT_MONITORING_INTERVAL_MS;
+  const activeIntervalMs = intervalMs ?? settingsDefaultInterval;
 
   // Stop collector immediately when tab unmounts or agent changes
   useEffect(() => {
@@ -279,7 +284,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     if (!agent) return;
 
     if (isCollecting) {
-      monitoringCollector.start(agent, settings.ollamaBaseUrl, intervalMs, workspaceRoot);
+      monitoringCollector.start(agent, settings.ollamaBaseUrl, activeIntervalMs, workspaceRoot);
     } else {
       monitoringCollector.stop(agent.id);
     }
@@ -287,6 +292,18 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     const unsubscribe = monitoringCollector.subscribe(agent.id, (newSnapshot) => {
       setCurrentSnapshot(newSnapshot);
       setSnapshots((prev) => {
+        // Skip consecutive IDLE snapshots: CPU/GPU-only fluctuations while
+        // staying IDLE must not grow the history, charts, or timeline.
+        const head = prev[0];
+        if (
+          head &&
+          head.agentStatus === newSnapshot.agentStatus &&
+          newSnapshot.agentStatus === 'idle' &&
+          isIdleLikeSnapshot(newSnapshot) &&
+          isIdleLikeSnapshot(head)
+        ) {
+          return prev;
+        }
         // Keep most recent 100 snapshots for history and graphs
         const next = [newSnapshot, ...prev.filter((s) => s.id !== newSnapshot.id)];
         return next.slice(0, 100);
@@ -300,7 +317,34 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         monitoringCollector.stop(agent.id);
       }
     };
-  }, [agent, settings.ollamaBaseUrl, isCollecting, intervalMs, workspaceRoot]);
+  }, [agent, settings.ollamaBaseUrl, isCollecting, activeIntervalMs, workspaceRoot]);
+
+  // Start of the current operational-status run (newest-first history scan).
+  // Derived during render so no status-tracking effect is needed.
+  const statusRunStartMs = useMemo(() => {
+    const status = currentSnapshot?.agentStatus;
+    if (!currentSnapshot || !status) return null;
+    const ordered =
+      snapshots.length > 0 && snapshots[0]?.id === currentSnapshot.id
+        ? snapshots
+        : [currentSnapshot, ...snapshots];
+    let startMs = new Date(currentSnapshot.timestamp).getTime();
+    for (const s of ordered) {
+      if (s.agentStatus !== status) break;
+      const ts = new Date(s.timestamp).getTime();
+      if (Number.isFinite(ts) && ts < startMs) startMs = ts;
+    }
+    return Number.isFinite(startMs) ? startMs : null;
+  }, [currentSnapshot, snapshots]);
+
+  const hasSnapshot = currentSnapshot !== null;
+
+  // Live tick for the status duration readout (1s granularity)
+  useEffect(() => {
+    if (!hasSnapshot) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [hasSnapshot]);
 
   const handleToggleCollecting = async () => {
     if (!agent) return;
@@ -312,7 +356,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       try {
         // Verify Ollama connectivity before starting periodic monitoring
         await listModels(settings.ollamaBaseUrl);
-        monitoringCollector.start(agent, settings.ollamaBaseUrl, intervalMs, workspaceRoot);
+        monitoringCollector.start(agent, settings.ollamaBaseUrl, activeIntervalMs, workspaceRoot);
         setIsCollecting(true);
       } catch (err) {
         const errMsg =
@@ -514,7 +558,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         statusCounts.generating = (statusCounts.generating ?? 0) + 1;
       }
     }
-    const wall = (count: number) => count * intervalMs;
+    const wall = (count: number) => count * activeIntervalMs;
     const thinkingMs = wall(statusCounts.thinking);
     const generatingMs = wall(statusCounts.generating);
     const toolMs = wall(statusCounts.executing_tool);
@@ -543,7 +587,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       phaseTotal,
       total,
     };
-  }, [snapshots, intervalMs, t]);
+  }, [snapshots, activeIntervalMs, t]);
 
   const filteredSnapshots = useMemo(() => {
     if (!hideIdleSnapshots) return snapshots;
@@ -677,7 +721,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           <div className="flex items-center gap-1.5 bg-card border border-border/80 px-2 py-1 rounded-lg text-xs">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
             <select
-              value={intervalMs}
+              value={activeIntervalMs}
               onChange={(e) => handleIntervalChange(Number(e.target.value))}
               className="bg-transparent text-xs text-foreground focus:outline-none cursor-pointer"
             >
@@ -1099,6 +1143,17 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               {statusBadge.fullLabel}
             </span>
           </div>
+          {currentSnapshot && statusRunStartMs !== null && (
+            <div className="flex items-center justify-between text-xs pt-0.5">
+              <span className="text-muted-foreground text-[10px] flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                <span>{t('monitor.statusDuration')}</span>
+              </span>
+              <span className="font-mono text-[10px] text-foreground font-semibold">
+                {formatDurationMs(Math.max(0, nowMs - statusRunStartMs))}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

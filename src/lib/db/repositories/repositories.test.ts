@@ -54,6 +54,7 @@ interface AppSettingsRowMock {
   default_approval_mode: string;
   trusted_workspaces: string;
   last_workspace_root: string | null;
+  monitoring_interval_ms?: number | null;
 }
 
 class MemorySqlDatabase implements SqlDatabase {
@@ -246,6 +247,7 @@ class MemorySqlDatabase implements SqlDatabase {
         default_approval_mode,
         trusted_workspaces,
         last_workspace_root,
+        monitoring_interval_ms,
       ] = bindValues;
       this.app_settings.push({
         id: id as string,
@@ -258,6 +260,7 @@ class MemorySqlDatabase implements SqlDatabase {
         default_approval_mode: default_approval_mode as string,
         trusted_workspaces: trusted_workspaces as string,
         last_workspace_root: (last_workspace_root as string) ?? null,
+        monitoring_interval_ms: (monitoring_interval_ms as number) ?? 1000,
       });
       return { rowsAffected: 1 };
     }
@@ -273,6 +276,7 @@ class MemorySqlDatabase implements SqlDatabase {
         default_approval_mode,
         trusted_workspaces,
         last_workspace_root,
+        monitoring_interval_ms,
       ] = bindValues;
       if (this.app_settings.length > 0) {
         Object.assign(this.app_settings[0], {
@@ -285,6 +289,9 @@ class MemorySqlDatabase implements SqlDatabase {
           default_approval_mode: default_approval_mode as string,
           trusted_workspaces: trusted_workspaces as string,
           last_workspace_root: (last_workspace_root as string) ?? null,
+          ...(monitoring_interval_ms !== undefined
+            ? { monitoring_interval_ms: monitoring_interval_ms as number }
+            : {}),
         });
       }
       return { rowsAffected: 1 };

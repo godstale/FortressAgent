@@ -47,5 +47,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
   default_context_size INTEGER NOT NULL DEFAULT 8192,
   default_approval_mode TEXT NOT NULL DEFAULT 'dangerous-only',
   trusted_workspaces TEXT NOT NULL DEFAULT '[]',
-  last_workspace_root TEXT
+  last_workspace_root TEXT,
+  monitoring_interval_ms INTEGER NOT NULL DEFAULT 1000
 );

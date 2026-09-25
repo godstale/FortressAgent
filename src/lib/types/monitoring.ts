@@ -41,7 +41,10 @@ export interface OllamaModelArchitectureInfo {
 
 export type AgentOperationalStatus =
   | 'idle'
+  | 'thinking'
+  | 'prefill'
   | 'generating'
+  | 'decoding'
   | 'executing_tool'
   | 'waiting_approval'
   | 'disconnected'

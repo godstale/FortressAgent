@@ -4,6 +4,7 @@ import {
   MessageSquare,
   Edit2,
   Trash2,
+  Copy,
   Star,
   Cpu,
   Thermometer,
@@ -38,6 +39,7 @@ export interface AgentCardProps {
   onShowStats?: (agent: Agent) => void;
   onShowLogs?: (agent: Agent) => void;
   onEdit: (agent: Agent) => void;
+  onDuplicate?: (agent: Agent) => void;
   onSetDefault: (agent: Agent) => void;
   onDelete: (agent: Agent) => void;
 }
@@ -53,6 +55,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({
   onShowStats,
   onShowLogs,
   onEdit,
+  onDuplicate,
   onSetDefault,
   onDelete,
 }) => {
@@ -154,14 +157,6 @@ export const AgentCard: React.FC<AgentCardProps> = ({
                 <Star className="h-3.5 w-3.5" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => onEdit(agent)}
-              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              title={t('agentCard.edit')}
-            >
-              <Edit2 className="h-3.5 w-3.5" />
-            </button>
             {!isOnlyAgent && (
               <button
                 type="button"
@@ -170,6 +165,17 @@ export const AgentCard: React.FC<AgentCardProps> = ({
                 title={t('agentCard.delete')}
               >
                 <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {onDuplicate && (
+              <button
+                type="button"
+                onClick={() => onDuplicate(agent)}
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title={t('agentCard.duplicate')}
+                aria-label={t('agentCard.duplicate')}
+              >
+                <Copy className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
@@ -205,18 +211,31 @@ export const AgentCard: React.FC<AgentCardProps> = ({
           )}
         </div>
 
-        {/* Action Buttons: Start Conversation, Statistics & Logs */}
+        {/* Action Buttons: Start Conversation + Edit side-by-side, Statistics & Logs */}
         <div className="pt-1 space-y-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => onStartChat(agent)}
-            className="w-full h-7 text-xs flex items-center justify-center gap-1.5 border-border/80 hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors cursor-pointer"
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            <span>{t('agentCard.startChat')}</span>
-          </Button>
+          <div className="flex gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onStartChat(agent)}
+              className="flex-1 h-7 text-xs flex items-center justify-center gap-1.5 border-border/80 hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors cursor-pointer"
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>{t('agentCard.startChat')}</span>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => onEdit(agent)}
+              className="flex-1 h-7 text-xs flex items-center justify-center gap-1.5 border-border/80 hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
+              title={t('agentCard.edit')}
+            >
+              <Edit2 className="h-3.5 w-3.5" />
+              <span>{t('agentCard.editShort')}</span>
+            </Button>
+          </div>
 
           <div className="grid grid-cols-3 gap-1.5">
             <Button
