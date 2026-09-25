@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useChat } from './useChat';
 import { DEFAULT_AGENT } from '@/lib/agent/defaultAgent';
+import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
 import type { OllamaChunk } from '@/lib/llm/ollamaClient';
 
 async function* mockStreamResponse(chunks: OllamaChunk[]): AsyncIterable<OllamaChunk> {
@@ -11,7 +12,10 @@ async function* mockStreamResponse(chunks: OllamaChunk[]): AsyncIterable<OllamaC
 }
 
 describe('useChat hook', () => {
-  it('accumulates streaming chunks into assistant message and finishes streaming', async () => {
+  afterEach(() => {
+    monitoringCollector.stopAll();
+    vi.restoreAllMocks();
+  });  it('accumulates streaming chunks into assistant message and finishes streaming', async () => {
     const mockStream = vi.fn().mockImplementation(() => {
       return mockStreamResponse([
         { content: 'Hello', done: false },
@@ -82,5 +86,49 @@ describe('useChat hook', () => {
     });
 
     expect(result.current.isStreaming).toBe(false);
+  });
+
+  it('auto-starts monitoring on send and stops when the conversation ends (default on)', async () => {
+    const startAuto = vi.spyOn(monitoringCollector, 'startAuto');
+    const stopAuto = vi.spyOn(monitoringCollector, 'stopAuto');
+    const mockStream = vi.fn().mockImplementation(() => {
+      return mockStreamResponse([
+        { content: 'Hi', done: true, usage: { input: 8, output: 4, total: 12 } },
+      ]);
+    });
+
+    const { result } = renderHook(() =>
+      useChat('session_auto_on', { ...DEFAULT_AGENT, autoMonitor: true }, { streamChatFn: mockStream }),
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('Hello');
+    });
+
+    expect(startAuto).toHaveBeenCalled();
+    // LLM 작업 완료 후 자동 모니터링 중단
+    expect(monitoringCollector.isRunning(DEFAULT_AGENT.id)).toBe(false);
+    expect(monitoringCollector.isAuto(DEFAULT_AGENT.id)).toBe(false);
+    expect(stopAuto).toHaveBeenCalledWith(DEFAULT_AGENT.id);
+  });
+
+  it('does not auto-start monitoring when the agent disables it', async () => {
+    const startAuto = vi.spyOn(monitoringCollector, 'startAuto');
+    const mockStream = vi.fn().mockImplementation(() => {
+      return mockStreamResponse([
+        { content: 'Hi', done: true, usage: { input: 8, output: 4, total: 12 } },
+      ]);
+    });
+
+    const { result } = renderHook(() =>
+      useChat('session_auto_off', { ...DEFAULT_AGENT, autoMonitor: false }, { streamChatFn: mockStream }),
+    );
+
+    await act(async () => {
+      await result.current.sendMessage('Hello');
+    });
+
+    expect(startAuto).not.toHaveBeenCalled();
+    expect(monitoringCollector.isRunning(DEFAULT_AGENT.id)).toBe(false);
   });
 });

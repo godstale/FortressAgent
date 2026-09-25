@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { Agent, ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
-import { resolveThinkValue } from '@/lib/types/agent';
+import { captureChatConfigSnapshot, resolveThinkValue } from '@/lib/types/agent';
+import type { ChatConfigSnapshot } from '@/lib/types/agent';
 import type { AgentEvent, AgentMessage } from '@/lib/agent/types';
 import type { SkillManifest } from '@/lib/types/skill';
 import type { ContextFileItem } from '@/lib/skills/contextFiles';
@@ -30,6 +31,8 @@ import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
 import { buildLlmContext } from '@/lib/db/buildContext';
 import { appLogger } from '@/lib/logger/logger';
 import { bindSessionToAgent } from '@/lib/monitoring/agentPhaseTracker';
+import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
+import { isAutoMonitorEnabled } from '@/lib/types/agent';
 
 export type { ChatPersistence };
 
@@ -59,6 +62,8 @@ export interface UseChatReturn {
   contextUsage: { tokens: number; limit: number };
   /** 현재 턴에 적용되는 Ollama think 값 (Agent 기본값 + 세션 오버라이드 해석 결과) */
   effectiveThink: boolean | string | undefined;
+  /** 전송 시점에 캡처한 유효 실행 설정 (말풍선 [i]·변경 안내의 기준) */
+  configSnapshot: ChatConfigSnapshot;
   sendMessage: (text: string) => Promise<void>;
   steer: (text: string) => void;
   stop: () => void;
@@ -67,6 +72,8 @@ export interface UseChatReturn {
   compact: (customInstructions?: string) => Promise<void>;
   clearChat: () => Promise<void>;
   injectInfoMessage: (content: string) => void;
+  /** 설정 변경 안내를 채팅 중간에 표시한다 (UI 전용, 저장·LLM 전송 없음). */
+  injectConfigNotice: (snapshot: ChatConfigSnapshot, summary: string) => void;
 }
 
 export function useChat(
@@ -161,8 +168,59 @@ export function useChat(
     return formatSystemPrompt(currentSections);
   }, [currentSections]);
 
+  // Keep latest refs to prevent tearing down the agent on parent re-renders.
+  // (자동 모니터링 헬퍼보다 먼저 선언·동기화한다 — ref를 캡처한 훅보다
+  //  수정 이펙트가 뒤에 오면 react-hooks/immutability 위반이 된다.)
+  const agentConfigRef = useRef(agentConfig);
+  const systemPromptRef = useRef(systemPrompt);
+  const toolsRef = useRef(tools);
+  const optionsRef = useRef(options);
+
+  useEffect(() => {
+    agentConfigRef.current = agentConfig;
+    systemPromptRef.current = systemPrompt;
+    toolsRef.current = tools;
+    optionsRef.current = options;
+  });
+
   // Agent instance ref
   const agentRef = useRef<FortressAgent | null>(null);
+  const llmRuntimeRef = useRef(llmRuntime);
+  const cwdRef = useRef(effectiveCwd);
+  useEffect(() => {
+    llmRuntimeRef.current = llmRuntime;
+    cwdRef.current = effectiveCwd;
+  }, [llmRuntime, effectiveCwd]);
+
+  // 자동 모니터링으로 시작된 에이전트 id. 자동 중단 시 이 id만 정리하며,
+  // 사용자가 모니터 탭에서 수동으로 시작한 수집은 건드리지 않는다.
+  const autoMonitorAgentIdRef = useRef<string | null>(null);
+
+  const startAutoMonitoring = useCallback(() => {
+    const cfg = agentConfigRef.current;
+    if (!isAutoMonitorEnabled(cfg)) return;
+    try {
+      monitoringCollector.startAuto(
+        cfg,
+        llmRuntimeRef.current.baseUrl,
+        monitoringCollector.getInterval(cfg.id),
+        cwdRef.current ?? null,
+      );
+      autoMonitorAgentIdRef.current = cfg.id;
+    } catch {
+      // 모니터링 시작 실패(연결 불가 등)는 대화 진행에 영향을 주지 않는다.
+    }
+  }, []);
+
+  const stopAutoMonitoring = useCallback(() => {
+    const id = autoMonitorAgentIdRef.current ?? agentConfigRef.current.id;
+    autoMonitorAgentIdRef.current = null;
+    try {
+      monitoringCollector.stopAuto(id);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // Event handler for agent notifications
   const handleAgentEvent = useCallback((event: AgentEvent) => {
@@ -170,6 +228,7 @@ export function useChat(
       case 'agent_start':
         setIsStreaming(true);
         setError(null);
+        startAutoMonitoring();
         break;
 
       case 'message_update': {
@@ -225,6 +284,7 @@ export function useChat(
 
       case 'agent_end': {
         setIsStreaming(false);
+        stopAutoMonitoring();
         const nonSystem = event.messages.filter((m) => m.role !== 'system');
         setMessages(nonSystem);
         if (nonSystem.length > persistedCountRef.current) {
@@ -246,28 +306,16 @@ export function useChat(
       case 'error': {
         setIsStreaming(false);
         setError(event.error);
+        stopAutoMonitoring();
         break;
       }
     }
-  }, [persistence, sessionId]);
+  }, [persistence, sessionId, startAutoMonitoring, stopAutoMonitoring]);
 
   const eventHandlerRef = useRef(handleAgentEvent);
   useEffect(() => {
     eventHandlerRef.current = handleAgentEvent;
   }, [handleAgentEvent]);
-
-  // Keep latest refs to prevent tearing down the agent on parent re-renders
-  const agentConfigRef = useRef(agentConfig);
-  const systemPromptRef = useRef(systemPrompt);
-  const toolsRef = useRef(tools);
-  const optionsRef = useRef(options);
-
-  useEffect(() => {
-    agentConfigRef.current = agentConfig;
-    systemPromptRef.current = systemPrompt;
-    toolsRef.current = tools;
-    optionsRef.current = options;
-  });
 
   // Agent 기본값 + 세션 오버라이드를 Ollama think 값으로 해석.
   // 메시지 배열에 손대지 않으므로 동적 변경 시에도 prefill 토큰이 늘지 않는다.
@@ -283,6 +331,23 @@ export function useChat(
   useEffect(() => {
     agentRef.current?.setThink(effectiveThink);
   }, [effectiveThink]);
+
+  // 전송 시점의 유효 실행 설정. 사용자 메시지 스냅샷·변경 감지의 기준이다.
+  const configSnapshot = useMemo(() => {
+    return captureChatConfigSnapshot(
+      agentConfig,
+      {
+        reasoning: options.thinkOverride?.reasoning,
+        effort: options.thinkOverride?.effort,
+      },
+      effectiveThink,
+    );
+  }, [
+    agentConfig,
+    options.thinkOverride?.reasoning,
+    options.thinkOverride?.effort,
+    effectiveThink,
+  ]);
 
   const createAgentInstance = useCallback(
     (initial: AgentMessage[]) => {
@@ -318,6 +383,14 @@ export function useChat(
           keepRecentTokens: cfg.keepRecentTokens,
           provider: runtime.kind,
           apiKey: runtime.apiKey,
+          topP: cfg.topP,
+          topK: cfg.topK,
+          repeatPenalty: cfg.repeatPenalty,
+          frequencyPenalty: cfg.frequencyPenalty,
+          presencePenalty: cfg.presencePenalty,
+          seed: cfg.seed,
+          stopSequences: cfg.stopSequences,
+          maxOutputTokens: cfg.maxOutputTokens,
         },
         tools: toolsRef.current,
         baseUrl: runtime.baseUrl,
@@ -351,8 +424,9 @@ export function useChat(
         agentRef.current.abort();
         agentRef.current = null;
       }
+      stopAutoMonitoring();
     };
-  }, [sessionId, createAgentInstance, persistence]);
+  }, [sessionId, createAgentInstance, persistence, stopAutoMonitoring]);
 
   // Sync active approval mode
   useEffect(() => {
@@ -393,9 +467,22 @@ export function useChat(
       lastPromptRef.current = text;
       setError(null);
       bindSessionToAgent(sessionId, agentConfigRef.current.id);
+      // 자동 모니터링 on이면 대화 시작 시 모니터링 상태로 전환한다.
+      startAutoMonitoring();
 
-      // Eagerly show user message in UI
-      const userMsg: AgentMessage = { role: 'user', content: text };
+      // Eagerly show user message in UI (전송 시점의 실행 설정을 함께 기록)
+      const snapshot = captureChatConfigSnapshot(
+        agentConfigRef.current,
+        {
+          reasoning: optionsRef.current.thinkOverride?.reasoning,
+          effort: optionsRef.current.thinkOverride?.effort,
+        },
+        resolveThinkValue(
+          optionsRef.current.thinkOverride?.reasoning ?? agentConfigRef.current.reasoning,
+          optionsRef.current.thinkOverride?.effort ?? agentConfigRef.current.reasoningEffort,
+        ),
+      );
+      const userMsg: AgentMessage = { role: 'user', content: text, config: snapshot };
       setMessages((prev) => [...prev, userMsg]);
       persistedCountRef.current += 1;
       await persistence.saveUserMessage?.(sessionId, userMsg);
@@ -417,6 +504,7 @@ export function useChat(
       } catch (err) {
         const errObj = err instanceof Error ? err : new Error(String(err));
         setError(errObj);
+        stopAutoMonitoring();
         appLogger.error(
           'chat',
           `대화 처리 중 오류 발생: ${errObj.message}`,
@@ -426,7 +514,7 @@ export function useChat(
         );
       }
     },
-    [createAgentInstance, messages, persistence, sessionId],
+    [createAgentInstance, messages, persistence, sessionId, startAutoMonitoring, stopAutoMonitoring],
   );
 
   const steer = useCallback((text: string) => {
@@ -441,7 +529,9 @@ export function useChat(
       agentRef.current.abort();
     }
     setIsStreaming(false);
-  }, []);
+    // 사용자 중단도 LLM 작업 완료로 보고 자동 모니터링을 중단한다.
+    stopAutoMonitoring();
+  }, [stopAutoMonitoring]);
 
   const retry = useCallback(async () => {
     if (lastPromptRef.current) {
@@ -516,11 +606,28 @@ export function useChat(
     ]);
   }, []);
 
+  const injectConfigNotice = useCallback(
+    (snapshot: ChatConfigSnapshot, summary: string): void => {
+      // UI 전용 안내다. 저장하지 않고 에이전트 메모리에도 넣지 않으므로
+      // LLM 컨텍스트·DB에 영향을 주지 않는다.
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'system',
+          content: summary,
+          config: snapshot,
+        },
+      ]);
+    },
+    [],
+  );
+
   return {
     messages,
     isStreaming,
     contextUsage: { tokens: contextTokens, limit: contextLimit },
     effectiveThink,
+    configSnapshot,
     sendMessage,
     steer,
     stop,
@@ -529,5 +636,6 @@ export function useChat(
     compact,
     clearChat,
     injectInfoMessage,
+    injectConfigNotice,
   };
 }

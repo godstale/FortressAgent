@@ -50,6 +50,15 @@ export interface LoopAgentConfig {
   provider?: LlmProviderKind;
   /** 클라우드/인증 서버용 API 키 (Ollama는 미사용) */
   apiKey?: string;
+  /** 생성 파라미터. undefined = 자동. Provider별 지원 키만 전송한다. */
+  topP?: number;
+  topK?: number;
+  repeatPenalty?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
+  seed?: number;
+  stopSequences?: string[];
+  maxOutputTokens?: number;
 }
 
 export interface RunAgentLoopOptions {
@@ -202,6 +211,18 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
                     tools: ollamaTools.length > 0 ? ollamaTools : undefined,
                     temperature: agent.temperature,
                     think: agent.think,
+                    topP: agent.topP,
+                    topK: agent.topK,
+                    repeatPenalty: agent.repeatPenalty,
+                    frequencyPenalty: agent.frequencyPenalty,
+                    presencePenalty: agent.presencePenalty,
+                    seed: agent.seed,
+                    stopSequences: agent.stopSequences,
+                    maxTokens: agent.maxOutputTokens,
+                    // 생성 파라미터는 명시 필드로만 전달한다. 각 클라이언트가
+                    // 자신의 규격에 맞는 키로 변환하므로, options에 Ollama 전용
+                    // 키(num_predict 등)를 섞어 OpenAI 호환 서버에 보내 400이
+                    // 나는 일을 피할 수 있다.
                     options: agent.options,
                   },
                   signal,

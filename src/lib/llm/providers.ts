@@ -4,8 +4,12 @@ export interface LlmProviderPreset {
   kind: LlmProviderKind;
   /** UI 표시명 (i18n 키는 AgentEditorForm에서 매핑) */
   label: string;
-  /** baseUrl 미지정 시 사용할 기본값 */
+  /** Base URL 미지정 시 사용할 기본값 */
   defaultBaseUrl: string;
+  /** 해당 Provider 선택 시 제안하는 대표 모델 ID (사용자 수정 가능) */
+  defaultModel?: string;
+  /** Provider 선택 드롭다운 그룹 (로컬 직접연동 / 클라우드 / 게이트웨이) */
+  category: 'local' | 'cloud' | 'gateway';
   /** OpenAI 호환 규격 여부 (ollama만 false) */
   openAiCompatible: boolean;
   /** apiKey 입력란을 노출할지 여부 */
@@ -34,6 +38,8 @@ export const LLM_PROVIDER_PRESETS: Record<LlmProviderKind, LlmProviderPreset> = 
     kind: 'ollama',
     label: 'Ollama',
     defaultBaseUrl: 'http://127.0.0.1:11434',
+    defaultModel: 'qwen3.5:9b',
+    category: 'local',
     openAiCompatible: false,
     supportsApiKey: false,
     requiresApiKey: false,
@@ -44,18 +50,20 @@ export const LLM_PROVIDER_PRESETS: Record<LlmProviderKind, LlmProviderPreset> = 
   lmstudio: {
     kind: 'lmstudio',
     label: 'LM Studio',
-    defaultBaseUrl: 'http://127.0.0.1:1234/v1',
+    defaultBaseUrl: 'http://localhost:1234/v1',
+    category: 'local',
     openAiCompatible: true,
     supportsApiKey: true,
     requiresApiKey: false,
     supportsModelList: true,
     supportsAutoContextSize: false,
-    hint: 'LM Studio Local Server (OpenAI 호환, 기본 포트 1234)',
+    hint: 'LM Studio Server 탭에서 서버를 시작하고 모델을 로드하세요 (OpenAI 호환, 기본 포트 1234)',
   },
   llamacpp: {
     kind: 'llamacpp',
     label: 'llama.cpp (llama-server)',
     defaultBaseUrl: 'http://127.0.0.1:8080/v1',
+    category: 'local',
     openAiCompatible: true,
     supportsApiKey: true,
     requiresApiKey: false,
@@ -67,6 +75,7 @@ export const LLM_PROVIDER_PRESETS: Record<LlmProviderKind, LlmProviderPreset> = 
     kind: 'vllm',
     label: 'vLLM',
     defaultBaseUrl: 'http://127.0.0.1:8000/v1',
+    category: 'local',
     openAiCompatible: true,
     supportsApiKey: true,
     requiresApiKey: false,
@@ -78,6 +87,7 @@ export const LLM_PROVIDER_PRESETS: Record<LlmProviderKind, LlmProviderPreset> = 
     kind: 'jan',
     label: 'Jan.ai',
     defaultBaseUrl: 'http://127.0.0.1:1337/v1',
+    category: 'local',
     openAiCompatible: true,
     supportsApiKey: true,
     requiresApiKey: false,
@@ -87,25 +97,145 @@ export const LLM_PROVIDER_PRESETS: Record<LlmProviderKind, LlmProviderPreset> = 
   },
   'openai-compatible': {
     kind: 'openai-compatible',
-    label: 'OpenAI-Compatible (Custom)',
+    label: 'OpenAI Compatible (Local Agent, API)',
     defaultBaseUrl: 'http://127.0.0.1:1234/v1',
+    category: 'local',
     openAiCompatible: true,
     supportsApiKey: true,
     requiresApiKey: false,
     supportsModelList: true,
     supportsAutoContextSize: false,
-    hint: '기타 OpenAI 호환 서버 (LocalAI, Ollama /v1, OpenRouter, Together 등)',
+    hint: '로컬 에이전트·직접 만든 앱과 연동하는 커스텀 OpenAI 호환 서버 (LocalAI, Ollama /v1 등). Base URL·모델을 직접 입력하세요.',
   },
   openai: {
     kind: 'openai',
     label: 'OpenAI (Cloud)',
     defaultBaseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
+    category: 'cloud',
     openAiCompatible: true,
     supportsApiKey: true,
     requiresApiKey: true,
     supportsModelList: true,
     supportsAutoContextSize: false,
-    hint: 'OpenAI 클라우드 API (API 키 필수)',
+    hint: 'OpenAI 클라우드 API (외부 API 연동용, API 키 필수)',
+  },
+  anthropic: {
+    kind: 'anthropic',
+    label: 'Anthropic Claude (Cloud)',
+    defaultBaseUrl: 'https://api.anthropic.com/v1/',
+    defaultModel: 'claude-sonnet-4-5',
+    category: 'cloud',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: 'Claude API (OpenAI 호환 형태로 연동. 네이티브는 /v1/messages 규격이므로 목록 조회 실패 시 OpenRouter 경유를 권장)',
+  },
+  gemini: {
+    kind: 'gemini',
+    label: 'Google Gemini (Cloud)',
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    defaultModel: 'gemini-2.5-flash',
+    category: 'cloud',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: 'Gemini OpenAI 호환 엔드포인트 (API 키 필수)',
+  },
+  xai: {
+    kind: 'xai',
+    label: 'xAI Grok (Cloud)',
+    defaultBaseUrl: 'https://api.x.ai/v1',
+    defaultModel: 'grok-3-mini',
+    category: 'cloud',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: 'xAI Grok API (OpenAI 호환, API 키 필수)',
+  },
+  deepseek: {
+    kind: 'deepseek',
+    label: 'DeepSeek (Cloud)',
+    defaultBaseUrl: 'https://api.deepseek.com/v1',
+    defaultModel: 'deepseek-chat',
+    category: 'cloud',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: 'DeepSeek API (OpenAI 호환, API 키 필수)',
+  },
+  mistral: {
+    kind: 'mistral',
+    label: 'Mistral (Cloud)',
+    defaultBaseUrl: 'https://api.mistral.ai/v1',
+    defaultModel: 'mistral-large-latest',
+    category: 'cloud',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: 'Mistral La Plateforme API (OpenAI 호환, API 키 필수)',
+  },
+  moonshot: {
+    kind: 'moonshot',
+    label: 'Moonshot / Kimi (Cloud)',
+    defaultBaseUrl: 'https://api.moonshot.ai/v1',
+    defaultModel: 'kimi-k2',
+    category: 'cloud',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: 'Moonshot Kimi API (OpenAI 호환, API 키 필수)',
+  },
+  together: {
+    kind: 'together',
+    label: 'Together AI (Cloud)',
+    defaultBaseUrl: 'https://api.together.xyz/v1',
+    defaultModel: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    category: 'cloud',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: 'Together 호스팅 오픈 모델 (Hermes·Llama·Mistral 등, API 키 필수)',
+  },
+  opencode: {
+    kind: 'opencode',
+    label: 'OpenCode Zen (Cloud)',
+    defaultBaseUrl: 'https://opencode.ai/zen/v1',
+    defaultModel: 'big-pickle',
+    category: 'cloud',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: 'OpenCode Zen 게이트웨이 (OpenAI 호환, API 키 필수. Base URL·모델은 변경될 수 있어 수정 가능)',
+  },
+  openrouter: {
+    kind: 'openrouter',
+    label: 'OpenRouter (Gateway)',
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    defaultModel: 'anthropic/claude-sonnet-4.5',
+    category: 'gateway',
+    openAiCompatible: true,
+    supportsApiKey: true,
+    requiresApiKey: true,
+    supportsModelList: true,
+    supportsAutoContextSize: false,
+    hint: '다중 모델 게이트웨이 (Claude·Gemini·Hermes 등 통합 연동, API 키 필수)',
   },
 };
 
@@ -117,6 +247,15 @@ export const LLM_PROVIDER_ORDER: LlmProviderKind[] = [
   'jan',
   'openai-compatible',
   'openai',
+  'anthropic',
+  'gemini',
+  'xai',
+  'deepseek',
+  'mistral',
+  'moonshot',
+  'together',
+  'opencode',
+  'openrouter',
 ];
 
 export function getProviderPreset(kind?: LlmProviderKind): LlmProviderPreset {
@@ -131,13 +270,30 @@ export interface ResolvedLlmRuntime {
   openAiCompatible: boolean;
 }
 
-function normalizeBaseUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '');
+function normalizeBaseUrl(url: string, openAiCompatible = false): string {
+  const trimmed = url.trim().replace(/\/+$/, '');
+  // OpenAI 호환 규격은 {baseUrl}/models, {baseUrl}/chat/completions 형태다.
+  // LM Studio가 표시하는 주소(http://127.0.0.1:1234)처럼 버전 prefix가 없으면
+  // 요청 경로가 어긋나 404가 나므로 /v1을 보정한다. 경로가 이미 있으면 그대로 둔다
+  // (Azure의 /openai/deployments/... 등 커스텀 게이트웨이 보호).
+  if (openAiCompatible) {
+    try {
+      const u = new URL(trimmed);
+      if (u.pathname === '' || u.pathname === '/') {
+        u.pathname = '/v1';
+        return u.toString().replace(/\/+$/, '');
+      }
+    } catch {
+      // URL 파싱 불가 시 trim 결과만 사용한다
+    }
+  }
+  return trimmed;
 }
 
 /**
  * Agent의 Provider 설정을 실제 접속 정보로 해석한다.
  * - baseUrl 미지정 시: ollama → 전역 설정값(없으면 프리셋 기본), 그 외 → 프리셋 기본
+ * - OpenAI 호환 Provider는 버전 prefix 없는 주소(LM Studio 표시 주소 등)에 /v1을 보정한다
  * - apiKey는 앞뒤 공백 제거 후 빈 문자열이면 undefined
  */
 export function resolveAgentLlmRuntime(
@@ -149,11 +305,11 @@ export function resolveAgentLlmRuntime(
   const rawBase = (agent.llmBaseUrl ?? '').trim();
   let baseUrl: string;
   if (rawBase) {
-    baseUrl = normalizeBaseUrl(rawBase);
+    baseUrl = normalizeBaseUrl(rawBase, preset.openAiCompatible);
   } else if (kind === 'ollama') {
     baseUrl = normalizeBaseUrl(globalOllamaBaseUrl || preset.defaultBaseUrl);
   } else {
-    baseUrl = normalizeBaseUrl(preset.defaultBaseUrl);
+    baseUrl = normalizeBaseUrl(preset.defaultBaseUrl, preset.openAiCompatible);
   }
   const apiKey = (agent.llmApiKey ?? '').trim() || undefined;
   return { kind, preset, baseUrl, apiKey, openAiCompatible: preset.openAiCompatible };
@@ -168,9 +324,13 @@ export function normalizeProviderFields(input: {
   const kind = input.llmProvider ?? 'ollama';
   const preset = getProviderPreset(kind);
   const rawBase = (input.llmBaseUrl ?? '').trim();
+  // /v1 보정 후 기본값과 같으면(예: "http://localhost:1234" 입력) 프리셋 따라가기로 저장한다.
+  const normalized = rawBase
+    ? normalizeBaseUrl(rawBase, preset.openAiCompatible)
+    : '';
   const llmBaseUrl =
-    rawBase && normalizeBaseUrl(rawBase) !== normalizeBaseUrl(preset.defaultBaseUrl)
-      ? normalizeBaseUrl(rawBase)
+    normalized && normalized !== normalizeBaseUrl(preset.defaultBaseUrl, preset.openAiCompatible)
+      ? normalized
       : '';
   return {
     llmProvider: kind,

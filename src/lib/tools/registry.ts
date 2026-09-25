@@ -9,6 +9,7 @@ import { createFindTool, findTool } from './find';
 import { createWriteTool, writeTool } from './write';
 import { createEditTool, editTool } from './edit';
 import { createShellTool, shellTool } from './shell';
+import { createWikiTool, wikiTool } from './wiki';
 import { webSearchTool } from './webSearch';
 import { webFetchTool } from './webFetch';
 
@@ -23,6 +24,7 @@ export const DEFAULT_ACTIVE_TOOLS: BuiltinToolId[] = [
   'find',
   'write',
   'edit',
+  'wiki',
 ];
 
 const toolRegistry = new Map<string, (ctx: ToolContext) => AgentTool>();
@@ -34,7 +36,7 @@ export function registerToolFactory(
   toolRegistry.set(id, factory);
 }
 
-// Register all 9 built-in tools
+// Register all 10 built-in tools
 registerToolFactory('read', (ctx) => createReadTool(ctx));
 registerToolFactory('ls', (ctx) => createLsTool(ctx));
 registerToolFactory('grep', (ctx) => createGrepTool(ctx));
@@ -42,6 +44,7 @@ registerToolFactory('find', (ctx) => createFindTool(ctx));
 registerToolFactory('write', (ctx) => createWriteTool(ctx));
 registerToolFactory('edit', (ctx) => createEditTool(ctx));
 registerToolFactory('shell', (ctx) => createShellTool(ctx));
+registerToolFactory('wiki', (ctx) => createWikiTool(ctx));
 registerToolFactory('web_search', () => webSearchTool);
 registerToolFactory('web_fetch', () => webFetchTool);
 
@@ -73,4 +76,4 @@ registerHooks('builtin:truncate', {
   },
 });
 
-export { readTool, lsTool, grepTool, findTool, writeTool, editTool, shellTool, webSearchTool };
+export { readTool, lsTool, grepTool, findTool, writeTool, editTool, shellTool, wikiTool, webSearchTool };

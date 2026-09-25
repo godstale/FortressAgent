@@ -222,4 +222,15 @@ describe('openAiCompatibleClient', () => {
     const models = await listModels('http://127.0.0.1:1234/v1');
     expect(models).toEqual([{ id: 'qwen3-8b', owned_by: 'lmstudio' }]);
   });
+
+  it('listModels GET sends no Content-Type to avoid CORS preflight', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [] }), { status: 200 }),
+    );
+    global.fetch = fetchMock;
+    await listModels('http://127.0.0.1:1234/v1');
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe('GET');
+    expect(init.headers as Record<string, string>).not.toHaveProperty('Content-Type');
+  });
 });

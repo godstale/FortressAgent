@@ -15,6 +15,11 @@ vi.mock('@/lib/monitoring/monitoringCollector', () => ({
   monitoringCollector: {
     start: vi.fn(),
     stop: vi.fn(),
+    startAuto: vi.fn(),
+    stopAuto: vi.fn(),
+    isAuto: vi.fn(() => false),
+    isRunning: vi.fn(() => false),
+    getInterval: vi.fn(() => 1000),
     subscribe: vi.fn(() => vi.fn()),
     collectNow: vi.fn().mockResolvedValue(null),
     setInterval: vi.fn(),

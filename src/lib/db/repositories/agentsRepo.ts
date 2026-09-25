@@ -8,6 +8,7 @@ import type {
   ReasoningMode,
 } from '@/lib/types/agent';
 import {
+  DEFAULT_AUTO_MONITOR,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_REASONING_MODE,
 } from '@/lib/types/agent';
@@ -27,12 +28,35 @@ interface AgentRow {
   approval_mode: ApprovalMode;
   reasoning: ReasoningMode | null;
   reasoning_effort: ReasoningEffort | null;
+  top_p: number | null;
+  top_k: number | null;
+  repeat_penalty: number | null;
+  frequency_penalty: number | null;
+  presence_penalty: number | null;
+  seed: number | null;
+  stop_sequences: string | null;
+  max_output_tokens: number | null;
   llm_provider: LlmProviderKind | null;
   llm_base_url: string | null;
   llm_api_key: string | null;
+  auto_monitor: number | null;
   is_default: number;
   created_at: string;
   updated_at: string;
+}
+
+function parseStopSequences(raw: string | null): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      const stops = parsed.filter((s): s is string => typeof s === 'string');
+      return stops.length > 0 ? stops : undefined;
+    }
+  } catch {
+    // 구 행의 비정상 값은 자동(미지정)으로 해석
+  }
+  return undefined;
 }
 
 function parseAgentRow(row: AgentRow): Agent {
@@ -54,10 +78,21 @@ function parseAgentRow(row: AgentRow): Agent {
     // 구 DB 행(컬럼 없음 → null/undefined)은 모델 기본값으로 해석
     reasoning: row.reasoning ?? DEFAULT_REASONING_MODE,
     reasoningEffort: row.reasoning_effort ?? DEFAULT_REASONING_EFFORT,
+    // 생성 파라미터: NULL/누락 → 자동(undefined)
+    topP: row.top_p ?? undefined,
+    topK: row.top_k ?? undefined,
+    repeatPenalty: row.repeat_penalty ?? undefined,
+    frequencyPenalty: row.frequency_penalty ?? undefined,
+    presencePenalty: row.presence_penalty ?? undefined,
+    seed: row.seed ?? undefined,
+    stopSequences: parseStopSequences(row.stop_sequences),
+    maxOutputTokens: row.max_output_tokens ?? undefined,
     // Provider 미지정 구 행은 Ollama로 해석 (기존 동작 유지)
     llmProvider: row.llm_provider ?? 'ollama',
     llmBaseUrl: row.llm_base_url ?? undefined,
     llmApiKey: row.llm_api_key ?? undefined,
+    // 자동 모니터링 미지정 구 행은 켜짐으로 해석 (기본 on)
+    autoMonitor: row.auto_monitor == null ? DEFAULT_AUTO_MONITOR : row.auto_monitor === 1,
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -130,9 +165,11 @@ export async function createAgent(
       context_size, reserve_tokens, keep_recent_tokens,
       enabled_skills, enabled_builtin_tools, approval_mode,
       reasoning, reasoning_effort,
-      llm_provider, llm_base_url, llm_api_key,
+      top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty,
+      seed, stop_sequences, max_output_tokens,
+      llm_provider, llm_base_url, llm_api_key, auto_monitor,
       is_default, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agent.id,
       agent.name,
@@ -148,9 +185,18 @@ export async function createAgent(
       agent.approvalMode,
       agent.reasoning ?? DEFAULT_REASONING_MODE,
       agent.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+      agent.topP ?? null,
+      agent.topK ?? null,
+      agent.repeatPenalty ?? null,
+      agent.frequencyPenalty ?? null,
+      agent.presencePenalty ?? null,
+      agent.seed ?? null,
+      JSON.stringify(agent.stopSequences ?? []),
+      agent.maxOutputTokens ?? null,
       agent.llmProvider ?? 'ollama',
       agent.llmBaseUrl ?? null,
       agent.llmApiKey ?? null,
+      (agent.autoMonitor ?? DEFAULT_AUTO_MONITOR) ? 1 : 0,
       shouldBeDefault ? 1 : 0,
       createdAt,
       updatedAt,
@@ -164,6 +210,7 @@ export async function createAgent(
     llmProvider: agent.llmProvider ?? 'ollama',
     llmBaseUrl: agent.llmBaseUrl ?? undefined,
     llmApiKey: agent.llmApiKey ?? undefined,
+    autoMonitor: agent.autoMonitor ?? DEFAULT_AUTO_MONITOR,
     isDefault: shouldBeDefault,
     createdAt,
     updatedAt,
@@ -219,7 +266,9 @@ export async function updateAgent(
       keep_recent_tokens = ?, enabled_skills = ?,
       enabled_builtin_tools = ?, approval_mode = ?,
       reasoning = ?, reasoning_effort = ?,
-      llm_provider = ?, llm_base_url = ?, llm_api_key = ?,
+      top_p = ?, top_k = ?, repeat_penalty = ?, frequency_penalty = ?,
+      presence_penalty = ?, seed = ?, stop_sequences = ?, max_output_tokens = ?,
+      llm_provider = ?, llm_base_url = ?, llm_api_key = ?, auto_monitor = ?,
       is_default = ?, updated_at = ?
     WHERE id = ?`,
     [
@@ -236,9 +285,18 @@ export async function updateAgent(
       merged.approvalMode,
       merged.reasoning ?? DEFAULT_REASONING_MODE,
       merged.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+      merged.topP ?? null,
+      merged.topK ?? null,
+      merged.repeatPenalty ?? null,
+      merged.frequencyPenalty ?? null,
+      merged.presencePenalty ?? null,
+      merged.seed ?? null,
+      JSON.stringify(merged.stopSequences ?? []),
+      merged.maxOutputTokens ?? null,
       merged.llmProvider ?? 'ollama',
       merged.llmBaseUrl ?? null,
       merged.llmApiKey ?? null,
+      (merged.autoMonitor ?? DEFAULT_AUTO_MONITOR) ? 1 : 0,
       merged.isDefault ? 1 : 0,
       merged.updatedAt,
       id,

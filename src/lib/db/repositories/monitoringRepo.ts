@@ -202,6 +202,40 @@ export async function clearMonitoringSnapshots(
   );
 }
 
+export async function listRecentMonitoringSnapshots(
+  limit = 200,
+  workspaceRoot?: string | null,
+): Promise<AgentMonitoringSnapshot[]> {
+  const db = await getDatabase(workspaceRoot);
+  const rows = await db.select<DbSnapshotRow[]>(
+    'SELECT * FROM agent_monitoring_snapshots ORDER BY timestamp DESC LIMIT ?',
+    [limit],
+  );
+  return rows.map(mapRowToSnapshot).slice(0, limit);
+}
+
+export async function deleteMonitoringSnapshot(
+  id: string,
+  workspaceRoot?: string | null,
+): Promise<void> {
+  const db = await getDatabase(workspaceRoot);
+  await db.execute('DELETE FROM agent_monitoring_snapshots WHERE id = ?', [id]);
+}
+
+export async function clearAllMonitoringSnapshots(
+  workspaceRoot?: string | null,
+): Promise<void> {
+  const db = await getDatabase(workspaceRoot);
+  await db.execute('DELETE FROM agent_monitoring_snapshots');
+}
+
+export async function clearAllConversationSummaries(
+  workspaceRoot?: string | null,
+): Promise<void> {
+  const db = await getDatabase(workspaceRoot);
+  await db.execute('DELETE FROM conversation_token_summaries');
+}
+
 export async function pruneOldMonitoringSnapshots(
   agentId?: string,
   options: { maxKeep?: number; maxAgeHours?: number } = {},

@@ -1,7 +1,7 @@
 import type { SidePanelView } from '@/lib/types/workspaceTab';
 import { ChatSessionList } from '@/components/chatsessions/ChatSessionList';
 import { AgentListPanel } from '@/components/agents/AgentListPanel';
-import { SkillListPanel } from '@/components/skills/SkillListPanel';
+import { MonitoringListPanel } from '@/components/monitoring/MonitoringListPanel';
 import { FileTree } from '@/components/explorer/FileTree';
 
 export interface SidePanelProps {
@@ -18,8 +18,8 @@ export function SidePanel({ activeView }: SidePanelProps) {
       return <ChatSessionList />;
     case 'agents':
       return <AgentListPanel />;
-    case 'skills':
-      return <SkillListPanel />;
+    case 'monitoring':
+      return <MonitoringListPanel />;
     case 'explorer':
       return <FileTree />;
     default:

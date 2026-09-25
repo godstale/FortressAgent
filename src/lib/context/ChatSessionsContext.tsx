@@ -24,6 +24,7 @@ export interface ChatSessionsContextValue {
     agentId?: string;
   }) => Promise<ChatSession>;
   deleteSession: (id: string) => Promise<void>;
+  clearSessions: () => Promise<void>;
   updateSessionTitle: (id: string, title: string) => Promise<void>;
   selectSession: (id: string | null) => void;
 }
@@ -109,6 +110,19 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const clearSessions = useCallback(async (): Promise<void> => {
+    const ids = sessions.map((s) => s.id);
+    for (const id of ids) {
+      try {
+        await sessionsRepo.deleteSession(id);
+      } catch (err) {
+        console.error('Failed to delete chat session during clear-all:', err);
+      }
+    }
+    setSessions([]);
+    setActiveSessionId(null);
+  }, [sessions]);
+
   const updateSessionTitle = useCallback(
     async (id: string, title: string): Promise<void> => {
       const updated = await sessionsRepo.updateSession(id, { title });
@@ -125,6 +139,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
       refreshSessions,
       createSession,
       deleteSession,
+      clearSessions,
       updateSessionTitle,
       selectSession: setActiveSessionId,
     }),
@@ -135,6 +150,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
       refreshSessions,
       createSession,
       deleteSession,
+      clearSessions,
       updateSessionTitle,
     ],
   );

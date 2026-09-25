@@ -24,6 +24,9 @@
 | 5     | Visualization & HITL         | Mermaid/Recharts 렌더링, 승인 모드(Human-in-the-loop)                          | [Phase5-Visualization-HITL.md](./phases/Phase5-Visualization-HITL.md)     |
 | 6     | Agent Management UI          | 에이전트(페르소나) CRUD UI, 채팅에서 에이전트 선택                             | [Phase6-Agent-Management-UI.md](./phases/Phase6-Agent-Management-UI.md)   |
 | 7     | Polish & QA                  | 단축키, 에러 처리, 패키징, 수동 QA, 문서화                                     | [Phase7-Polish-QA.md](./phases/Phase7-Polish-QA.md)                       |
+| 8     | Internationalization         | ko/en i18n 인프라와 전 화면 문구 전환                                          | (TODO.md 기록)                                                            |
+| 9     | Follow-ups                   | reasoning·다중 Provider·토큰 추적·생성 파라미터·모니터링 개편                  | (TODO.md 이슈 로그 기록)                                                  |
+| 10    | Automated Evaluation         | 평가 팩·러너·채점·정규화·추천·외부 연동·Arena (Architecture §14)               | [Phase10-Evaluation.md](./phases/Phase10-Evaluation.md), [Phase10-Eval-Packs.md](./phases/Phase10-Eval-Packs.md) |
 
 ## 의존성 그래프
 
@@ -36,6 +39,8 @@ Phase 0 (Foundation)
                    └─▶ Phase 5 (Visualization & HITL)         ┘
                            └─▶ Phase 6 (Agent Management UI)   ※ Phase 3, 4 완료 필요 (enabledSkills, Agent 저장)
                                    └─▶ Phase 7 (Polish & QA)
+                                           └─▶ Phase 8 (i18n) ─▶ Phase 9 (Follow-ups)
+                                                   └─▶ Phase 10 (Automated Evaluation) — 내부 웨이브 W0~W4는 Phase10-Evaluation.md §0.4
 ```
 
 ### Phase 3·4·5 병렬 진행 조건 (중요)

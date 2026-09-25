@@ -1,4 +1,5 @@
 import type { ZodTypeAny, z } from 'zod';
+import type { ChatConfigSnapshot } from '@/lib/types/agent';
 
 export type RiskLevel = 'low' | 'high' | 'critical';
 
@@ -15,8 +16,8 @@ export interface AgentToolCall {
 }
 
 export type AgentMessage =
-  | { role: 'system'; content: string; sections?: Record<string, string> }
-  | { role: 'user'; content: string }
+  | { role: 'system'; content: string; sections?: Record<string, string>; config?: ChatConfigSnapshot }
+  | { role: 'user'; content: string; config?: ChatConfigSnapshot }
   | {
       role: 'assistant';
       content: string;

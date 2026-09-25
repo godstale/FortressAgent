@@ -5,6 +5,7 @@ use commands::search_commands::*;
 use commands::shell_commands::*;
 use commands::web_commands::*;
 use commands::system_commands::*;
+use commands::llm_commands::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -54,6 +55,9 @@ pub fn run() {
             web_fetch,
             open_in_browser,
             get_system_gpu_info,
+            llm_http_get,
+            llm_http_post_text,
+            llm_http_post_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

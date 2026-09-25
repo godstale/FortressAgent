@@ -21,9 +21,18 @@ interface AgentRowMock {
   approval_mode: string;
   reasoning: string | null;
   reasoning_effort: string | null;
+  top_p: number | null;
+  top_k: number | null;
+  repeat_penalty: number | null;
+  frequency_penalty: number | null;
+  presence_penalty: number | null;
+  seed: number | null;
+  stop_sequences: string;
+  max_output_tokens: number | null;
   llm_provider: string | null;
   llm_base_url: string | null;
   llm_api_key: string | null;
+  auto_monitor?: number | null;
   is_default: number;
   created_at: string;
   updated_at: string;
@@ -99,15 +108,63 @@ class MemorySqlDatabase implements SqlDatabase {
         reasoning_effort,
         ...rest
       ] = bindValues;
-      // 신규 스키마(20개): [..., llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at]
+      // 신규 스키마(29개): [..., top_p, top_k, repeat_penalty, frequency_penalty,
+      //   presence_penalty, seed, stop_sequences, max_output_tokens,
+      //   llm_provider, llm_base_url, llm_api_key, auto_monitor, is_default, created_at, updated_at]
+      // 이전 스키마(28개): auto_monitor 없음 → 켜짐(1)으로 해석
+      // 과도기 스키마(20개): [..., llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at]
       // 구 스키마(17개): [..., is_default, created_at, updated_at]
+      let top_p: unknown = null;
+      let top_k: unknown = null;
+      let repeat_penalty: unknown = null;
+      let frequency_penalty: unknown = null;
+      let presence_penalty: unknown = null;
+      let seed: unknown = null;
+      let stop_sequences: unknown = '[]';
+      let max_output_tokens: unknown = null;
       let llm_provider: unknown = 'ollama';
       let llm_base_url: unknown = null;
       let llm_api_key: unknown = null;
+      let auto_monitor: unknown = 1;
       let is_default: unknown;
       let created_at: unknown;
       let updated_at: unknown;
-      if (rest.length >= 6) {
+      if (rest.length >= 15) {
+        [
+          top_p,
+          top_k,
+          repeat_penalty,
+          frequency_penalty,
+          presence_penalty,
+          seed,
+          stop_sequences,
+          max_output_tokens,
+          llm_provider,
+          llm_base_url,
+          llm_api_key,
+          auto_monitor,
+          is_default,
+          created_at,
+          updated_at,
+        ] = rest;
+      } else if (rest.length >= 14) {
+        [
+          top_p,
+          top_k,
+          repeat_penalty,
+          frequency_penalty,
+          presence_penalty,
+          seed,
+          stop_sequences,
+          max_output_tokens,
+          llm_provider,
+          llm_base_url,
+          llm_api_key,
+          is_default,
+          created_at,
+          updated_at,
+        ] = rest;
+      } else if (rest.length >= 6) {
         [llm_provider, llm_base_url, llm_api_key, is_default, created_at, updated_at] = rest;
       } else {
         [is_default, created_at, updated_at] = rest;
@@ -127,9 +184,18 @@ class MemorySqlDatabase implements SqlDatabase {
         approval_mode: approval_mode as string,
         reasoning: (reasoning as string) ?? null,
         reasoning_effort: (reasoning_effort as string) ?? null,
+        top_p: top_p as number | null,
+        top_k: top_k as number | null,
+        repeat_penalty: repeat_penalty as number | null,
+        frequency_penalty: frequency_penalty as number | null,
+        presence_penalty: presence_penalty as number | null,
+        seed: seed as number | null,
+        stop_sequences: stop_sequences as string,
+        max_output_tokens: max_output_tokens as number | null,
         llm_provider: (llm_provider as string) ?? null,
         llm_base_url: (llm_base_url as string) ?? null,
         llm_api_key: (llm_api_key as string) ?? null,
+        auto_monitor: auto_monitor as number | null,
         is_default: is_default as number,
         created_at: created_at as string,
         updated_at: updated_at as string,
@@ -176,15 +242,63 @@ class MemorySqlDatabase implements SqlDatabase {
         reasoning_effort,
         ...rest
       ] = bindValues;
-      // 신규 스키마: [..., llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id]
+      // 신규 스키마: [..., top_p, top_k, repeat_penalty, frequency_penalty,
+      //   presence_penalty, seed, stop_sequences, max_output_tokens,
+      //   llm_provider, llm_base_url, llm_api_key, auto_monitor, is_default, updated_at, id]
+      // 이전 스키마: auto_monitor 없음
+      // 과도기 스키마: [..., llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id]
       // 구 스키마: [..., is_default, updated_at, id]
+      let top_p: unknown;
+      let top_k: unknown;
+      let repeat_penalty: unknown;
+      let frequency_penalty: unknown;
+      let presence_penalty: unknown;
+      let seed: unknown;
+      let stop_sequences: unknown;
+      let max_output_tokens: unknown;
       let llm_provider: unknown;
       let llm_base_url: unknown;
       let llm_api_key: unknown;
+      let auto_monitor: unknown;
       let is_default: unknown;
       let updated_at: unknown;
       let id: unknown;
-      if (rest.length >= 6) {
+      if (rest.length >= 15) {
+        [
+          top_p,
+          top_k,
+          repeat_penalty,
+          frequency_penalty,
+          presence_penalty,
+          seed,
+          stop_sequences,
+          max_output_tokens,
+          llm_provider,
+          llm_base_url,
+          llm_api_key,
+          auto_monitor,
+          is_default,
+          updated_at,
+          id,
+        ] = rest;
+      } else if (rest.length >= 14) {
+        [
+          top_p,
+          top_k,
+          repeat_penalty,
+          frequency_penalty,
+          presence_penalty,
+          seed,
+          stop_sequences,
+          max_output_tokens,
+          llm_provider,
+          llm_base_url,
+          llm_api_key,
+          is_default,
+          updated_at,
+          id,
+        ] = rest;
+      } else if (rest.length >= 6) {
         [llm_provider, llm_base_url, llm_api_key, is_default, updated_at, id] = rest;
       } else {
         [is_default, updated_at, id] = rest;
@@ -205,9 +319,28 @@ class MemorySqlDatabase implements SqlDatabase {
           approval_mode: approval_mode as string,
           reasoning: reasoning as string,
           reasoning_effort: reasoning_effort as string,
+          ...(top_p !== undefined ? { top_p: top_p as number | null } : {}),
+          ...(top_k !== undefined ? { top_k: top_k as number | null } : {}),
+          ...(repeat_penalty !== undefined
+            ? { repeat_penalty: repeat_penalty as number | null }
+            : {}),
+          ...(frequency_penalty !== undefined
+            ? { frequency_penalty: frequency_penalty as number | null }
+            : {}),
+          ...(presence_penalty !== undefined
+            ? { presence_penalty: presence_penalty as number | null }
+            : {}),
+          ...(seed !== undefined ? { seed: seed as number | null } : {}),
+          ...(stop_sequences !== undefined
+            ? { stop_sequences: stop_sequences as string }
+            : {}),
+          ...(max_output_tokens !== undefined
+            ? { max_output_tokens: max_output_tokens as number | null }
+            : {}),
           ...(llm_provider !== undefined ? { llm_provider: llm_provider as string } : {}),
           ...(llm_base_url !== undefined ? { llm_base_url: (llm_base_url as string) ?? null } : {}),
           ...(llm_api_key !== undefined ? { llm_api_key: (llm_api_key as string) ?? null } : {}),
+          ...(auto_monitor !== undefined ? { auto_monitor: auto_monitor as number | null } : {}),
           is_default: is_default as number,
           updated_at: updated_at as string,
         });
@@ -625,6 +758,14 @@ describe('SQLite Repositories (P4-02)', () => {
         approval_mode: 'dangerous-only',
         reasoning: null,
         reasoning_effort: null,
+        top_p: null,
+        top_k: null,
+        repeat_penalty: null,
+        frequency_penalty: null,
+        presence_penalty: null,
+        seed: null,
+        stop_sequences: '[]',
+        max_output_tokens: null,
         llm_provider: null,
         llm_base_url: null,
         llm_api_key: null,
@@ -638,6 +779,7 @@ describe('SQLite Repositories (P4-02)', () => {
       expect(legacy?.llmProvider).toBe('ollama');
       expect(legacy?.llmBaseUrl).toBeUndefined();
       expect(legacy?.llmApiKey).toBeUndefined();
+      expect(legacy?.autoMonitor).toBe(true);
     });
 
     it('persists LLM provider, baseUrl and apiKey', async () => {
@@ -675,6 +817,93 @@ describe('SQLite Repositories (P4-02)', () => {
       );
       expect(updated.llmProvider).toBe('lmstudio');
       expect(updated.llmBaseUrl).toBe('http://192.168.0.5:1234/v1');
+    });
+
+    it('persists generation params, defaulting legacy rows to auto', async () => {
+      const created = await agentsRepo.createAgent(
+        {
+          id: 'agent-gen',
+          name: 'Sampler',
+          systemPrompt: 'prompt',
+          model: 'qwen',
+          temperature: 0.7,
+          contextSize: 0,
+          reserveTokens: 0,
+          keepRecentTokens: 0,
+          enabledSkills: [],
+          enabledBuiltinTools: ['read'],
+          approvalMode: 'dangerous-only',
+          topP: 0.8,
+          topK: 20,
+          repeatPenalty: 1.2,
+          frequencyPenalty: 0.3,
+          presencePenalty: -0.2,
+          seed: 42,
+          stopSequences: ['###', '```'],
+          maxOutputTokens: 1024,
+          isDefault: true,
+        },
+        db,
+      );
+      expect(created.topP).toBe(0.8);
+      expect(created.seed).toBe(42);
+      expect(created.stopSequences).toEqual(['###', '```']);
+
+      const loaded = await agentsRepo.getAgent('agent-gen', db);
+      expect(loaded?.topP).toBe(0.8);
+      expect(loaded?.topK).toBe(20);
+      expect(loaded?.repeatPenalty).toBe(1.2);
+      expect(loaded?.frequencyPenalty).toBe(0.3);
+      expect(loaded?.presencePenalty).toBe(-0.2);
+      expect(loaded?.seed).toBe(42);
+      expect(loaded?.stopSequences).toEqual(['###', '```']);
+      expect(loaded?.maxOutputTokens).toBe(1024);
+
+      // 자동(auto)으로 비우면 저장값도 지워진다
+      const cleared = await agentsRepo.updateAgent(
+        'agent-gen',
+        { seed: undefined, stopSequences: undefined, maxOutputTokens: undefined },
+        db,
+      );
+      expect(cleared.seed).toBeUndefined();
+      expect(cleared.stopSequences).toBeUndefined();
+      const reloaded = await agentsRepo.getAgent('agent-gen', db);
+      expect(reloaded?.seed).toBeUndefined();
+      expect(reloaded?.stopSequences).toBeUndefined();
+    });
+
+    it('persists autoMonitor, defaulting legacy rows to on', async () => {
+      const created = await agentsRepo.createAgent(
+        {
+          id: 'agent-automon',
+          name: 'Watcher',
+          systemPrompt: 'prompt',
+          model: 'qwen',
+          temperature: 0.7,
+          contextSize: 0,
+          reserveTokens: 0,
+          keepRecentTokens: 0,
+          enabledSkills: [],
+          enabledBuiltinTools: ['read'],
+          approvalMode: 'dangerous-only',
+          isDefault: true,
+        },
+        db,
+      );
+      // 미지정 시 기본 on
+      expect(created.autoMonitor).toBe(true);
+
+      const loaded = await agentsRepo.getAgent('agent-automon', db);
+      expect(loaded?.autoMonitor).toBe(true);
+
+      const updated = await agentsRepo.updateAgent(
+        'agent-automon',
+        { autoMonitor: false },
+        db,
+      );
+      expect(updated.autoMonitor).toBe(false);
+      const reloaded = await agentsRepo.getAgent('agent-automon', db);
+      expect(reloaded?.autoMonitor).toBe(false);
     });
   });
 

@@ -38,6 +38,8 @@ class MonitoringCollectorService {
   private listeners = new Map<string, Set<MonitoringListener>>();
   private archCache = new Map<string, { info: OllamaModelArchitectureInfo; timestamp: number }>();
   private intervals = new Map<string, number>();
+  /** 대화 시작 시 자동으로 시작된 모니터링 에이전트 집합. 수동 시작분과 구분해 자동 중단한다. */
+  private autoMonitorIds = new Set<string>();
   private isCollectingMap = new Map<string, boolean>();
   private latestInferenceMetrics = new Map<string, LlmPerformanceMetrics>();
   private lastCompletedMetrics = new Map<string, LlmPerformanceMetrics>();
@@ -165,6 +167,36 @@ class MonitoringCollectorService {
     return this.activeTimers.has(agentId);
   }
 
+  /** 자동 모니터링으로 시작된 수집인지 여부 (수동 시작분은 자동 중단하지 않는다). */
+  public isAuto(agentId: string): boolean {
+    return this.autoMonitorIds.has(agentId);
+  }
+
+  /**
+   * 대화 시작 시 자동 모니터링을 시작한다. 이미 수집 중이면 소유권만 추가로 표시한다.
+   * 수집 실패(연결 불가 등)는 호출자가 판단하도록 예외를 전파하지 않고 조용히 무시한다.
+   */
+  public startAuto(
+    agent: Agent,
+    baseUrl: string,
+    intervalMs = DEFAULT_MONITORING_INTERVAL_MS,
+    workspaceRoot?: string | null,
+  ): void {
+    this.autoMonitorIds.add(agent.id);
+    try {
+      this.start(agent, baseUrl, intervalMs, workspaceRoot);
+    } catch {
+      // start()는 타이머 등록 외에 throw하지 않지만, 방어적으로 소유권만 유지한다.
+    }
+  }
+
+  /** 자동 모니터링으로 시작된 수집만 중단한다. 수동 시작분은 그대로 둔다. */
+  public stopAuto(agentId: string): void {
+    if (!this.autoMonitorIds.has(agentId)) return;
+    this.autoMonitorIds.delete(agentId);
+    this.stop(agentId);
+  }
+
   public start(
     agent: Agent,
     baseUrl: string,
@@ -196,6 +228,7 @@ class MonitoringCollectorService {
       this.activeTimers.delete(agentId);
     }
     this.activeAgentContexts.delete(agentId);
+    this.autoMonitorIds.delete(agentId);
   }
 
   public stopAll(): void {
@@ -204,6 +237,7 @@ class MonitoringCollectorService {
     }
     this.activeTimers.clear();
     this.activeAgentContexts.clear();
+    this.autoMonitorIds.clear();
   }
 
   public async collectNow(

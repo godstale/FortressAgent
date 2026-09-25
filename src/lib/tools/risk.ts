@@ -8,6 +8,7 @@ export const TOOL_RISK_MAP: Record<BuiltinToolId, RiskLevel> = {
   find: 'low',
   web_search: 'low',
   web_fetch: 'low',
+  wiki: 'low',
   write: 'high',
   edit: 'high',
   shell: 'critical',
