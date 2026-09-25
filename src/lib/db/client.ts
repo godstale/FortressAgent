@@ -54,7 +54,8 @@ export const MIGRATION_STATEMENTS: string[] = [
     default_context_size INTEGER NOT NULL DEFAULT 8192,
     default_approval_mode TEXT NOT NULL DEFAULT 'dangerous-only',
     trusted_workspaces TEXT NOT NULL DEFAULT '[]',
-    last_workspace_root TEXT
+    last_workspace_root TEXT,
+    monitoring_interval_ms INTEGER NOT NULL DEFAULT 1000
   )`,
   `CREATE TABLE IF NOT EXISTS execution_logs (
     id TEXT PRIMARY KEY,
@@ -303,6 +304,7 @@ export class MemorySqlFallback implements SqlDatabase {
         default_approval_mode,
         trusted_workspaces,
         last_workspace_root,
+        monitoring_interval_ms,
       ] = bindValues;
       this.tables.get('app_settings')?.set(id as string, {
         id,
@@ -315,6 +317,7 @@ export class MemorySqlFallback implements SqlDatabase {
         default_approval_mode,
         trusted_workspaces,
         last_workspace_root,
+        monitoring_interval_ms: (monitoring_interval_ms as number) ?? 1000,
       });
       return { rowsAffected: 1 };
     }
@@ -339,6 +342,7 @@ export class MemorySqlFallback implements SqlDatabase {
         default_approval_mode,
         trusted_workspaces,
         last_workspace_root,
+        monitoring_interval_ms,
       ] = bindValues;
       const settings = this.tables.get('app_settings')?.get('singleton');
       if (settings) {
@@ -352,6 +356,9 @@ export class MemorySqlFallback implements SqlDatabase {
           default_approval_mode,
           trusted_workspaces,
           last_workspace_root,
+          ...(monitoring_interval_ms !== undefined
+            ? { monitoring_interval_ms }
+            : {}),
         });
       }
       return { rowsAffected: 1 };
@@ -782,6 +789,7 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
     'ALTER TABLE agent_monitoring_snapshots ADD COLUMN decoding_duration_ms REAL',
     'ALTER TABLE agent_monitoring_snapshots ADD COLUMN decoding_speed REAL',
     'ALTER TABLE agent_monitoring_snapshots ADD COLUMN total_duration_ms REAL',
+    'ALTER TABLE app_settings ADD COLUMN monitoring_interval_ms INTEGER NOT NULL DEFAULT 1000',
   ];
   for (const alter of alterColumns) {
     try {

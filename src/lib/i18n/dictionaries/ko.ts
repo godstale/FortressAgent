@@ -146,6 +146,10 @@ const ko: Dict = {
   'settingsGeneral.system': '시스템 설정',
   'settingsGeneral.language': '언어 (Language)',
   'settingsGeneral.languageDesc': 'UI 표시 언어를 설정합니다.',
+  'settingsGeneral.monitoring': '모니터링',
+  'settingsGeneral.monitoringDesc': '에이전트 리소스 모니터링의 기본 수집 간격을 설정합니다.',
+  'settingsGeneral.monitoringInterval': '기본 모니터링 간격',
+  'settingsGeneral.monitoringIntervalSec': '{n}초',
 
   'settingsModel.title': '모델 및 LLM 설정',
   'settingsModel.desc': '로컬 Ollama 서비스 연결 및 기본 추론 파라미터를 설정합니다.',
@@ -755,6 +759,7 @@ const ko: Dict = {
   'stats.latTokens': '생성 토큰',
 
   'monitor.interval': '{n}초 간격',
+  'monitor.statusDuration': '상태 지속 시간',
   'monitor.helpAria': '{title} 상세 도움말',
   'monitor.guideHeader': '💡 보는 법 & 지표 해석:',
   'monitor.lastSpeedTitle': '직전 완료 추론 속도',

@@ -24,6 +24,7 @@ import { setActiveApprovalMode } from '@/lib/approval/register';
 import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
 import { buildLlmContext } from '@/lib/db/buildContext';
 import { appLogger } from '@/lib/logger/logger';
+import { bindSessionToAgent } from '@/lib/monitoring/agentPhaseTracker';
 
 export type { ChatPersistence };
 
@@ -328,6 +329,7 @@ export function useChat(
       if (!text.trim()) return;
       lastPromptRef.current = text;
       setError(null);
+      bindSessionToAgent(sessionId, agentConfigRef.current.id);
 
       // Eagerly show user message in UI
       const userMsg: AgentMessage = { role: 'user', content: text };

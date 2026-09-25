@@ -1,12 +1,19 @@
-import { Moon, Sun, Monitor } from 'lucide-react';
+import { Moon, Sun, Monitor, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTheme } from '@/lib/context/ThemeContext';
+import { useSettings } from '@/lib/context/SettingsContext';
+import { DEFAULT_MONITORING_INTERVAL_MS } from '@/lib/db/repositories/settingsRepo';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { cn } from '@/lib/utils';
+
+const MONITORING_INTERVAL_OPTIONS = [1000, 2000, 3000, 5000, 10000];
 
 export function SettingsGeneral() {
   const { theme, setTheme } = useTheme();
   const { locale, setLocale, markChosen, t } = useLanguage();
+  const { settings, updateSettings } = useSettings();
+  const monitoringIntervalMs =
+    settings.monitoringIntervalMs ?? DEFAULT_MONITORING_INTERVAL_MS;
 
   const pickLocale = (next: 'ko' | 'en') => {
     setLocale(next);
@@ -100,6 +107,34 @@ export function SettingsGeneral() {
           >
             {t('languageSelect.enLabel')}
           </Button>
+        </div>
+      </div>
+
+      <div className="border border-border rounded-xl p-5 bg-card/40 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold flex items-center gap-1.5">
+            <Activity className="h-4 w-4 text-primary" />
+            {t('settingsGeneral.monitoring')}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {t('settingsGeneral.monitoringDesc')}
+          </p>
+        </div>
+        <div>
+          <label className="text-xs font-medium">{t('settingsGeneral.monitoringInterval')}</label>
+          <div className="flex gap-2 mt-2 flex-wrap">
+            {MONITORING_INTERVAL_OPTIONS.map((ms) => (
+              <Button
+                key={ms}
+                variant={monitoringIntervalMs === ms ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => void updateSettings({ monitoringIntervalMs: ms })}
+                className={cn('text-xs', monitoringIntervalMs !== ms && 'text-muted-foreground')}
+              >
+                {t('settingsGeneral.monitoringIntervalSec', { n: String(ms / 1000) })}
+              </Button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

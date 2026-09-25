@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Bot, Cpu, Sparkles, MessageSquare, Terminal, Zap, Layers } from 'lucide-react';
+import { Bot, Cpu, Sparkles, MessageSquare, Terminal, Zap, Layers, Activity } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import * as sessionsRepo from '@/lib/db/repositories/sessionsRepo';
 import { setActiveApprovalMode } from '@/lib/approval/register';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
 import { cn } from '@/lib/utils';
 
 export interface ChatTabProps {
@@ -113,6 +114,34 @@ export function ChatTab({ tab }: ChatTabProps) {
   };
 
   const activeAgent = getAgent(selectedAgentId) || defaultAgent;
+
+  const [isMonitoringActive, setIsMonitoringActive] = useState<boolean>(() =>
+    monitoringCollector.isRunning(activeAgent.id),
+  );
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync external collector running flag on agent switch
+    setIsMonitoringActive(monitoringCollector.isRunning(activeAgent.id));
+    const timer = setInterval(() => {
+      setIsMonitoringActive(monitoringCollector.isRunning(activeAgent.id));
+    }, 2000);
+    const unsubscribe = monitoringCollector.subscribe(activeAgent.id, () => {
+      setIsMonitoringActive(true);
+    });
+    return () => {
+      clearInterval(timer);
+      unsubscribe();
+    };
+  }, [activeAgent.id]);
+
+  const handleOpenMonitor = useCallback(() => {
+    openTab({
+      id: `agent-monitor:${activeAgent.id}`,
+      type: 'agent-monitor',
+      title: t('agentList.monitor', { name: activeAgent.name }),
+      meta: { agentId: activeAgent.id },
+    });
+  }, [openTab, activeAgent.id, activeAgent.name, t]);
 
   // Ensure session record exists in SQLite for stats and persistence tracking
   useEffect(() => {
@@ -491,7 +520,32 @@ export function ChatTab({ tab }: ChatTabProps) {
       <ErrorBanner error={error} onRetry={retry} />
 
       {/* Content Area: Chat Messages OR Detailed Execution Log */}
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+        {/* Monitoring status floating button (top-left) */}
+        <button
+          type="button"
+          onClick={handleOpenMonitor}
+          title={isMonitoringActive ? t('chatTab.monitoringOn') : t('chatTab.monitoringOff')}
+          aria-label={isMonitoringActive ? t('chatTab.monitoringOn') : t('chatTab.monitoringOff')}
+          className={`absolute left-3 top-3 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-[11px] font-medium shadow-md backdrop-blur transition-all hover:scale-105 active:scale-95 cursor-pointer ${
+            isMonitoringActive
+              ? 'bg-success/15 border-success/40 text-success'
+              : 'bg-card/90 border-border text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <span className="relative flex h-2 w-2">
+            {isMonitoringActive && (
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+            )}
+            <span
+              className={`relative inline-flex rounded-full h-2 w-2 ${
+                isMonitoringActive ? 'bg-success' : 'bg-muted-foreground/50'
+              }`}
+            />
+          </span>
+          <Activity className="h-3 w-3" />
+          <span>{isMonitoringActive ? t('chatTab.monitoringActive') : t('chatTab.monitoringIdle')}</span>
+        </button>
         {viewMode === 'chat' ? (
           <MessageList messages={messages} isStreaming={isStreaming} />
         ) : (

@@ -12,7 +12,7 @@ import type { Agent, AgentConnectionStatus } from '@/lib/types/agent';
 import { checkAllAgentsConnection, checkAgentConnection } from '@/lib/llm/agentStatus';
 
 export function AgentListPanel() {
-  const { agents, loading, setDefaultAgent, deleteAgent } = useAgents();
+  const { agents, loading, createAgent, setDefaultAgent, deleteAgent } = useAgents();
   const { openTab } = useWorkspaceTabs();
   const { createSession } = useChatSessions();
   const { workspaceRoot } = useWorkspace();
@@ -154,6 +154,27 @@ export function AgentListPanel() {
     }
   };
 
+  const handleDuplicate = async (agent: Agent) => {
+    try {
+      await createAgent({
+        name: t('agentCard.duplicateName', { name: agent.name }),
+        description: agent.description,
+        systemPrompt: agent.systemPrompt,
+        model: agent.model,
+        temperature: agent.temperature,
+        contextSize: agent.contextSize,
+        reserveTokens: agent.reserveTokens,
+        keepRecentTokens: agent.keepRecentTokens,
+        enabledSkills: [...agent.enabledSkills],
+        enabledBuiltinTools: [...agent.enabledBuiltinTools],
+        approvalMode: agent.approvalMode,
+        isDefault: false,
+      });
+    } catch (err) {
+      console.error('Failed to duplicate agent:', err);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-sidebar select-none">
       {/* Header */}
@@ -227,6 +248,7 @@ export function AgentListPanel() {
               onShowStats={handleShowStats}
               onShowLogs={handleShowLogs}
               onEdit={handleEditAgent}
+              onDuplicate={handleDuplicate}
               onSetDefault={handleSetDefault}
               onDelete={handleDelete}
             />

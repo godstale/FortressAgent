@@ -21,6 +21,7 @@ import {
 import { appLogger } from '@/lib/logger/logger';
 import { recordAgentError, recordLlmCall } from '@/lib/metrics/agentMetrics';
 import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
+import { setAgentPhase } from '@/lib/monitoring/agentPhaseTracker';
 import type { LlmPerformanceMetrics } from '@/lib/types/monitoring';
 
 export interface LoopAgentConfig {
@@ -74,6 +75,9 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
   }
 
   emit({ type: 'agent_start' });
+  if (agent.id) {
+    setAgentPhase(agent.id, 'thinking', `에이전트 루프 시작 (모델: ${agent.model})`, sessionId);
+  }
   appLogger.info(
     'agent',
     `에이전트 루프 시작 (모델: ${agent.model}, 활성 도구: ${tools.length}개)`,
@@ -104,6 +108,9 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
       }
 
       emit({ type: 'turn_start' });
+      if (agent.id) {
+        setAgentPhase(agent.id, 'thinking', `[Turn #${turnIndex}] Thinking — 프롬프트 분석 및 계획 수립 중`, sessionId);
+      }
       appLogger.info(
         'agent',
         `[Turn #${turnIndex}] 턴 시작 (컨텍스트 메시지: ${activeMessages.length}개)`,
@@ -131,6 +138,9 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         sessionId,
         agent.id,
       );
+      if (agent.id) {
+        setAgentPhase(agent.id, 'prefill', `[Turn #${turnIndex}] Prefill — 입력 토큰 병렬 평가 중`, sessionId);
+      }
 
       let assistantContent = '';
       let assistantThinking = '';
@@ -204,6 +214,17 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
 
                   if (chunk.metrics) {
                     finalMetrics = chunk.metrics;
+                  }
+
+                  if (agent.id) {
+                    if (chunk.thinking) {
+                      setAgentPhase(agent.id, 'thinking', `[Turn #${turnIndex}] Thinking — 추론 계획 생성 중`, sessionId);
+                    } else if (chunk.toolCalls && chunk.toolCalls.length > 0) {
+                      const names = chunk.toolCalls.map((c) => c.function.name).join(', ');
+                      setAgentPhase(agent.id, 'executing_tool', `[Turn #${turnIndex}] Executing_Tool — 도구 호출 준비: ${names}`, sessionId);
+                    } else if (chunk.content) {
+                      setAgentPhase(agent.id, 'decoding', `[Turn #${turnIndex}] Decoding — 토큰 생성 중 (${assistantContent.length}자)`, sessionId);
+                    }
                   }
 
                   const partialAssistant: AgentMessage = {
@@ -445,6 +466,9 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         tc: AgentToolCall,
       ): Promise<{ toolResultMsg: AgentMessage; rawResult: AgentToolResult }> => {
         const toolStartTime = performance.now();
+        if (agent.id) {
+          setAgentPhase(agent.id, 'executing_tool', `[Turn #${turnIndex}] Executing_Tool — '${tc.name}' 실행 중`, sessionId);
+        }
         emit({
           type: 'tool_execution_start',
           toolCallId: tc.id,
@@ -507,15 +531,30 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
             // Check beforeToolCall hook
             let blockDecision: { block?: boolean; reason?: string; terminate?: boolean } | undefined;
             if (hooks.beforeToolCall) {
-              blockDecision = await hooks.beforeToolCall(
-                {
-                  toolCallId: tc.id,
-                  toolName: tc.name,
-                  arguments: tc.arguments,
-                  risk: tool.risk,
-                },
-                signal,
-              );
+              let approvalTimer: ReturnType<typeof setTimeout> | null = null;
+              if (agent.id) {
+                approvalTimer = setTimeout(() => {
+                  if (agent.id) {
+                    setAgentPhase(agent.id, 'waiting_approval', `사용자 승인 대기 중: '${tc.name}'`, sessionId);
+                  }
+                }, 800);
+              }
+              try {
+                blockDecision = await hooks.beforeToolCall(
+                  {
+                    toolCallId: tc.id,
+                    toolName: tc.name,
+                    arguments: tc.arguments,
+                    risk: tool.risk,
+                  },
+                  signal,
+                );
+              } finally {
+                if (approvalTimer) clearTimeout(approvalTimer);
+                if (agent.id && blockDecision === undefined) {
+                  setAgentPhase(agent.id, 'executing_tool', `[Turn #${turnIndex}] Executing_Tool — '${tc.name}' 실행 중`, sessionId);
+                }
+              }
             }
 
             if (blockDecision?.block) {
@@ -727,6 +766,9 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
     );
   }
 
+  if (agent.id) {
+    setAgentPhase(agent.id, 'idle', '대기 중 (유휴 상태)', sessionId);
+  }
   emit({ type: 'agent_end', messages });
   return messages;
 }

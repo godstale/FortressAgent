@@ -19,6 +19,7 @@ vi.mock('@/lib/monitoring/monitoringCollector', () => ({
     collectNow: vi.fn().mockResolvedValue(null),
     setInterval: vi.fn(),
   },
+  DEFAULT_MONITORING_INTERVAL_MS: 1000,
 }));
 
 vi.mock('@/lib/db/repositories/monitoringRepo', () => ({

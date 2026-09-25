@@ -137,6 +137,10 @@ const en: Dict = {
   'settingsGeneral.system': 'System',
   'settingsGeneral.language': 'Language',
   'settingsGeneral.languageDesc': 'Set the UI display language.',
+  'settingsGeneral.monitoring': 'Monitoring',
+  'settingsGeneral.monitoringDesc': 'Set the default collection interval for agent resource monitoring.',
+  'settingsGeneral.monitoringInterval': 'Default monitoring interval',
+  'settingsGeneral.monitoringIntervalSec': '{n}s',
 
   'settingsModel.title': 'Model & LLM settings',
   'settingsModel.desc': 'Configure the local Ollama connection and default inference parameters.',
@@ -739,6 +743,7 @@ const en: Dict = {
   'stats.latTokens': 'Output tokens',
 
   'monitor.interval': '{n}s interval',
+  'monitor.statusDuration': 'Status duration',
   'monitor.helpAria': '{title} help',
   'monitor.guideHeader': '💡 How to read:',
   'monitor.lastSpeedTitle': 'Last completed inference speed',

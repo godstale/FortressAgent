@@ -19,7 +19,10 @@ interface SettingsRow {
   default_approval_mode: ApprovalMode;
   trusted_workspaces: string;
   last_workspace_root: string | null;
+  monitoring_interval_ms?: number | null;
 }
+
+export const DEFAULT_MONITORING_INTERVAL_MS = 1000;
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   id: 'singleton',
@@ -32,6 +35,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultApprovalMode: 'dangerous-only',
   trustedWorkspaces: [],
   lastWorkspaceRoot: null,
+  monitoringIntervalMs: DEFAULT_MONITORING_INTERVAL_MS,
 };
 
 function parseSettingsRow(row: SettingsRow): AppSettings {
@@ -46,10 +50,25 @@ function parseSettingsRow(row: SettingsRow): AppSettings {
     defaultApprovalMode: row.default_approval_mode,
     trustedWorkspaces: JSON.parse(row.trusted_workspaces || '[]') as string[],
     lastWorkspaceRoot: row.last_workspace_root,
+    monitoringIntervalMs:
+      typeof row.monitoring_interval_ms === 'number' && row.monitoring_interval_ms > 0
+        ? row.monitoring_interval_ms
+        : DEFAULT_MONITORING_INTERVAL_MS,
   };
 }
 
+async function ensureMonitoringIntervalColumn(db: SqlDatabase): Promise<void> {
+  try {
+    await db.execute(
+      'ALTER TABLE app_settings ADD COLUMN monitoring_interval_ms INTEGER NOT NULL DEFAULT 1000',
+    );
+  } catch {
+    // Column already exists on fresh DBs; safe to ignore.
+  }
+}
+
 async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
+  await ensureMonitoringIntervalColumn(db);
   const rows = await db.select<SettingsRow[]>(
     "SELECT * FROM app_settings WHERE id = 'singleton'",
   );
@@ -61,8 +80,8 @@ async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
     `INSERT INTO app_settings (
       id, open_tabs, active_tab_id, theme, language,
       ollama_base_url, default_context_size, default_approval_mode,
-      trusted_workspaces, last_workspace_root
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      trusted_workspaces, last_workspace_root, monitoring_interval_ms
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       DEFAULT_APP_SETTINGS.id,
       JSON.stringify(DEFAULT_APP_SETTINGS.openTabs),
@@ -74,6 +93,7 @@ async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
       DEFAULT_APP_SETTINGS.defaultApprovalMode,
       JSON.stringify(DEFAULT_APP_SETTINGS.trustedWorkspaces),
       DEFAULT_APP_SETTINGS.lastWorkspaceRoot,
+      DEFAULT_APP_SETTINGS.monitoringIntervalMs,
     ],
   );
 
@@ -88,6 +108,7 @@ async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
     default_approval_mode: DEFAULT_APP_SETTINGS.defaultApprovalMode,
     trusted_workspaces: JSON.stringify(DEFAULT_APP_SETTINGS.trustedWorkspaces),
     last_workspace_root: DEFAULT_APP_SETTINGS.lastWorkspaceRoot,
+    monitoring_interval_ms: DEFAULT_APP_SETTINGS.monitoringIntervalMs,
   };
 }
 
@@ -129,11 +150,12 @@ export async function updateSettings(
   if (dbOverride) {
     const current = await getSettings(dbOverride);
     const merged: AppSettings = { ...current, ...updates };
+    await ensureMonitoringIntervalColumn(dbOverride);
     await dbOverride.execute(
       `UPDATE app_settings SET
         open_tabs = ?, active_tab_id = ?, theme = ?, language = ?,
         ollama_base_url = ?, default_context_size = ?, default_approval_mode = ?,
-        trusted_workspaces = ?, last_workspace_root = ?
+        trusted_workspaces = ?, last_workspace_root = ?, monitoring_interval_ms = ?
       WHERE id = 'singleton'`,
       [
         JSON.stringify(merged.openTabs),
@@ -145,6 +167,7 @@ export async function updateSettings(
         merged.defaultApprovalMode,
         JSON.stringify(merged.trustedWorkspaces),
         merged.lastWorkspaceRoot,
+        merged.monitoringIntervalMs,
       ],
     );
     return merged;
@@ -175,7 +198,7 @@ export async function updateSettings(
     `UPDATE app_settings SET
       open_tabs = ?, active_tab_id = ?, theme = ?, language = ?,
       ollama_base_url = ?, default_context_size = ?, default_approval_mode = ?,
-      trusted_workspaces = ?, last_workspace_root = ?
+      trusted_workspaces = ?, last_workspace_root = ?, monitoring_interval_ms = ?
     WHERE id = 'singleton'`,
     [
       JSON.stringify(activeWs ? [] : merged.openTabs),
@@ -187,6 +210,7 @@ export async function updateSettings(
       merged.defaultApprovalMode,
       JSON.stringify(merged.trustedWorkspaces),
       merged.lastWorkspaceRoot,
+      merged.monitoringIntervalMs,
     ],
   );
 

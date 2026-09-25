@@ -55,4 +55,5 @@ export interface AppSettings {
   defaultApprovalMode: ApprovalMode;
   trustedWorkspaces: string[];
   lastWorkspaceRoot: string | null;
+  monitoringIntervalMs: number;
 }
