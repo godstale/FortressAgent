@@ -106,7 +106,12 @@ Fortress/
 │       ├── Phase4-Session-Storage.md
 │       ├── Phase5-Visualization-HITL.md
 │       ├── Phase6-Agent-Management-UI.md
-│       └── Phase7-Polish-QA.md
+│       ├── Phase7-Polish-QA.md
+│       ├── Phase10-Evaluation.md      # 자동 평가 구현 계획 (§14)
+│       └── Phase10-Eval-Packs.md      # 평가 팩(데이터셋) 제작 명세
+│   └── plan/
+│       ├── LLM_Evaluation_Plan.md     # 자동 평가 확정 기획서
+│       └── LLM_Evaluation_Research.md # 평가 방법론 조사
 ├── src/
 │   ├── main.tsx
 │   ├── App.tsx                     # HashRouter, Provider 조합
@@ -116,7 +121,8 @@ Fortress/
 │   │       ├── SettingsLayout.tsx
 │   │       ├── SettingsGeneral.tsx     # 언어/테마
 │   │       ├── SettingsModel.tsx       # Ollama 연결, 기본 모델, contextSize, 압축 임계값
-│   │       └── SettingsApproval.tsx    # HITL 승인 모드 기본값
+│   │       ├── SettingsApproval.tsx    # HITL 승인 모드 기본값
+│   │       └── SettingsIntegrations.tsx # 외부 연동(외부 API/에이전트 CLI) 등록·동의·감사 로그 (§14.5)
 │   ├── components/
 │   │   ├── brand/
 │   │   │   └── FortressMark.tsx         # 목책 요새 로고(인라인 SVG, currentColor)
@@ -138,13 +144,18 @@ Fortress/
 │   │   │   └── SkillListPanel.tsx       # 사이드바에서는 제거. 스킬 on/off는 AgentEditorForm 카드에서 수행
 │   │   ├── monitoring/
 │   │   │   └── MonitoringListPanel.tsx  # 저장된 모니터링 기록 목록 패널 (필터/그룹화/개별·전체 삭제)
+│   │   ├── eval/                        # 자동 평가 UI (§14) — 세부 파일은 Phase10-Evaluation.md
+│   │   │   ├── EvalListPanel.tsx        # 사이드 패널: 실행 목록·새 평가·평가셋 관리
+│   │   │   ├── EvalLockBanner.tsx       # 평가 중 채팅 차단 배너
+│   │   │   ├── wizard/  progress/  report/  packs/  arena/  integrations/  interop/
 │   │   ├── workspace/
 │   │   │   ├── CenterWorkspace.tsx      # 탭 바 + 탭 콘텐츠 라우팅
 │   │   │   ├── ChatTab.tsx
 │   │   │   ├── EditorTab.tsx
 │   │   │   ├── ImageViewerTab.tsx
 │   │   │   ├── AgentEditorTab.tsx
-│   │   │   └── SkillViewerTab.tsx
+│   │   │   ├── SkillViewerTab.tsx
+│   │   │   └── EvalTab.tsx              # 평가 탭(마법사/진행/리포트/팩/Arena 라우팅)
 │   │   ├── chat/
 │   │   │   ├── MessageList.tsx
 │   │   │   ├── MessageBubble.tsx
@@ -183,6 +194,7 @@ Fortress/
 │   │   │   ├── read.ts  write.ts  edit.ts
 │   │   │   ├── ls.ts    grep.ts   find.ts
 │   │   │   ├── shell.ts                    # OS별 셸 실행 (항상 승인, §8.1)
+│   │   │   ├── wiki.ts                     # 개인 지식 베이스 (ingest/query/list/delete, wiki/ 스코프, risk low)
 │   │   │   └── webSearch.ts
 │   │   ├── skills/                         # §6
 │   │   │   ├── contextFiles.ts             # AGENTS.md 계층 수집
@@ -211,6 +223,15 @@ Fortress/
 │   │   │       └── settingsRepo.ts
 │   │   ├── markdown/
 │   │   │   └── parseVisualBlocks.ts       # mermaid/recharts 코드펜스 파서
+│   │   ├── eval/                          # 자동 평가 순수 로직 (§14, UI import 금지)
+│   │   │   ├── types.ts  constants.ts  evalLock.ts  ipc.ts
+│   │   │   ├── packs/                     # 팩 로더·샘플링·해시·소스 어댑터·생성기
+│   │   │   ├── scorers/                   # 채점기 레지스트리 + 채점기(ifeval/ 포함)
+│   │   │   ├── runner/                    # 러너·후보·사전점검·솔버·샌드박스 정책·자원 샘플러
+│   │   │   ├── stats/  scoring/           # 통계(부트스트랩·BT·pass@k) / 정규화·집계·추천
+│   │   │   ├── judge/  logprobs/  runtimes/
+│   │   │   ├── integrations/              # 외부 연동 게이트웨이·동의·엔드포인트 분류
+│   │   │   ├── personal/  arena/  interop/  ui/
 │   │   ├── types/
 │   │   │   ├── agent.ts
 │   │   │   ├── chat.ts
@@ -231,7 +252,10 @@ Fortress/
             ├── fs_commands.rs             # read_text_file/write_text_file/... (VivoStudio 네이밍 재사용)
             ├── search_commands.rs         # grep_files / find_files (walkdir + regex + ignore)
             ├── shell_commands.rs          # run_shell (OS별 셸, 타임아웃)
-            └── web_commands.rs            # web_search
+            ├── web_commands.rs            # web_search
+            ├── eval_commands.rs           # 평가 팩 IO·샌드박스·다운로드·런타임 감지·Python 실행 (§14)
+            └── integration_commands.rs    # 외부 에이전트 CLI 실행 (§14.5)
+    └── resources/evals/                   # 번들 평가 팩 (Tauri bundle.resources, §14.3)
 ```
 
 > `.agents/skills/`와 `.claude/skills/`는 **Claude Code 자체의 전역 스킬 미러**이며 Fortress 앱이 런타임에 읽는 `.agents/skills/`(워크스페이스 스킬 폴더)와는 별개입니다. 혼동하지 않도록 §6에서 명확히 구분합니다.
@@ -245,7 +269,7 @@ Fortress/
 VivoStudio의 `ActivityBar.tsx` 패턴을 그대로 재사용합니다: 데이터 기반 배열, 순수 컨트롤드 컴포넌트, 활성 아이콘에 좌측 accent bar 표시.
 
 ```ts
-type SidePanelView = 'chat-sessions' | 'explorer' | 'agents' | 'monitoring' | null;
+type SidePanelView = 'chat-sessions' | 'explorer' | 'agents' | 'monitoring' | 'evaluation' | null;
 
 const ITEMS: {
   view: Exclude<SidePanelView, null>;
@@ -256,6 +280,7 @@ const ITEMS: {
   { view: 'agents', icon: Bot, title: '에이전트 관리' },
   { view: 'explorer', icon: Files, title: '파일 탐색기' },
   { view: 'monitoring', icon: Activity, title: '모니터링' },
+  { view: 'evaluation', icon: FlaskConical, title: '평가' }, // §14
 ];
 // 하단 고정: Settings (별도 라우트로 이동, 탭/패널 아님 — VivoStudio와 동일 패턴)
 ```
@@ -273,6 +298,7 @@ const ITEMS: {
   - `agents` → `AgentListPanel.tsx` (Agent 카드 목록, "새 대화 시작"/"편집"/"삭제")
   - `explorer` → `FileTree.tsx`
   - `monitoring` → `MonitoringListPanel.tsx` (저장된 모니터링 스냅샷 목록, 대화 목록과 동일한 필터/그룹화, 개별 삭제 + 전체 삭제(확인 팝업))
+  - `evaluation` → `EvalListPanel.tsx` (새 평가, 실행 중/최근 평가 목록, 이어하기, 평가셋 관리 — §14)
 - 스킬 사이드바는 제공하지 않는다. 스킬은 인식되면 자동으로 `AgentEditorForm`의 "활성 스킬 (Agent Skills)" 카드에 표시되며, 여기서 on/off + refresh 버튼으로 재스캔한다.
 
 ### 3.3 우측 탭 콘텐츠 영역 (`CenterWorkspace.tsx`)
@@ -281,7 +307,8 @@ VivoStudio의 탭 데이터 모델과 `openTab`/`closeTab` 멱등 로직을 그�
 
 ```ts
 type WorkspaceTabType =
-  'chat' | 'editor' | 'image-viewer' | 'agent-editor' | 'skill-viewer';
+  'chat' | 'editor' | 'image-viewer' | 'agent-editor' | 'agent-stats' | 'agent-monitor' | 'skill-viewer'
+  | 'eval'; // §14: meta.view = 'wizard' | 'run' | 'packs' | 'pack' | 'arena'
 
 interface WorkspaceTab {
   id: string; // 예: "chat:${sessionId}", "editor:${filePath}", "agent-editor:${agentId}"
@@ -339,17 +366,18 @@ export interface Agent {
   enabledSkills: string[]; // SkillManifest.name 목록 (§4.4)
   enabledBuiltinTools: BuiltinToolId[];
   approvalMode: ApprovalMode; // HITL 세분화, 기본 "dangerous-only"
+  autoMonitor: boolean; // 대화 시작 시 모니터링 자동 시작/완료 시 중단, 기본 true(미지정 구 행도 true)
   isDefault: boolean; // 정확히 하나만 true (VivoAcademy의 is_ai_tutor 불변식과 동일 패턴)
   createdAt: string; // ISO 8601
   updatedAt: string;
 }
 
 export type BuiltinToolId =
-  'read' | 'write' | 'edit' | 'ls' | 'grep' | 'find' | 'shell' | 'web_search';
+  'read' | 'write' | 'edit' | 'ls' | 'grep' | 'find' | 'shell' | 'web_search' | 'web_fetch' | 'wiki';
 ```
 
 - **기본 Agent 불변식**: Agent가 1개 이상 존재하면 정확히 하나는 `isDefault === true`. 최초 생성된 Agent가 자동으로 기본이 되고, 기본 Agent 삭제 시 다음 Agent가 승격됩니다. (VivoAcademy `external-agents.ts`의 `is_ai_tutor` 로직을 참고해 `agentsRepo.ts`에 동일하게 구현.)
-- **새 Agent의 기본 활성 도구**: `["read", "ls", "grep", "find", "write", "edit"]`. `shell`과 `web_search`는 기본 비활성이며 사용자가 명시적으로 켜야 합니다.
+- **새 Agent의 기본 활성 도구**: `["read", "ls", "grep", "find", "write", "edit", "wiki"]`. `shell`과 `web_search`는 기본 비활성이며 사용자가 명시적으로 켜야 합니다. `wiki`는 `workspace/wiki/` 스코프의 등록/조회/삭제 단일 도구(`action: ingest/query/list/delete`, risk `low`)이며, llm-wiki 스킬의 온톨로지·그래프·백업 등 부가 기능 없이 기본기만 제공한다.
 - **`enabledSkills`가 도구 목록이 아닌 이유**: 스킬은 도구로 등록되지 않고 시스템 프롬프트에 이름/설명만 노출됩니다(§6.2). 따라서 `enabledSkills`는 "프롬프트에 노출할 스킬 화이트리스트"이며, 스킬을 실제로 사용하려면 `read` 도구(및 스크립트형 스킬은 `shell`)가 활성화되어 있어야 합니다. `AgentEditorForm`은 스킬을 켜면서 `read`가 꺼져 있으면 경고를 표시합니다.
 - **`visualizationTool`을 내장 도구 목록에 넣지 않은 이유**: 로컬 LLM의 함수 호출(tool-calling) 신뢰도가 모델마다 크게 다르므로, 시각화는 "도구 호출"이 아니라 **출력 형식 규약**(시스템 프롬프트에 "필요시 \`\`\`mermaid / \`\`\`recharts 코드펜스로 응답하라"는 지침 포함 + 렌더러가 후처리 파싱)으로 구현합니다. Phase 5에서 상세 설계.
 
@@ -474,6 +502,10 @@ Fortress는 프로젝트 종속 데이터와 앱 전역 데이터를 명확히 �
    - **위치**: 운영체제 표준 AppData 디렉터리
    - **전역 DB (`fortress.db`)**:
      - `agents`: 전역 등록 에이전트 목록 (프로젝트와 무관하게 공통 사용)
+     - 평가(§14): `eval_runs`, `eval_candidates`, `eval_trials`, `eval_scores`, `eval_aggregates`, `eval_profiles`, `arena_votes` — 평가 결과는 PC·모델 단위 자산이므로 **항상 전역 DB**에 저장합니다(프로젝트와 무관하게 비교 가능)
+     - 외부 연동(§14.5): `external_integrations`, `integration_settings`, `integration_audit_log`
+   - **전역 평가 팩 폴더**: `%APPDATA%/com.fortress.app/evals/packs/` (사용자가 가져오거나 만든 팩)
+   - 프로젝트 쪽에는 개인 평가 팩 **파일**만 `{workspaceRoot}/.fortress/evals/packs/`에 둡니다(DB 아님)
      - `app_settings` (전역 스코프): 전역 UI 테마(`theme`), 언어(`language`), Ollama 서버 URL(`ollama_base_url`), 기본 컨텍스트 크기(`default_context_size`), 도구 승인 모드 기본값(`default_approval_mode`), 신뢰 워크스페이스 목록(`trusted_workspaces`), 마지막 작업 워크스페이스(`last_workspace_root`)
 3. **런타임 동작**:
    - 워크스페이스가 열려있을 때 세션/대화/로그/탭 상태는 해당 프로젝트의 `.fortress/fortress.db`에만 저장/복원됩니다.
@@ -733,6 +765,8 @@ pi의 `loadProjectContextFiles`와 동일한 규칙입니다.
 | `global`    | `%APPDATA%/Fortress/skills/`                             |
 | `workspace` | 워크스페이스의 `.agents/skills/` (루트 및 조상 디렉터리) |
 
+**앱 기본 제공 스킬** (`src/lib/skills/bundledSkills.ts`): `basic-llm-wiki`(위키 등록/조회/삭제만 남긴 최소 스킬, 원본 `src/lib/skills/bundled/basic-llm-wiki/SKILL.md`, Vite `?raw`로 번들). 워크스페이스에 없어도 에이전트 편집 폼의 "활성 스킬" 목록에 `앱 기본 제공` 배지와 함께 노출되며, 활성화 후 저장하면 현재 워크스페이스의 `.agents/skills/basic-llm-wiki/`로 복사(기존 파일은 덮어쓰지 않음)된 뒤 스캐너가 일반 `workspace` 스킬로 로드합니다.
+
 **탐색 규칙** (pi `loadSkillsFromDir`와 동일):
 
 1. 어떤 디렉터리에 `SKILL.md`가 있으면 그 디렉터리를 **스킬 루트**로 보고 **더 내려가지 않습니다**.
@@ -849,6 +883,18 @@ cd <skill dir> && npm install
 ### 8.3 한계 (의도적)
 
 승인 대기 중 앱이 강제 종료되면 해당 턴은 복원되지 않습니다. 재시작 시 마지막으로 완료된 턴까지만 복원되고, 사용자는 직전 질문을 다시 보낼 수 있습니다. pi처럼 내구성 있는 재개를 하려면 연산 상태 기계와 스토리지 트랜잭션이 필요한데(§1.3), 단일 사용자 데스크탑 앱에 그 비용은 과합니다.
+
+### 8.4 평가 샌드박스 정책 — 승인 훅의 유일한 예외 (2026-09-25 결정)
+
+자동 평가(§14)의 에이전트형 과제는 사람의 승인 없이 수십~수백 번 `write`/`edit`을 실행해야 하므로 §8.2의 승인 다이얼로그를 쓸 수 없습니다. 대신 평가 러너는 전역 훅(`getRegisteredHooks()`)을 쓰지 않고 **평가 전용 정책 훅**(`src/lib/eval/runner/sandboxPolicy.ts`)을 붙입니다. 이 예외는 아래 조건을 **모두** 만족할 때만 성립하며, 조건을 완화하는 변경은 이 절을 먼저 개정해야 합니다.
+
+1. 도구의 `workspaceRoot`는 Rust가 만든 임시 샌드박스(`%TEMP%/fortress-eval/<uuid>`, 픽스처 복사본)입니다. 사용자 워크스페이스는 절대 루트가 되지 않습니다.
+2. 허용 도구는 `read`/`ls`/`grep`/`find`/`write`/`edit`뿐입니다. `shell`(critical)·`web_search`·`web_fetch`는 후보 설정에서 제거되고, 정책 훅도 한 번 더 차단합니다. **셸은 평가에서도 실행되지 않습니다**(§8.1 규칙 유지).
+3. 경로 인자는 정책 훅(TS)과 Rust `resolve_and_verify_workspace_path`가 이중으로 샌드박스 내부인지 검증합니다.
+4. 평가는 사용자가 가중치·기준값을 확인한 뒤 수동으로 시작한 경우에만 실행됩니다(§14.2 D6).
+5. Trial이 끝나면 샌드박스를 삭제하고, 앱 시작 시 잔여 샌드박스를 정리합니다.
+
+**모델 생성 코드 실행**(§14, Q5 코딩 평가)도 같은 범주의 예외입니다. JS는 네트워크 API를 제거한 Web Worker에서만 실행하고, Python은 설정 "로컬 코드 실행 허용" + 실행별 확인이 모두 있을 때만 Rust `eval_run_python`(셸 미경유, `-I` 격리, 임시 폴더, 타임아웃)으로 실행합니다. 네트워크 차단은 보장하지 않으며 UI에서 고지합니다.
 
 ---
 
@@ -980,6 +1026,11 @@ VivoStudio와 동일하게 **Redux/Zustand 등 전역 스토어 라이브러리 
 | `find_files(pattern, path, maxResults)`        | `search_commands.rs` | 파일명 glob 검색 (`ignore` 크레이트)                                              | `find`             |
 | `run_shell(command, cwd, timeoutMs)`           | `shell_commands.rs`  | OS별 셸 실행(Windows=PowerShell). stdout/stderr/exitCode 반환, 타임아웃 강제 종료 | `shell`            |
 | `web_search(query)`                            | `web_commands.rs`    | 웹 검색 결과 파싱(reqwest + scraper)                                              | `web_search`       |
+| `eval_list_packs` / `eval_read_pack_file` / `eval_write_pack_files` / `eval_delete_pack` | `eval_commands.rs` | 평가 팩 IO. 허용 루트: 번들 리소스(읽기 전용)·앱데이터 `evals/packs`·프로젝트 `.fortress/evals/packs` | 평가(§14) |
+| `eval_sandbox_create` / `eval_sandbox_create_from_files` / `eval_sandbox_snapshot` / `eval_sandbox_destroy` / `eval_sandbox_cleanup_all` | `eval_commands.rs` | 에이전트형 평가용 임시 샌드박스(`%TEMP%/fortress-eval/<uuid>`) | 평가(§8.4) |
+| `eval_detect_runtimes` / `eval_run_python`     | `eval_commands.rs`   | 코드 실행 채점(Python 옵트인, 셸 미경유)                                          | 평가(§8.4) |
+| `eval_download_file` / `eval_read_import_file` / `eval_export_write` | `eval_commands.rs` | 데이터셋 다운로드(huggingface.co·raw.githubusercontent.com만), 가져오기, 결과 내보내기 | 평가(§14) |
+| `integration_run_cli(executablePath, args, stdin?, promptFile?, timeoutMs)` | `integration_commands.rs` | 등록·동의된 외부 에이전트 CLI 실행(셸 미경유, 임시 cwd) | 외부 연동(§14.5) |
 
 - `edit` 도구는 전용 커맨드 없이 `read_text_file` + 문자열 치환 + `write_text_file` 조합으로 프런트엔드에서 구현합니다. 치환 대상이 0건이거나 2건 이상이면 실패시키고 모델에게 더 긴 컨텍스트를 요구합니다.
 - **`web_search`는 유지보수 리스크가 있습니다.** HTML 구조 변경·봇 차단으로 깨지기 쉬우므로, 파싱 실패 시 예외 대신 "검색 결과를 가져오지 못했습니다" 결과를 반환해 대화를 끊지 않습니다. 장기적으로는 내장 도구 대신 검색 스킬(§6)로 대체하는 것을 권장합니다.
@@ -999,3 +1050,72 @@ VivoStudio와 동일하게 **Redux/Zustand 등 전역 스토어 라이브러리 
 - 멀티모달(이미지 입력) — 요구사항에서 명시적으로 제외됨.
 
 이 섹션에 항목을 추가/제거할 때는 반드시 `Docs/TODO.md`와 본 문서를 함께 갱신하십시오.
+
+---
+
+## 14. 자동 평가 시스템 (Phase 10, 2026-09-25 확정)
+
+> 상세 구현: `Docs/phases/Phase10-Evaluation.md` · 팩 제작: `Docs/phases/Phase10-Eval-Packs.md` · 기획 근거: `Docs/plan/LLM_Evaluation_Plan.md`, `Docs/plan/LLM_Evaluation_Research.md`
+
+### 14.1 개요
+
+같은 평가셋을 같은 조건으로 여러 **후보**(에이전트 설정 스냅샷, 또는 기준 에이전트에서 만든 매트릭스 조합)에 자동 실행하고, 5개 차원(Q 품질 · A 에이전트 · P 성능 · R 자원 · S 신뢰성), 19개 카테고리를 0~100으로 정규화해 비교한 뒤 작업 프로파일에 맞는 후보를 추천합니다.
+
+```
+팩(manifest + samples) ─┐
+후보 스냅샷 ─────────────┼─▶ EvalRunner ─▶ Solver(single/multi/tool_call/agentic/perf/long/compaction/logprob)
+프로파일(가중치·앵커) ───┘        │            └─ 기존 providerRuntime / runAgentLoop 재사용
+                                   ├─▶ Scorer(결정적 → 상태/궤적 → 코드 실행 → Judge → 사람)
+                                   ├─▶ eval_trials / eval_scores (전역 DB, Trial마다 커밋 → 이어하기)
+                                   └─▶ aggregate(정규화·부트스트랩 CI) ─▶ recommend(제약·파레토·구분불가) ─▶ 리포트
+```
+
+### 14.2 확정 결정 사항
+
+| ID | 결정 |
+| --- | --- |
+| D1 | 전 범위(26개 작업)를 Phase 10에서 구현. 순서는 웨이브로만 나눈다 |
+| D2 | 평가 결과는 전역 DB(§4.5). 개인 팩 파일만 프로젝트 `.fortress/evals/` |
+| D3 | 외부 API·외부 에이전트는 사용자가 허락한 경우에만(§14.5) |
+| D4 | 데이터셋을 앱에 번들(Tauri 리소스). 라이선스상 불가한 셋(HAE-RAE: NC-ND, GPQA: 평문 공개 금지 요청, CLIcK·LogicKor: 라이선스 미확인)은 임포터만. KMMLU(ND)는 원본 CSV 무수정 번들 |
+| D5 | 평가 중 채팅 금지: `evalLock` + 전송·큐잉 차단. 가상 세션 `eval:<runId>`로 기존 전역 busy 가드(폴더 전환·에이전트 편집) 재사용 |
+| D6 | 사용자가 가중치·기준값을 확인한 뒤 **수동으로** 시작. 자동·예약 실행 없음. 중단된 실행의 이어하기도 수동 |
+| D7 | 평가는 `monitoringCollector`/`agent_monitoring_snapshots`를 쓰지 않고 자체 자원 샘플러로 Trial별 VRAM 피크·GPU 사용률을 기록(스냅샷 테이블의 `agents` FK 때문에 저장되지 않은 매트릭스 후보를 기록할 수 없음) |
+| D8 | 평가 에이전트 도구는 `read/ls/grep/find/write/edit`만. 샌드박스 정책 훅이 승인 훅을 대체(§8.4) |
+| D9 | 코드 실행: JS Worker 기본, Python은 옵트인 + 실행별 확인(§8.4) |
+| D10 | logprobs 기능(객관식 확률 모드, 양자화 충실도 Q8)은 Ollama ≥ 0.12.11에서만, 그 외 N/A |
+| D11 | Judge는 로컬 모델 기본. 외부 Judge는 §14.5 게이트웨이 경유. 같은 모델 자기 채점 금지 |
+| D12 | 신규 npm/crate 의존성 없음. 통계·채점·CSV 파서·IFEval 체커는 직접 구현 |
+
+### 14.3 평가 팩
+
+- 3계층: `builtin`(`src-tauri/resources/evals/`, 읽기 전용) < `user`(앱데이터 `evals/packs`) < `project`(`.fortress/evals/packs`). 같은 id는 project > user > builtin 순으로 우선합니다.
+- 팩 = `manifest.json`(EvalPackManifest) + 샘플 소스(`jsonl` | `kmmlu-csv` 원본 | `generator`) + (선택) 픽스처. 매니페스트와 샘플 소스로 `contentHash`를 계산하고, 실행 설정에 고정합니다. 해시가 바뀌면 이어하기·실행 비교를 막습니다.
+- tier(smoke/standard/full)별 샘플은 `(해시, tier, seed)`로 결정적으로 선택하고, 실행을 만들 때 `sampleIds`를 확정합니다.
+
+### 14.4 정규화 스킴 요약
+
+- 품질·에이전트 지표: `clamp((raw − baseline)/(ceiling − baseline), 0, 1) × 100` (k지선다 baseline 1/k, 이진 판단 0.5, 생성형 0)
+- 성능·자원: 고정 앵커(`ANCHORS_V1`) 로그/선형 효용 함수. 앵커와 가중치는 실행 전에 사용자가 확인·수정합니다(D6). 원시값은 항상 보존하므로 앵커를 바꾸면 다시 계산할 수 있습니다.
+- 종합 점수: 카테고리 → 차원 → 종합의 가중 산술평균(N/A 제외 재정규화). 치명적 약점은 하드 제약으로 거릅니다. Q8(양자화 충실도)은 종합 점수에서 제외합니다.
+- 불확실성: 팩 점수는 Wilson/부트스트랩(군집 반영) 95% CI, 종합 점수는 전 계층 부트스트랩, 후보 간 비교는 쌍대 부트스트랩("구분 불가" 그룹), Arena는 Bradley-Terry + 부트스트랩.
+- 성능·자원 지표는 하드웨어 지문이 같은 실행끼리만 비교합니다.
+
+### 14.5 외부 연동 (D3)
+
+- 설정 > 외부 연동(`/settings/integrations`): 마스터 스위치(기본 꺼짐), 연동 등록(`llm-api`: 기존 Provider 프리셋 재사용 / `agent-cli`: 절대 경로 실행 파일 + 고정 인자, 프롬프트는 stdin·임시 파일로만 전달), 허용 용도(`judge`·`reference-generation`·`pack-drafting`·`candidate`), 허용 데이터 분류(`public-bundled`·`personal`·`fixture-files`), 동의(문구 버전 관리, 범위를 넓힐 때 재동의), 신뢰 LAN 호스트, 로컬 코드 실행 허용, 감사 로그.
+- **모든 외부 전송은 `src/lib/eval/integrations/gateway.ts` 한 곳을 통과**합니다. 게이트웨이는 마스터 스위치 → 활성화 → 동의·버전 → 용도 → 데이터 분류를 차례로 검사하고, 실패하면 전송하지 않습니다. 성공·실패 모두 `integration_audit_log`에 기록합니다.
+- 후보의 엔드포인트가 loopback이나 신뢰 LAN 호스트가 아니면(`external`) `candidate` 용도로 동의된 연동이 있어야 평가할 수 있습니다. 실행 마법사는 외부 전송 요약(연동·용도·데이터 분류·예상 요청 수·토큰)을 보여주고 실행별 확인을 받습니다.
+- 채팅 기능의 기존 클라우드 Provider 사용(P9-03)은 이 게이트의 대상이 아닙니다(평가 기능에만 적용).
+
+### 14.6 결과 내보내기 (Every Eval Ever 대응)
+
+| Fortress | EEE |
+| --- | --- |
+| run id + candidate id | `evaluation_id` |
+| 앱 이름·버전, third_party | `source_metadata` |
+| 후보 스냅샷 모델 + `/api/show` 메타 | `model_info` |
+| 스냅샷의 temperature/topP/maxOutputTokens/reasoning | `generation_config` |
+| pack 단위 aggregate + MetricSpec | `evaluation_results[].metric_config`(`lower_is_better`, `score_type`, `min/max_score`) + `score_details` + CI |
+| trials + scores | `{uuid}_samples.jsonl`(single_turn/multi_turn/agentic, token_usage, performance) |
+| 하드웨어 지문 | EEE 확장 필드(스키마 버전 확인 후) |

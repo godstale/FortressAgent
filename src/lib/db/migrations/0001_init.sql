@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS agents (
   llm_provider TEXT NOT NULL DEFAULT 'ollama',
   llm_base_url TEXT,
   llm_api_key TEXT,
+  auto_monitor INTEGER NOT NULL DEFAULT 1,
   is_default INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

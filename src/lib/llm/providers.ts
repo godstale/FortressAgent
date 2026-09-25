@@ -50,14 +50,14 @@ export const LLM_PROVIDER_PRESETS: Record<LlmProviderKind, LlmProviderPreset> = 
   lmstudio: {
     kind: 'lmstudio',
     label: 'LM Studio',
-    defaultBaseUrl: 'http://127.0.0.1:1234/v1',
+    defaultBaseUrl: 'http://localhost:1234/v1',
     category: 'local',
     openAiCompatible: true,
     supportsApiKey: true,
     requiresApiKey: false,
     supportsModelList: true,
     supportsAutoContextSize: false,
-    hint: 'LM Studio Local Server (OpenAI 호환, 기본 포트 1234)',
+    hint: 'LM Studio Server 탭에서 서버를 시작하고 모델을 로드하세요 (OpenAI 호환, 기본 포트 1234)',
   },
   llamacpp: {
     kind: 'llamacpp',
@@ -270,13 +270,30 @@ export interface ResolvedLlmRuntime {
   openAiCompatible: boolean;
 }
 
-function normalizeBaseUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '');
+function normalizeBaseUrl(url: string, openAiCompatible = false): string {
+  const trimmed = url.trim().replace(/\/+$/, '');
+  // OpenAI 호환 규격은 {baseUrl}/models, {baseUrl}/chat/completions 형태다.
+  // LM Studio가 표시하는 주소(http://127.0.0.1:1234)처럼 버전 prefix가 없으면
+  // 요청 경로가 어긋나 404가 나므로 /v1을 보정한다. 경로가 이미 있으면 그대로 둔다
+  // (Azure의 /openai/deployments/... 등 커스텀 게이트웨이 보호).
+  if (openAiCompatible) {
+    try {
+      const u = new URL(trimmed);
+      if (u.pathname === '' || u.pathname === '/') {
+        u.pathname = '/v1';
+        return u.toString().replace(/\/+$/, '');
+      }
+    } catch {
+      // URL 파싱 불가 시 trim 결과만 사용한다
+    }
+  }
+  return trimmed;
 }
 
 /**
  * Agent의 Provider 설정을 실제 접속 정보로 해석한다.
  * - baseUrl 미지정 시: ollama → 전역 설정값(없으면 프리셋 기본), 그 외 → 프리셋 기본
+ * - OpenAI 호환 Provider는 버전 prefix 없는 주소(LM Studio 표시 주소 등)에 /v1을 보정한다
  * - apiKey는 앞뒤 공백 제거 후 빈 문자열이면 undefined
  */
 export function resolveAgentLlmRuntime(
@@ -288,11 +305,11 @@ export function resolveAgentLlmRuntime(
   const rawBase = (agent.llmBaseUrl ?? '').trim();
   let baseUrl: string;
   if (rawBase) {
-    baseUrl = normalizeBaseUrl(rawBase);
+    baseUrl = normalizeBaseUrl(rawBase, preset.openAiCompatible);
   } else if (kind === 'ollama') {
     baseUrl = normalizeBaseUrl(globalOllamaBaseUrl || preset.defaultBaseUrl);
   } else {
-    baseUrl = normalizeBaseUrl(preset.defaultBaseUrl);
+    baseUrl = normalizeBaseUrl(preset.defaultBaseUrl, preset.openAiCompatible);
   }
   const apiKey = (agent.llmApiKey ?? '').trim() || undefined;
   return { kind, preset, baseUrl, apiKey, openAiCompatible: preset.openAiCompatible };
@@ -307,9 +324,13 @@ export function normalizeProviderFields(input: {
   const kind = input.llmProvider ?? 'ollama';
   const preset = getProviderPreset(kind);
   const rawBase = (input.llmBaseUrl ?? '').trim();
+  // /v1 보정 후 기본값과 같으면(예: "http://localhost:1234" 입력) 프리셋 따라가기로 저장한다.
+  const normalized = rawBase
+    ? normalizeBaseUrl(rawBase, preset.openAiCompatible)
+    : '';
   const llmBaseUrl =
-    rawBase && normalizeBaseUrl(rawBase) !== normalizeBaseUrl(preset.defaultBaseUrl)
-      ? normalizeBaseUrl(rawBase)
+    normalized && normalized !== normalizeBaseUrl(preset.defaultBaseUrl, preset.openAiCompatible)
+      ? normalized
       : '';
   return {
     llmProvider: kind,

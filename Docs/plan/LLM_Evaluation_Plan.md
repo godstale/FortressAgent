@@ -1,7 +1,31 @@
 # Fortress 자동 평가(Evaluation) 기능 기획서
 
-> 작성일: 2026-09-25 · 상태: **기획(승인 대기)** · 관련 조사: [`LLM_Evaluation_Research.md`](./LLM_Evaluation_Research.md)
-> 이 기획서가 승인되면 `Docs/Architecture.md`(§2 트리, §4 데이터 모델, §3 레이아웃)와 `Docs/phases/Phase10-Evaluation.md`로 옮겨 확정합니다. 그 전까지 이 문서의 내용은 **제안**입니다.
+> 작성일: 2026-09-25 · 상태: **확정(v1.0, 2026-09-25 사용자 결정 반영)** · 관련 조사: [`LLM_Evaluation_Research.md`](./LLM_Evaluation_Research.md)
+> 설계 요약은 `Docs/Architecture.md` §14, 구현 작업은 `Docs/phases/Phase10-Evaluation.md`, 데이터셋 제작 명세는 `Docs/phases/Phase10-Eval-Packs.md`에 있습니다. **세부 스키마·파일명은 Phase 문서가 우선**하며, 이 문서는 "왜 이렇게 하는가"를 설명합니다.
+
+---
+
+## 0. 확정 결정 사항 (2026-09-25)
+
+| ID | 사용자 결정 | 반영 |
+| --- | --- | --- |
+| D1 | 기획 가능한 항목은 지금 모두 기획·결정한다(2단계 이연 없음) | 판단이 필요한 항목(코드 실행, 양자화 비교, 외부 연동 등)을 모두 확정했습니다. 구현 순서만 웨이브(W0~W4)로 나눕니다 |
+| D2 | 결과 저장 위치는 전역 DB | 평가·연동 테이블은 전역 DB 전용. 개인 팩 파일만 프로젝트 `.fortress/evals/` |
+| D3 | 외부 API는 사용자가 허락한 경우에만. 허락과 외부 API/에이전트 연동 설정이 필요 | 설정 > "외부 연동" 페이지(마스터 스위치·연동 등록·용도/데이터 분류별 동의·감사 로그), 모든 외부 전송은 단일 게이트웨이 경유(§8.8) |
+| D4 | 데이터셋을 앱에 포함 | Tauri 리소스로 번들. 원문 확인 결과 라이선스상 번들이 불가능한 셋만 임포터로 제공(§4.2) |
+| D5 | 평가 중 채팅 금지 | 전역 평가 잠금 + 채팅 전송·큐잉 차단 + 기존 busy 가드 재사용 |
+| D6 | 기본 가중치·기준값을 사용자가 확인한 뒤 수동으로 시작 | 실행 마법사의 확인 단계에서 가중치·앵커를 모두 보여주고 수정 가능, "확인했습니다" 체크 필수. 실행은 [지금 시작]/[나중에 시작] 중 사용자 선택. 자동·예약 실행 없음 |
+
+이 결정에서 파생된 설계 결정(D7~D12)은 `Architecture.md` §14.2에 있습니다. 요지: 평가는 자체 자원 샘플러 사용(D7), 평가 도구는 파일 도구 6종만 + 샌드박스 정책 훅(D8), 코드 실행은 JS Worker 기본·Python 옵트인(D9), logprobs 기능은 Ollama ≥ 0.12.11만(D10), Judge는 로컬 기본·자기 채점 금지(D11), 신규 의존성 없음(D12).
+
+### 0.1 "파일 작업 평가(A3)"란
+
+에이전트에게 작은 가짜 프로젝트 폴더(**픽스처**: 회의록 마크다운 묶음, 작은 TypeScript 라이브러리, 설정 파일 묶음 등)를 주고 실제 업무를 시킨 뒤, **작업이 끝난 폴더의 파일 상태**를 정답과 비교해 채점하는 평가입니다.
+
+- 과제 예: "`parseDate`가 정의된 파일을 찾아 알려줘", "app.json의 timeout을 30에서 60으로 바꿔줘", "9월 회의록 3개를 요약해 SUMMARY.md로 저장해줘", "`formatKRW` 함수 이름을 `formatWon`으로 바꾸고 사용처도 모두 고쳐줘"
+- 채점: SUMMARY.md가 생겼는가, 요약에 핵심 키워드가 있는가, 건드리면 안 되는 파일은 그대로인가(파일 상태), 불필요하게 많은 도구를 호출하지 않았는가(궤적)
+- 안전: 사용자의 실제 프로젝트는 건드리지 않습니다. Trial마다 임시 폴더에 픽스처 복사본을 만들어 실행한 뒤 삭제합니다. `shell`은 사용하지 않습니다.
+- 의미: Fortress가 실제로 하는 일(파일을 읽고·찾고·고치는 에이전트 작업)을 가장 직접적으로 측정합니다. 로컬 모델은 tool-calling 신뢰도 편차가 커서 이 항목이 모델 선택을 크게 좌우합니다.
 
 ---
 
@@ -37,7 +61,7 @@ Fortress는 "로컬 LLM 테스트 & 모니터링 워크벤치"입니다. 지금�
 
 1. **로컬 우선·오프라인 동작**: 번들 팩만으로 인터넷 없이 평가할 수 있어야 합니다. 외부 API Judge는 옵트인이며, 선택 시 데이터 반출을 경고합니다.
 2. **결정적 채점 우선**: 결정적 채점(L1~L5)으로 측정할 수 있으면 LLM Judge를 쓰지 않습니다(조사 §5.1).
-3. **기존 런타임 재사용**: 새 LLM 호출 경로를 만들지 않습니다. `providerRuntime`·`runAgentLoop`·`monitoringCollector`·`ChatConfigSnapshot`을 그대로 씁니다. 평가 결과는 "실제 채팅과 같은 경로"로 얻은 값이어야 의미가 있습니다.
+3. **기존 런타임 재사용**: 새 LLM 호출 경로를 만들지 않습니다. `providerRuntime`·`runAgentLoop`·`ChatConfigSnapshot`·기존 GPU/Ollama 조회 함수를 그대로 씁니다(자원 측정은 모니터링 테이블 대신 평가 전용 샘플러 — D7). 평가 결과는 "실제 채팅과 같은 경로"로 얻은 값이어야 의미가 있습니다.
 4. **통계적 정직성**: 점수마다 표본 수와 95% 신뢰구간을 함께 보여주고, 신뢰구간이 겹치면 "차이 없음"으로 표기합니다.
 5. **안전 경계 유지**: 에이전트형 평가는 격리된 임시 워크스페이스에서만 실행합니다. `shell`은 평가에서도 기본으로 비활성화하며, 승인 우회 경로를 만들지 않습니다(`AGENTS.md` §7, 아래 §8.4).
 6. **신규 의존성 최소화**: 통계(부트스트랩·BT)와 채점기는 직접 구현합니다. JSON Schema 검증은 이미 쓰는 `zod`를 활용합니다.
@@ -66,24 +90,27 @@ Fortress는 "로컬 LLM 테스트 & 모니터링 워크벤치"입니다. 지금�
 
 ### 3.1 차원·카테고리 체계
 
-| 차원 | 카테고리 | 핵심 지표 | 채점 계층 | 우선순위 |
+| 차원 | 카테고리 | 핵심 지표 | 채점 계층 | 구현 작업 |
 | --- | --- | --- | --- | --- |
-| **Q. 품질** | Q1 지식(한/영) | 정확도(기준선 보정) | L1 | MVP |
-| | Q2 추론·수학 | 정확도, 정답당 토큰 | L1(숫자 동치) | MVP |
-| | Q3 지시 따르기 | prompt/inst-level strict 정확도 | L3(IFEval 체커) | MVP |
-| | Q4 한국어 작문 | 루브릭 점수 | L7 Judge | 2단계 |
-| | Q5 코딩 | pass@1, 편집 형식 준수율 | L4 실행 | 3단계 |
-| | Q6 긴 컨텍스트 | 길이별 정확도 → 실효 컨텍스트 길이 | L1 | 2단계 |
-| **A. 에이전트** | A1 도구 선택·인자 | AST 정확도(BFCL 방식) | L2 | MVP |
-| | A2 도구 불필요 판단 | 관련성 탐지 정확도 | L2 | MVP |
-| | A3 파일 작업 과제 | 과제 성공률(최종 상태 비교) | L5 | 2단계 |
-| | A4 시각화 형식 | Mermaid/Recharts 블록 유효율 | L2(`parseVisualBlocks`+파서) | MVP |
-| | A5 스킬 활용 | SKILL.md를 읽고 지침을 따랐는지 | L5+L1 | 3단계 |
-| | A6 압축 후 기억 | 압축 후 핵심 사실 회상률 | L1 | 3단계 |
-| **P. 성능** | P1 응답성 | TTFT(p50/p95), Load time | 측정 | MVP |
-| | P2 처리 속도 | prefill·decode tok/s, 깊이별 decode 저하율 | 측정 | MVP |
-| **R. 자원** | R1 메모리 | VRAM 피크, 여유분, 오프로드 %, RAM | 측정(모니터링) | MVP |
-| **S. 신뢰성** | S1 안정성·일관성 | pass^k, 형식 오류율, NOANSWER율, 타임아웃/OOM율, 루프율 | 집계 | MVP |
+| **Q. 품질** | Q1 지식(한/영) | 정확도(기준선 보정) | L1 | P10-24 |
+| | Q2 추론·수학 | 정확도, 정답당 토큰 | L1(숫자 동치) | P10-24 |
+| | Q3 지시 따르기 | prompt/inst-level strict 정확도 | L3(IFEval 체커) | P10-06·24 |
+| | Q4 한국어 작문 | 루브릭 점수 | L7 Judge | P10-12·23 |
+| | Q5 코딩 | pass@1, 편집 형식 준수율 | L4 실행 | P10-13·23·24 |
+| | Q6 긴 컨텍스트 | 길이별 정확도 → 실효 컨텍스트 길이 | L1 | P10-23 |
+| **A. 에이전트** | A1 도구 선택·인자 | AST 정확도(BFCL 방식) | L2 | P10-21·24 |
+| | A2 도구 불필요 판단 | 관련성 탐지 정확도 | L2 | P10-21 |
+| | A3 파일 작업 과제 | 과제 성공률(최종 상태 비교) | L5 | P10-11·22 |
+| | A4 시각화 형식 | Mermaid/Recharts 블록 유효율 | L2(`parseVisualBlocks`+파서) | P10-21 |
+| | A5 스킬 활용 | SKILL.md를 읽고 지침을 따랐는지 | L5+L1 | P10-11·22 |
+| | A6 압축 후 기억 | 압축 후 핵심 사실 회상률 | L1 | P10-22 |
+| **P. 성능** | P1 응답성 | TTFT(p50/p95), Load time | 측정 | P10-10·23 |
+| | P2 처리 속도 | prefill·decode tok/s, 깊이별 decode 저하율 | 측정 | P10-10·23 |
+| **R. 자원** | R1 메모리 | VRAM 피크, 여유분, 오프로드 %, RAM | 측정(자원 샘플러) | P10-10 |
+| **S. 신뢰성** | S1 안정성·일관성 | pass^k, 형식 오류율, NOANSWER율, 타임아웃/OOM율, 루프율 | 집계 | P10-07 |
+| **보조·개인** | Q7 개인 선호(Arena) | Bradley-Terry 점수 | L8 사람 | P10-20 |
+| | Q8 양자화 충실도(종합 제외) | 공통 접두 KL·top-1 일치율 | logprobs | P10-14·23 |
+| | Q9 개인 업무(개인 팩) | 개인 케이스 점수 | 케이스별 | P10-19 |
 
 ### 3.2 왜 이 구성인가
 
@@ -99,39 +126,43 @@ Fortress는 "로컬 LLM 테스트 & 모니터링 워크벤치"입니다. 지금�
 
 | 계층 | 위치 | 내용 | 편집 |
 | --- | --- | --- | --- |
-| **Built-in** | 앱 번들 리소스(`src/assets/evals/` → 빌드 포함) | Fortress 자체 제작 팩 + 퍼미시브 라이선스 공개셋의 부분집합 | 읽기 전용(복제 후 수정) |
+| **Built-in** | Tauri 번들 리소스(`src-tauri/resources/evals/`) | Fortress 자체 제작 팩 + 라이선스상 번들 가능한 공개셋(§4.2) | 읽기 전용(복제 후 수정) |
 | **User(전역)** | `%APPDATA%/com.fortress.app/evals/packs/` | 가져온 공개셋(HF 다운로드·파일 임포트), 사용자가 만든 팩 | 편집 가능 |
 | **Project** | `{workspace}/.fortress/evals/packs/` | 채팅 이력에서 만든 **개인 평가셋**, 프로젝트 전용 픽스처 과제 | 편집 가능 |
 
-- 라이선스 원칙(조사 §4.9): ND·NC 조건이나 재배포 자제 요청이 있는 데이터(KMMLU, GPQA, HAE-RAE 등)는 번들하지 않습니다. 사용자가 직접 받게 하는 **임포터**만 제공합니다.
+- 라이선스 원칙(조사 §4.9, D4): 앱에 번들하는 것이 기본입니다. ND 조건(KMMLU)은 원본을 수정하지 않고 번들해 런타임에 변환하고, SA 조건(KoBEST)은 파생 파일을 같은 라이선스로 배포합니다. NC 조건(HAE-RAE), 평문 공개 금지 요청(GPQA), 라이선스 미확인(CLIcK·LogicKor)만 번들하지 않고 **임포터**로 제공합니다.
 
-### 4.2 Built-in 팩 목록 (제안)
+### 4.2 번들 팩 목록 (확정 — 상세 명세는 `Phase10-Eval-Packs.md`)
 
 **(가) Fortress Agent Bench (FAB) — 자체 제작, 핵심 차별화**
 
-| 팩 ID | 카테고리 | 샘플 수(Std) | 내용 | 채점 |
+| 팩 ID | 카테고리 | 샘플 수 | 내용 | 채점 |
 | --- | --- | --- | --- | --- |
-| `fab-tools-select` | A1 | 60 | Fortress 실제 도구 스키마(read/ls/grep/find/write/edit/web_search)로 "어떤 도구를 어떤 인자로 호출할까" 단일·다중·병렬 호출 | AST + 허용값 목록 |
-| `fab-tools-relevance` | A2 | 40 | 도구 없이 답해야 하는 질문 / 제공된 도구로 불가능한 요청 | 도구 미호출 여부 |
-| `fab-fs-tasks` | A3 | 30 | 픽스처 워크스페이스(md·ts·json 10~30개)에서 "X가 정의된 파일을 찾아 Y로 수정", "README 요약을 SUMMARY.md로 저장" 등 | 최종 파일 상태 + 답변 키워드 |
-| `fab-viz` | A4 | 30 | "이 흐름을 Mermaid로", "이 표를 막대 차트로" | `parseVisualBlocks` + Mermaid 파서 + Recharts DSL zod 검증 |
-| `fab-longctx` | Q6 | 길이 5단계×12 | 합성 문서에 needle 1~4개 + 멀티홉 추적, 길이 {2k, 8k, 16k, 32k, 64k} 중 후보 ctx 이하 | 정답 대조 |
-| `fab-compaction` | A6 | 10 | 긴 대화 → 강제 압축 → 앞부분 사실 질문 | 정답 대조 |
-| `fab-skill` | A5 | 10 | 픽스처 `.agents/skills/`에 스킬 → 해당 과제 수행 시 `read(SKILL.md)` 호출 + 스킬 지침 준수 | 궤적 + 상태 |
-| `fab-ko-writing` | Q4 | 20 | 한국어 문서 작성(보고서 요약, 이메일, 기술 문서) | Judge 루브릭(§6.5) |
-| `fab-perf-probe` | P1·P2 | 8 시나리오 | LocalScore형 입출력 길이 조합(16/64/1k/2k/4k 입력 × 128/512/1k 출력) + 깊이 스윕 | 측정 전용(채점 없음) |
+| `fab-tools-select` | A1 | 60 | Fortress 실제 도구 스키마로 단일·선택·병렬·edit 인자 호출 | AST + 허용값 목록 |
+| `fab-tools-relevance` | A2 | 40 | 도구가 필요 없는 질문 / 도구로 불가능한 요청 | 도구 미호출 |
+| `fab-fs-tasks` | A3 | 30 | 픽스처 4종에서 찾기·수정·요약 저장·리팩터링·집계(§0.1) | 최종 파일 상태 + 궤적 + 답변 |
+| `fab-viz` | A4 | 30 | Mermaid 15 / Recharts 15 | 블록 유효성 + 핵심 라벨 |
+| `fab-longctx` | Q6 | 생성기 | 길이 2k~128k × 깊이 3 × 과제 4(NIAH 3종 + 변수 추적) | 정답 대조 → 실효 컨텍스트 길이 |
+| `fab-compaction` | A6 | 10 | 긴 대화 → 강제 압축 → 앞부분 사실 회상 | 정답 대조 |
+| `fab-skill` | A5 | 10 | 픽스처 스킬 3종, 스킬 이름을 말하지 않고 과제만 제시 | SKILL.md 읽기 + 상태 |
+| `fab-ko-writing` | Q4 | 20 | 한국어 이메일·회의 요약·기술 문서·공지·보고서 요약 | Judge 루브릭 |
+| `fab-code-js` | Q5 | 40 | 자체 작성 JS 함수 문제 | JS Worker 실행 |
+| `fab-perf-probe` | P1·P2 | 8 시나리오 | LocalScore형 입출력 길이 조합 + 깊이 50%/90% | 측정 전용 |
+| `fab-quant-probe` | Q8 | 30 | 짧은 지시(한/영) | logprobs 분포 비교 |
 
-**(나) 공개셋 부분집합 (번들 가능한 라이선스만, 층화 샘플링)**
+**(나) 공개 데이터셋 번들 (라이선스 원문 확인 완료, 2026-09-25)**
 
-| 팩 ID | 원본 | Smoke / Std / Full | 비고 |
-| --- | --- | --- | --- |
-| `gsm8k-sub` | GSM8K(MIT) | 20 / 100 / 300 | + 숫자·이름을 바꾼 변형 셋(`gsm8k-perturb`)으로 오염 점검 |
-| `mmlu-pro-sub` | MMLU-Pro(MIT) | 30 / 140(14과목×10) / 700 | 10지선다, 선택지 셔플 |
-| `ifeval-sub` | IFEval(Apache-2.0) | 20 / 100 / 541(전체) | 체커 TS 포팅 |
-| `humaneval-plus-sub` | HumanEval+(MIT/Apache) | 10 / 50 / 164 | 3단계, 실행 샌드박스 필요 |
-| `bfcl-simple-sub` | BFCL(Apache-2.0) | 20 / 100 / 400 | FAB와 교차 검증용 |
+| 팩 ID | 원본·라이선스 | 번들 형태 |
+| --- | --- | --- |
+| `gsm8k`, `gsm8k-perturb` | GSM8K, MIT | test 1,319 전체 + 숫자·이름을 바꾼 변형 100(오염 점검) |
+| `mmlu-pro` | MMLU-Pro, MIT | 14과목 × 100 층화 부분집합 |
+| `ifeval`, `ko-ifeval` | IFEval / IFEval-Ko, Apache-2.0 | 전체 |
+| `kmmlu` | KMMLU, **CC-BY-ND-4.0** | 45과목 test CSV **원본 무수정**, 런타임 변환·샘플링 |
+| `kobest` | KoBEST, **CC-BY-SA-4.0** | 5개 과제 부분집합(파생 파일은 CC-BY-SA-4.0로 배포) |
+| `humaneval-plus` | HumanEval+, Apache-2.0 | 전체(Python 실행 옵트인 시에만 채점) |
+| `bfcl` | BFCL, Apache-2.0 | Python 5개 카테고리 부분집합 |
 
-**(다) 임포터로 제공 (번들하지 않음)**: KMMLU(-Redux), HAE-RAE, CLIcK, KoBEST, Ko-IFEval, GPQA, LogicKor 질문셋. 임포터는 HF 데이터셋 ID + 필드 매핑 프리셋을 내장하고, 사용자가 "다운로드 & 변환"을 누르면 User 계층에 팩을 만듭니다.
+**(다) 번들 불가 → 임포터만**: HAE-RAE Bench 1.1(CC-BY-NC-ND — 비상업 조건), GPQA(CC-BY-4.0이지만 "평문 공개 금지" 요청 — 공개 리포에 올라가므로 번들하지 않음), CLIcK·LogicKor(라이선스 표기 확인 불가). D4의 "앱에 포함" 결정에서 이 셋만 예외입니다.
 
 ### 4.3 개인 평가셋 (Personal Pack) — "내 작업 내역" 반영
 
@@ -160,7 +191,7 @@ Fortress는 "로컬 LLM 테스트 & 모니터링 워크벤치"입니다. 지금�
 
 ```
 ① 스위트/프로파일 선택 → ② 후보 선택(에이전트 다중 선택 또는 매트릭스 생성)
-→ ③ 사전 점검(Preflight) → ④ 예상 시간·VRAM 적합성 표시 → 사용자 확인
+→ ③ 사전 점검(Preflight) → ④ 예상 시간·VRAM 적합성·**가중치·기준값 확인(필수, D6)**·외부 전송 동의 → [실행 만들기] → 사용자가 [지금 시작]/[나중에 시작] 선택
 → ⑤ 후보별 순차 실행 [언로드 → 로드 측정 → 워밍업 → 성능 프로브 → 품질/에이전트 샘플 × epochs]
 → ⑥ Judge 패스(필요 시, 모든 후보 실행 후) → ⑦ 집계·정규화 → ⑧ 리포트
 ```
@@ -195,7 +226,7 @@ Fortress는 "로컬 LLM 테스트 & 모니터링 워크벤치"입니다. 지금�
 6. **프롬프트 캐시 분리**: 샘플마다 새 대화로 시작하고, prefill 속도는 캐시 미적중 샘플만 P2 지표에 넣습니다. 캐시 적중 여부는 `prompt_eval_count`가 입력 추정치보다 현저히 작은지로 판정합니다.
 7. **타임아웃·최대 턴**: 샘플별 `timeoutSec`(기본 180, 사고 모델 ×3), 에이전트 과제 `maxTurns`(기본 12). 초과 시 `timeout`/`max_turns`로 기록하고 오답 처리합니다.
 8. **오류 분류**: `ok` / `timeout` / `oom` / `provider_error` / `parse_error`(도구 호출 JSON 실패) / `no_answer` / `max_turns` / `cancelled`. S1 지표의 입력이 됩니다.
-9. **평가 중 채팅 차단**: 실행 동안 `chatQueueManager`에 평가 작업을 등록해 전역 busy로 만들고, 채팅 입력은 "평가 실행 중" 배너와 함께 대기시킵니다(P9-02 폴더 전환 가드도 자동 적용).
+9. **평가 중 채팅 금지(D5)**: 실행 동안 `evalLock`을 잡고 `chatQueueManager`에 가상 세션 `eval:<runId>`를 busy로 등록합니다. 채팅 입력·전송·큐 적재는 모두 차단하고(평가 후 자동 전송되지 않도록 큐에도 넣지 않음) "평가 실행 중" 배너를 표시합니다. 폴더 전환·에이전트 편집 잠금은 기존 busy 가드로 자동 적용됩니다.
 10. **체크포인트·재개**: Trial을 끝날 때마다 DB에 커밋합니다. 앱 재시작 후 "미완료 실행 이어하기"로 남은 Trial만 실행합니다(후보 스냅샷과 팩 해시가 같을 때만).
 
 ### 5.5 샘플 실행 방식 (유형별 Solver)
@@ -234,7 +265,7 @@ Fortress는 "로컬 LLM 테스트 & 모니터링 워크벤치"입니다. 지금�
 | `ifeval` | L3 | IFEval 체커 25종 TS 포팅(+한국어 변형: 글자 수, 존댓말 등) | strict/loose |
 | `fs_state` | L5 | 픽스처 최종 상태 검사: 파일 존재/부재, 내용 포함·정규식·정확 일치, 변경 금지 파일 불변 | `expect[]` |
 | `trajectory` | L5 | 도구 궤적 조건: 특정 도구 호출 여부, 호출 순서, 최대 호출 수 | `mustCall`, `mustNotCall`, `maxCalls` |
-| `code_exec` | L4 | 코드 블록 추출 → 샌드박스 실행 → 테스트 통과 | 3단계(§8.5) |
+| `code_exec` | L4 | 코드 블록 추출 → 격리 실행 → 테스트 통과 | JS Worker 기본, Python 옵트인(§8.5) |
 | `llm_judge_rubric` | L7 | 루브릭 단일 채점(1~5 또는 1~10) | judge 설정(§6.5) |
 | `llm_judge_pairwise` | L7 | 기준 답변 또는 다른 후보와 쌍대 비교, 순서 교체 2회 | 동일 |
 | `human` | L8 | 리포트 화면에서 사람이 채점(합격/불합격/점수) | — |
@@ -266,7 +297,7 @@ Fortress는 "로컬 LLM 테스트 & 모니터링 워크벤치"입니다. 지금�
 
 | 항목 | 결정 |
 | --- | --- |
-| Judge 선택 | ① 로컬 모델(권장: 후보보다 큰 모델 또는 Prometheus 2 계열) ② 외부 OpenAI 호환 API(옵트인, 데이터 반출 경고 + 팩 단위 동의) |
+| Judge 선택 | ① 로컬 모델(권장: 후보보다 큰 모델 또는 Prometheus 2 계열) ② 외부 연동(`llm-api` 또는 `agent-cli`, §8.8 — 설정에서 `judge` 용도와 데이터 분류에 동의한 연동만, 실행별 재확인) |
 | 자기선호 방지 | Judge와 후보가 같은 모델 계열이면 경고. 같은 모델 태그면 차단 |
 | 실행 시점 | 모든 후보 실행 후 **Judge 패스**를 따로 실행(VRAM 경합 방지, 조사 §5.3) |
 | 출력 형식 | JSON `{ "reasoning": "...", "score": n }`(zod 검증, 실패 시 1회 재시도 후 `error`) |
@@ -359,7 +390,7 @@ Composite = Σ(dim_w × Dimension) / Σ dim_w       // 가중 산술평균
 - **가중 산술평균**을 쓰고, 하나가 0이면 전체가 0이 되는 기하평균은 쓰지 않습니다. 대신 치명적 약점은 **하드 제약**으로 걸러냅니다(§7.7). 그래야 "왜 탈락했는지"가 명시적으로 드러납니다.
 - 평가되지 않은 카테고리(N/A, 예: 도구 미지원 모델의 A 차원)는 가중치를 제외하고 재정규화하되, 리포트에 "커버리지 %"를 함께 표시합니다(HELM 커버리지 문제의식).
 
-**기본 프로파일 (제안)**
+**기본 프로파일 (확정 — 실행마다 사용자가 확인·수정, D6)**
 
 | 프로파일 | Q | A | P | R | S | 하드 제약 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -404,175 +435,64 @@ Composite = Σ(dim_w × Dimension) / Σ dim_w       // 가중 산술평균
 
 ## 8. Fortress 적용 설계
 
-### 8.1 모듈 구조 (제안 — 승인 시 `Architecture.md` §2에 반영)
+> 파일 목록·함수 시그니처·DB 스키마의 **최종본은 `Docs/phases/Phase10-Evaluation.md`**입니다. 이 절은 핵심 설계 판단만 요약합니다.
 
-```
-src/lib/eval/
-  types.ts            # zod 스키마: EvalPack/Sample/ScorerSpec/MetricSpec/Profile/Run/Trial/Score (§9)
-  packLoader.ts       # 3계층 팩 로드·검증·해시, 층화 샘플링(Smoke/Std/Full)
-  importers/          # jsonl(Inspect/OpenAI Evals/promptfoo 필드 매핑), hf 프리셋(KMMLU 등)
-  candidates.ts       # Agent → Candidate 스냅샷, 매트릭스 스윕 생성
-  preflight.ts        # 모델 확인·VRAM 추정·시간 추정
-  runner.ts           # 실행 오케스트레이터(순차, 체크포인트, 취소, chatQueueManager 연동)
-  solvers.ts          # single_turn / multi_turn / tool_call / agentic / perf_probe
-  sandbox.ts          # 픽스처 임시 워크스페이스 생성·상태 스냅샷·정리 (Rust 커맨드 호출)
-  scorers/            # exact, includes, regex, choice, numeric, jsonSchema, toolCallAst, noToolCall,
-                      # vizBlock, ifeval/, fsState, trajectory, llmJudge, human
-  judge.ts            # Judge 패스, 순서 교체, 파싱·재시도
-  aggregate.ts        # 4단 집계, N/A 재정규화
-  normalize.ts        # 기준선 보정, 앵커 효용 함수
-  stats.ts            # Wilson, 부트스트랩(군집·쌍대), pass@k/pass^k, Bradley-Terry
-  recommend.ts        # 제약 필터, 파레토, 추천 사유 템플릿
-  exportEee.ts        # EEE JSON + samples JSONL 내보내기
-src/lib/db/repositories/evalRepo.ts
-src/lib/context/EvalContext.tsx           # 실행 상태·진행률(Context per concern 원칙)
-src/components/eval/
-  EvalListPanel.tsx     # 사이드 패널: 스위트·팩·실행 이력
-  EvalRunWizard.tsx     # 실행 설정(스위트/프로파일/후보/단계/epochs)
-  EvalRunProgress.tsx   # 실시간 진행(후보×팩 진행 바, 현재 샘플, 모니터링 미니 차트)
-  EvalReport.tsx        # 순위표·레이더·파레토·카테고리 히트맵
-  EvalSampleDetail.tsx  # 샘플 드릴다운(후보별 출력 diff, 채점 사유, 사람 채점)
-  EvalPackEditor.tsx    # 팩/샘플 편집, 개인 팩 관리
-  ArenaCompare.tsx      # 블라인드 A/B
-src/components/workspace/EvalTab.tsx     # 탭 라우팅(run-config / run / report / pack)
-src/assets/evals/                         # Built-in 팩(JSONL + manifest), 픽스처
-src-tauri/src/commands/eval_commands.rs   # 픽스처 임시 폴더 생성/복사/스냅샷/삭제
-```
+### 8.1 모듈 구조
 
-- `WorkspaceTabType`에 `'eval'`을 추가하고(`meta.view`로 하위 화면 구분), `SidePanelView`에 `'evaluation'`을, ActivityBar에 평가 아이콘(lucide `FlaskConical`)을 추가합니다.
-- 모든 UI 문구는 ko/en 사전 키로 등록합니다(`AGENTS.md` §3).
+`src/lib/eval/`(순수 로직: types·packs·scorers·runner·stats·scoring·judge·logprobs·runtimes·integrations·personal·arena·interop), `src/components/eval/`(UI), `EvalContext`, `SettingsIntegrations`, Rust `eval_commands.rs`·`integration_commands.rs`, 번들 팩 `src-tauri/resources/evals/`. 트리는 `Architecture.md` §2에 있습니다.
 
 ### 8.2 기존 모듈 재사용 지점
 
 | 필요 | 기존 모듈 | 방식 |
 | --- | --- | --- |
-| LLM 호출 | `providerRuntime.getStreamChatFn` | 후보 스냅샷 → `ResolvedLlmRuntime` |
-| 에이전트 실행 | `runAgentLoop` | `tools`에 샌드박스 도구 주입, `hooks.beforeToolCall`로 샌드박스 승인 정책 적용, `shouldStopAfterTurn`으로 tool_call 1턴 정지 |
-| 설정 스냅샷 | `ChatConfigSnapshot` / `captureChatConfigSnapshot` | Candidate 스냅샷의 기반(필드 재사용 + 활성 도구·스킬 추가) |
-| 생성 파라미터 매핑 | `generationParams.ts` | Provider 미지원 파라미터를 결과에 "무시됨"으로 기록 |
-| 성능·자원 측정 | `monitoringCollector`, `tokenTracker` | Trial 기간의 스냅샷을 `conversation_id = trialId`로 태깅 → VRAM 피크·GPU 사용률 집계 |
+| LLM 호출 | `providerRuntime.getStreamChatFn` | 후보 스냅샷 → 런타임. API 키는 스냅샷에 저장하지 않고 원본 에이전트에서 런타임에 해석 |
+| 에이전트 실행 | `runAgentLoop` | 샌드박스 도구 세트 + **평가 전용 정책 훅**(전역 승인 훅 대신, Architecture §8.4) |
+| 도구 호출 평가 | `streamChat` 직접 호출 | 1턴만 생성하고 도구는 실행하지 않음 |
+| 설정 스냅샷 | `ChatConfigSnapshot` 필드 체계 | `CandidateSnapshot`의 기반 |
+| 자원 측정 | `getSystemGpuInfo`, `getRunningModels` | **평가 전용 자원 샘플러**(D7). 모니터링 스냅샷 테이블은 `agents` FK가 있어 매트릭스 후보를 기록할 수 없음 |
 | 시각화 검증 | `parseVisualBlocks`, Mermaid, Recharts DSL | `viz_block` 채점기 |
-| 압축 | `compaction/compact` | `fab-compaction`에서 강제 압축 |
-| 스킬 | 스킬 스캐너 | 픽스처 폴더를 워크스페이스로 스캔(신뢰 확인은 번들 픽스처만 자동 신뢰, §8.4) |
-| 동시 실행 방지 | `chatQueueManager` | 평가 작업을 busy로 등록 |
-| 차트 | 기존 Recharts | 레이더·산점도·막대 |
+| 압축 | `prepareCompaction`/`executeCompact` | `compaction_recall` 솔버 |
+| 동시 실행 방지 | `chatQueueManager` | 가상 세션 `eval:<runId>`로 전역 busy → 폴더 전환·에이전트 편집 잠금 자동 적용. 채팅은 `evalLock`으로 전송·큐잉 차단(D5) |
 
-### 8.3 저장소 (DB 스키마 제안)
+### 8.3 저장소
 
-평가 결과는 **하드웨어·모델 단위의 자산**이므로 **전역 DB**에 저장합니다(여러 프로젝트에서 같은 PC의 결과를 공유). 개인 팩 파일만 프로젝트 `.fortress/evals/`에 둡니다(`Architecture.md` §4.5 분리 원칙 확장).
-
-```sql
-CREATE TABLE eval_runs (
-  id TEXT PRIMARY KEY,
-  name TEXT,
-  suite_json TEXT NOT NULL,          -- 팩 ID·버전·해시·단계·epochs
-  profile_json TEXT NOT NULL,        -- 가중치·앵커(anchorsVersion)·제약
-  hardware_json TEXT NOT NULL,       -- §7.9 지문
-  status TEXT NOT NULL,              -- pending|running|paused|judging|completed|cancelled|failed
-  judge_json TEXT,                   -- Judge 설정(없으면 NULL)
-  workspace_root TEXT,               -- 개인 팩 출처 프로젝트(있으면)
-  started_at TEXT, finished_at TEXT, created_at TEXT NOT NULL
-);
-CREATE TABLE eval_candidates (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
-  label TEXT NOT NULL,
-  source_agent_id TEXT,              -- 원본 에이전트(삭제돼도 스냅샷 유지, FK 없음)
-  snapshot_json TEXT NOT NULL,       -- Candidate 스냅샷 전체
-  model_meta_json TEXT,              -- 파라미터 수·양자화·파일 크기(/api/show)
-  load_ms REAL,
-  status TEXT NOT NULL, error TEXT, position INTEGER NOT NULL
-);
-CREATE TABLE eval_trials (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
-  candidate_id TEXT NOT NULL REFERENCES eval_candidates(id) ON DELETE CASCADE,
-  pack_id TEXT NOT NULL, sample_id TEXT NOT NULL, epoch INTEGER NOT NULL,
-  outcome TEXT NOT NULL,             -- ok|timeout|oom|provider_error|parse_error|no_answer|max_turns|cancelled
-  output_text TEXT, reasoning_text TEXT,
-  transcript_json TEXT,              -- 멀티턴/에이전트 메시지·도구 궤적
-  final_state_json TEXT,             -- 픽스처 최종 상태 요약
-  input_tokens INTEGER, output_tokens INTEGER, thinking_tokens INTEGER,
-  ttft_ms REAL, prefill_tps REAL, decode_tps REAL, total_ms REAL,
-  cache_hit INTEGER, vram_peak_mb INTEGER, turns INTEGER, tool_calls INTEGER,
-  started_at TEXT NOT NULL, finished_at TEXT,
-  UNIQUE(candidate_id, pack_id, sample_id, epoch)   -- 재개 시 중복 방지
-);
-CREATE TABLE eval_scores (
-  id TEXT PRIMARY KEY,
-  trial_id TEXT NOT NULL REFERENCES eval_trials(id) ON DELETE CASCADE,
-  scorer TEXT NOT NULL,              -- 채점기 ID(+인스턴스 키)
-  value REAL NOT NULL,               -- 0~1
-  verdict TEXT NOT NULL,             -- correct|incorrect|partial|no_answer|error
-  reason TEXT, extracted TEXT,
-  judge_raw TEXT,                    -- Judge 원문(있으면)
-  source TEXT NOT NULL DEFAULT 'auto', -- auto|judge|human
-  created_at TEXT NOT NULL
-);
-CREATE TABLE eval_aggregates (      -- 캐시(원시 데이터로 언제든 재계산 가능)
-  run_id TEXT NOT NULL, candidate_id TEXT NOT NULL,
-  level TEXT NOT NULL,               -- pack|category|dimension|composite|metric
-  key TEXT NOT NULL,                 -- 예: pack:gsm8k-sub, metric:decode_tps
-  raw REAL, normalized REAL, ci_low REAL, ci_high REAL, n INTEGER,
-  anchors_version TEXT, computed_at TEXT NOT NULL,
-  PRIMARY KEY (run_id, candidate_id, level, key)
-);
-CREATE TABLE arena_votes (
-  id TEXT PRIMARY KEY,
-  prompt_hash TEXT NOT NULL, workspace_root TEXT,
-  a_snapshot_json TEXT NOT NULL, b_snapshot_json TEXT NOT NULL,
-  a_label TEXT NOT NULL, b_label TEXT NOT NULL,
-  winner TEXT NOT NULL,              -- a|b|tie|both_bad
-  created_at TEXT NOT NULL
-);
-```
-
-- `client.ts` 메모리 폴백과 `0001_init.sql` 동기화 규칙을 기존 P9 작업과 똑같이 따릅니다.
-- 원시 출력이 많아질 수 있으므로 설정에 "실행 결과 보존 기간/최대 개수"를 두고, 오래된 Run의 `output_text`/`transcript_json`만 비우는 **압축 정리** 기능을 제공합니다(집계는 유지).
+전역 DB(D2) 테이블: `eval_runs`, `eval_candidates`, `eval_trials`, `eval_scores`, `eval_aggregates`, `eval_profiles`, `arena_votes`, `external_integrations`, `integration_settings`, `integration_audit_log`. Trial마다 커밋하므로 앱이 종료돼도 이어할 수 있습니다(이어하기도 사용자가 수동으로 시작, D6). 원시 출력은 보존 정책에 따라 비울 수 있고 집계는 유지합니다.
 
 ### 8.4 에이전트형 평가의 안전 설계
 
-| 위험 | 대책 |
-| --- | --- |
-| 에이전트가 실제 프로젝트 파일을 수정 | 샌드박스 도구 세트는 `workspaceRoot`를 **앱 임시 디렉터리의 픽스처 복사본**(`%TEMP%/fortress-eval/{trialId}`)으로 고정합니다. 도구는 이미 `ctx.workspaceRoot` 주입을 지원하고, Rust 측 스코프 검사(canonicalize 포함)가 그대로 적용됩니다 |
-| 승인 우회 | 앱 전역 승인 로직은 건드리지 않습니다. 평가 러너가 `beforeToolCall` 훅에서 **경로가 샌드박스 내부이고 도구가 read/ls/grep/find/write/edit일 때만** 자동 승인합니다. 그 밖의 경우는 모두 거부하고 `error`로 기록합니다(사용자 승인 대화상자도 띄우지 않음) |
-| `shell` 실행 | 평가 후보의 활성 도구에서 `shell`을 **강제로 제거**합니다. `AGENTS.md` §7의 "shell은 항상 승인" 규칙을 지키려면 무인 자동화와 양립할 수 없기 때문입니다. 코딩 실행형 채점(L4)은 에이전트 도구가 아니라 채점기 내부의 별도 샌드박스로 분리합니다(§8.5) |
-| `web_search`/`web_fetch` | 기본으로 제거합니다(결과 비결정성·외부 전송). 팩이 명시적으로 요구할 때만 사용자 동의 후 허용합니다 |
-| 픽스처 스킬 신뢰 | 번들 픽스처는 서명된 앱 리소스이므로 자동 신뢰합니다. 사용자 픽스처의 스킬은 기존 워크스페이스 신뢰 확인 절차를 거칩니다 |
-| 임시 파일 잔존 | Trial 종료 시 삭제하고, 앱 시작 시 `fortress-eval/` 잔여물을 정리합니다 |
-| 개인 팩의 민감 정보 | 저장 전 미리보기와 확인을 거칩니다. `.env`·키 패턴 파일은 제외하고, 내보내기 시 개인 팩 포함 여부를 따로 확인합니다 |
+`Architecture.md` §8.4에 "승인 훅의 유일한 예외"로 명문화했습니다. 요지: 임시 샌드박스 루트, 파일 도구 6종만(`shell`·웹 도구 제거), TS 정책 훅과 Rust 경로 검증으로 이중 방어, 사용자 수동 시작, Trial 종료 시 삭제.
 
-### 8.5 코딩 실행형 채점 (3단계, 선택)
+### 8.5 코드 실행 채점 (확정)
 
-- 1안: **JS/TS 문제 한정**으로 Web Worker에서 실행합니다(네트워크·DOM 없음, 타임아웃 강제). 추가 의존성과 외부 프로세스가 필요 없습니다.
-- 2안: 로컬 Python/Node를 감지하면 Rust 커맨드로 **임시 폴더 + 타임아웃 + 네트워크 차단 불가 경고** 조건에서 실행합니다. 실행 전 사용자 동의(팩 단위)를 받습니다.
-- MVP에서는 제외합니다. 3단계에서 1안부터 도입하는 것을 제안합니다.
+- **JS(기본)**: 네트워크 API를 제거한 Web Worker에서 실행합니다. 샘플마다 새 Worker를 만들고 타임아웃이 지나면 terminate합니다. 추가 의존성은 없습니다. 번들 팩은 `fab-code-js`입니다.
+- **Python(옵트인)**: 설정 "로컬 코드 실행 허용", 실행 마법사의 실행별 확인, Python 감지가 모두 충족될 때만 Rust `eval_run_python`(셸 미경유, `-I` 격리, 임시 폴더, 10초 타임아웃)으로 실행합니다. 네트워크 차단은 보장하지 않으며 UI에서 고지합니다. 번들 팩은 `humaneval-plus`입니다.
 
 ### 8.6 UI 흐름
 
-1. **ActivityBar → 평가 패널**: [새 평가 실행] 버튼, 스위트 목록, 최근 실행 목록(상태 배지·최적 후보 요약), 개인 팩 목록
-2. **실행 마법사(EvalTab: run-config)**:
-   - Step 1 목적: 프로파일 선택(균형/코딩/한국어 문서/빠른 응답/긴 문서/사용자 정의)
-   - Step 2 스위트: 팩 체크리스트 + 단계(Smoke/Std/Full) + epochs + 결정성 모드
-   - Step 3 후보: 에이전트 다중 선택 또는 "매트릭스" 탭(기준 에이전트 + 스윕 축)
-   - Step 4 확인: Preflight 결과, 예상 시간, VRAM 적합성, 검정력 안내(±x%p), Judge 설정
-3. **진행 화면(run)**: 후보×팩 진행 매트릭스, 현재 샘플 입출력 스트리밍 미리보기, 실시간 tok/s·VRAM 미니 차트(모니터링 재사용), 일시정지/취소/후보 건너뛰기
-4. **리포트(report)**:
-   - 상단: 추천 카드 3종(최적/빠른/고품질) + 사유 문장 + "이 설정으로 에이전트 만들기"
-   - 순위표: Composite(±CI), 차원 점수, 커버리지, 제약 위반 배지, "구분 불가" 그룹 음영
-   - 차트: 차원 레이더, 품질×속도 파레토 산점도(버블=VRAM), 카테고리 히트맵, 컨텍스트 길이별 정확도·decode 곡선(Q6·P2)
-   - 드릴다운: 팩 → 샘플 목록(후보별 ✓/✗) → 샘플 상세(출력 나란히 보기, 채점 사유, 도구 궤적, 사람 채점 입력)
-   - 비교: 이전 Run과의 회귀 비교(같은 팩 해시일 때), 내보내기(EEE JSON + samples JSONL, CSV)
-5. **채팅 연동**: 말풍선 메뉴 "평가 케이스로 저장", 채팅 탭 "비교 모드(Arena)"
+1. ActivityBar "평가" → 사이드 패널(새 평가, 실행 중·최근 실행, 이어하기, 평가셋 관리)
+2. 실행 마법사: 목적(프로파일) → 평가셋(팩·tier·epochs) → 후보(에이전트 선택 / 매트릭스 / 양자화 비교 / Judge / 실행 옵션) → **확인**(사전점검, 예상 시간, 검정력, **가중치·기준값 전체 표시와 수정, "확인했습니다" 체크 필수**, 외부 전송 요약·동의, 코드 실행 확인) → [실행 만들기] → [지금 시작] 또는 [나중에 시작]
+3. 진행 화면 → 완료되면 같은 탭이 리포트로 전환
+4. 리포트: 추천 3종 + 사유, 순위표(±CI, 구분 불가 그룹), 레이더·파레토·히트맵·컨텍스트 곡선, 샘플 드릴다운·사람 채점, 이전 실행 비교, 내보내기
+5. 채팅 연동: 말풍선 메뉴 "평가 케이스로 저장", 채팅 탭 "비교 모드(Arena)". 평가 중에는 채팅 입력 전체가 비활성화되고 배너가 표시됩니다(D5)
 
 ### 8.7 모니터링 기능과의 관계
 
-- 평가 Trial 동안 수집된 모니터링 스냅샷은 기존 테이블에 그대로 쌓이고, `conversation_id`에 trialId를 넣어 연결합니다. 모니터링 패널 필터에 "평가 실행" 그룹을 추가합니다.
-- 기존 `Docs/analysis/MonitoringAnalysis_*.md` 같은 수작업 분석 리포트를 평가 리포트가 자동으로 대체·보완합니다.
+평가는 모니터링 스냅샷 테이블에 기록하지 않습니다(D7). 대신 Trial마다 VRAM 피크·GPU 사용률·온도·오프로드 비율을 `eval_trials`에 저장하고 진행 화면에서 실시간으로 보여줍니다. 기존 `Docs/analysis/MonitoringAnalysis_*.md` 같은 수작업 분석은 평가 리포트가 자동으로 대체·보완합니다.
 
----
+### 8.8 외부 연동 (D3)
+
+- **설정 > 외부 연동** 페이지: 마스터 스위치(기본 꺼짐)와 연동 등록. 연동은 `llm-api`(OpenAI/Anthropic/Gemini/xAI/OpenAI 호환 — 기존 Provider 프리셋 재사용) 또는 `agent-cli`(Claude Code·Codex 같은 CLI를 절대 경로로 등록, 프롬프트는 stdin/임시 파일로만 전달, 셸 미경유)입니다.
+- **용도별 허용**: 평가 Judge / 참조 답변 생성 / 개인 팩 초안 작성 / 평가 후보로 사용
+- **데이터 분류별 허용**: 공개 번들 데이터 / 개인 데이터(채팅에서 만든 평가셋) / 픽스처 파일 내용
+- **동의**: 저장할 때와 범위를 넓힐 때마다 동의 다이얼로그를 띄웁니다. 동의 문구에 버전이 있어 문구가 바뀌면 다시 동의받습니다.
+- **실행별 재확인**: 실행 마법사가 연동·용도·데이터 분류·예상 요청 수·토큰을 요약하고 체크를 받습니다.
+- **단일 게이트웨이**: 모든 외부 전송은 `gateway.ts`를 통과하고, 권한 검사에 실패하면 전송하지 않습니다.
+- **감사 로그**: 시각·연동·용도·데이터 분류·요청 수·전송 바이트·상태를 기록합니다.
+- **외부 후보**: loopback이나 사용자가 등록한 신뢰 LAN 호스트가 아닌 엔드포인트는 `external`로 분류합니다. `candidate` 용도로 동의된 연동이 있어야 평가할 수 있습니다.
 
 ## 9. 정규화 스키마 정의 (데이터 계약)
+
+> 아래는 설계 의도를 보여주는 요약입니다. **확정 스키마(zod)는 `Phase10-Evaluation.md` P10-01**이며, 둘이 다르면 Phase 문서를 따릅니다.
 
 아래는 `src/lib/eval/types.ts`의 zod 스키마 초안을 TypeScript 형태로 적은 것입니다. 파일 포맷(팩)은 이 스키마를 JSON으로 직렬화한 것입니다.
 
@@ -700,29 +620,20 @@ interface EvalProfile {
 
 ---
 
-## 10. 단계별 로드맵 (Phase 10 제안)
+## 10. 구현 로드맵
 
-| 작업 ID | 내용 | 소유 파일(요지) | 단계 |
-| --- | --- | --- | --- |
-| P10-01 | 평가 타입/zod 스키마 + 팩 로더(3계층·해시·층화 샘플링) | `src/lib/eval/types.ts`, `packLoader.ts` | MVP |
-| P10-02 | DB 마이그레이션 + `evalRepo` + 메모리 폴백 | `migrations/*`, `evalRepo.ts`, `client.ts`(eval 테이블 부분) | MVP |
-| P10-03 | 결정적 채점기(exact/includes/regex/choice/numeric/json_schema/tool_call_ast/no_tool_call/viz_block) + 테스트 | `src/lib/eval/scorers/*` | MVP |
-| P10-04 | IFEval 체커 TS 포팅(영문 핵심 + 한국어 변형) | `scorers/ifeval/*` | MVP |
-| P10-05 | 러너 + solvers(single/multi/tool_call/perf_probe) + 체크포인트·재개 + chatQueue 연동 + 모니터링 태깅 | `runner.ts`, `solvers.ts`, `candidates.ts`, `preflight.ts` | MVP |
-| P10-06 | 집계·정규화·통계(부트스트랩·Wilson·pass^k) + 프로파일 5종 + 추천 | `aggregate.ts`, `normalize.ts`, `stats.ts`, `recommend.ts` | MVP |
-| P10-07 | UI: 사이드 패널·실행 마법사·진행 화면·리포트(순위표·레이더·파레토·드릴다운) + ko/en 문구 | `src/components/eval/*`, `EvalTab.tsx`, `EvalContext.tsx`, 탭/패널 타입 | MVP |
-| P10-08 | Built-in 팩 v1: `fab-tools-select`, `fab-tools-relevance`, `fab-viz`, `fab-perf-probe`, `gsm8k-sub`, `mmlu-pro-sub`, `ifeval-sub` | `src/assets/evals/*` | MVP |
-| P10-09 | 샌드박스 픽스처(Rust 커맨드) + agentic solver + fs_state/trajectory 채점 + `fab-fs-tasks` | `eval_commands.rs`, `sandbox.ts`, 관련 채점기 | 2단계 |
-| P10-10 | 긴 컨텍스트 합성 팩(`fab-longctx`) + 실효 컨텍스트 산출 + 깊이별 속도 곡선 | 팩 생성기, 리포트 차트 | 2단계 |
-| P10-11 | LLM Judge 패스 + `fab-ko-writing` + Judge 신뢰도 점검 | `judge.ts`, `llmJudge.ts` | 2단계 |
-| P10-12 | 개인 평가셋(채팅에서 저장·일괄 초안·픽스처 캡처) + 팩 편집기 | `EvalPackEditor.tsx`, `MessageBubble` 메뉴 연결 | 2단계 |
-| P10-13 | 가져오기(JSONL/CSV/HF 프리셋) + EEE 내보내기 | `importers/*`, `exportEee.ts` | 2단계 |
-| P10-14 | 로컬 Arena(블라인드 A/B) + Bradley-Terry | `ArenaCompare.tsx`, `stats.ts`(BT) | 3단계 |
-| P10-15 | `fab-compaction`, `fab-skill`, 회귀 비교, 결과 보존 정책 | — | 3단계 |
-| P10-16 | 코딩 실행형 채점(Web Worker JS 우선) + `humaneval-plus-sub` | `scorers/codeExec*` | 3단계 |
-| P10-17 | (선택) logprobs 기반 MCQ·양자화 KLD — Provider 지원 확인 후 | — | 보류 |
+작업 26개(P10-01~26)의 소유 파일·선행 조건·완료 기준은 `Docs/phases/Phase10-Evaluation.md`, 진행 체크는 `Docs/TODO.md` Phase 10에 있습니다.
 
-**MVP 완료 기준**: 에이전트 3개를 골라 Standard 스위트(FAB 도구 2종 + viz + perf + GSM8K + MMLU-Pro + IFEval)를 실행하면 → 중단·재개가 되고 → 리포트에 Composite(±CI)·레이더·파레토·추천 3종이 나오며 → 샘플 드릴다운에서 채점 사유를 확인할 수 있다. `pnpm lint`/`typecheck`/`test`를 통과하고 `pnpm tauri dev`로 실제 동작을 확인한다.
+| 웨이브 | 작업 | 내용 |
+| --- | --- | --- |
+| W0 | P10-01~03 | 타입·스키마·상수, DB·Repo, 평가 잠금·채팅 차단 |
+| W1 | P10-04~09 | 팩 로더, 결정적 채점기, IFEval 체커, 통계·정규화·추천, Rust 커맨드, 외부 연동 |
+| W2 | P10-10~14 | 러너 코어, 에이전트형 솔버·샌드박스, Judge·사람 채점, 코드 실행, logprobs |
+| W3 | P10-15~20, 25 | UI 골격, 마법사, 진행, 리포트, 팩 관리·개인 평가셋, Arena, 가져오기·내보내기 |
+| 콘텐츠 | P10-21~24 | FAB 11개 팩 + 공개셋 9개 번들(P10-01 이후 언제든) |
+| W4 | P10-26 | 통합 QA·문서 |
+
+**Phase 완료 기준**: 에이전트 3개와 "표준" 스위트로 실행 → 중간 종료 후 수동 이어하기 → 리포트에 종합 점수(±CI)·레이더·파레토·추천 3종 → 샘플 드릴다운·사람 채점 → EEE 내보내기까지 동작하고, QA 시나리오 10종(P10-26)을 통과한다.
 
 ---
 
@@ -742,13 +653,6 @@ interface EvalProfile {
 
 ---
 
-## 12. 결정이 필요한 사항 (승인 요청)
+## 12. 결정 기록
 
-1. **MVP 범위**: §10의 P10-01~08을 MVP로 할지(에이전트 픽스처 과제 A3는 2단계로 미룸). 대안: A3를 MVP로 당기고 IFEval을 2단계로 미룸.
-2. **결과 저장 위치**: 전역 DB(제안) vs 프로젝트 DB.
-3. **외부 API Judge 허용 여부**: 옵트인 허용(제안) vs 로컬 Judge만.
-4. **Built-in 공개셋 부분집합의 번들**: 번들(제안, 오프라인 동작) vs 전부 다운로드 방식(앱 크기 최소화).
-5. **평가 중 채팅**: 차단(제안) vs 허용하되 오염 표시.
-6. **기본 프로파일 가중치·앵커 값**(§7.3·§7.6): 제안값 그대로 시작하고 실측 후 조정할지.
-
-승인되면 `Docs/Architecture.md`(§2 트리, §3.1~3.3 패널/탭, §4 데이터 모델, §4.5 저장소)와 `Docs/ImplementationPlan.md`를 갱신하고, `Docs/phases/Phase10-Evaluation.md`를 작성하겠습니다.
+2026-09-25 사용자 결정 6건(D1~D6)은 §0에 반영했습니다. 구현 중 설계를 바꿔야 한다면 `Docs/TODO.md` 이슈 로그에 기록하고, 이 문서와 `Architecture.md` §14를 함께 갱신합니다.

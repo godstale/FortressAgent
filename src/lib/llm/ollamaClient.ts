@@ -1,5 +1,13 @@
 import type { TokenUsage } from '@/lib/agent/types';
 import type { LlmPerformanceMetrics } from '@/lib/types/monitoring';
+import {
+  TauriHttpStatusError,
+  decodeFetchBodyStream,
+  isTauriRuntime,
+  tauriHttpGetText,
+  tauriHttpPostStreamText,
+  tauriHttpPostText,
+} from '@/lib/llm/tauriLlmTransport';
 
 export class OllamaConnectionError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -102,73 +110,78 @@ export async function* streamChat(
   const baseUrl = (req.baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
   const url = `${baseUrl}/api/chat`;
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: req.model,
-        messages: req.messages,
-        tools: req.tools && req.tools.length > 0 ? req.tools : undefined,
-        stream: true,
-        ...(req.think !== undefined ? { think: req.think } : {}),
-        options: {
-          temperature: req.temperature,
-          ...(req.topP !== undefined ? { top_p: req.topP } : {}),
-          ...(req.topK !== undefined ? { top_k: req.topK } : {}),
-          ...(req.repeatPenalty !== undefined ? { repeat_penalty: req.repeatPenalty } : {}),
-          ...(req.seed !== undefined ? { seed: req.seed } : {}),
-          ...(req.stopSequences && req.stopSequences.length > 0
-            ? { stop: req.stopSequences }
-            : {}),
-          ...(req.maxOutputTokens !== undefined ? { num_predict: req.maxOutputTokens } : {}),
-          ...req.options,
-        },
-      }),
-      signal,
-    });
-  } catch (err: unknown) {
-    if (signal?.aborted) {
-      throw err;
-    }
-    throw new OllamaConnectionError(
-      err instanceof Error ? err.message : String(err),
-      err,
-    );
-  }
+  const payload = {
+    model: req.model,
+    messages: req.messages,
+    tools: req.tools && req.tools.length > 0 ? req.tools : undefined,
+    stream: true,
+    ...(req.think !== undefined ? { think: req.think } : {}),
+    options: {
+      temperature: req.temperature,
+      ...(req.topP !== undefined ? { top_p: req.topP } : {}),
+      ...(req.topK !== undefined ? { top_k: req.topK } : {}),
+      ...(req.repeatPenalty !== undefined ? { repeat_penalty: req.repeatPenalty } : {}),
+      ...(req.seed !== undefined ? { seed: req.seed } : {}),
+      ...(req.stopSequences && req.stopSequences.length > 0
+        ? { stop: req.stopSequences }
+        : {}),
+      ...(req.maxOutputTokens !== undefined ? { num_predict: req.maxOutputTokens } : {}),
+      ...req.options,
+    },
+  };
+  const bodyJson = JSON.stringify(payload);
 
-  if (!response.ok) {
-    let errBody = '';
+  // Tauri Webview의 fetch는 CORS를 강제하므로 Tauri 안에서는 Rust 백엔드로 우회한다.
+  let textChunks: AsyncIterable<string>;
+  if (isTauriRuntime()) {
+    textChunks = tauriHttpPostStreamText(url, bodyJson, undefined, signal);
+  } else {
+    let response: Response;
     try {
-      errBody = await response.text();
-    } catch {
-      // ignore
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyJson,
+        signal,
+      });
+    } catch (err: unknown) {
+      if (signal?.aborted) {
+        throw err;
+      }
+      throw new OllamaConnectionError(
+        err instanceof Error ? err.message : String(err),
+        err,
+      );
     }
 
-    if (response.status === 404) {
-      throw new OllamaModelNotFoundError(req.model);
+    if (!response.ok) {
+      let errBody = '';
+      try {
+        errBody = await response.text();
+      } catch {
+        // ignore
+      }
+
+      if (response.status === 404) {
+        throw new OllamaModelNotFoundError(req.model);
+      }
+      if (isContextOverflowMessage(errBody)) {
+        throw new OllamaContextOverflowError(errBody);
+      }
+      throw new OllamaRequestError(errBody || response.statusText, response.status);
     }
-    if (isContextOverflowMessage(errBody)) {
-      throw new OllamaContextOverflowError(errBody);
+
+    if (!response.body) {
+      throw new OllamaRequestError('Response body is null', response.status);
     }
-    throw new OllamaRequestError(errBody || response.statusText, response.status);
+    textChunks = decodeFetchBodyStream(response.body);
   }
 
-  if (!response.body) {
-    throw new OllamaRequestError('Response body is null', response.status);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   let buffer = '';
 
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
+    for await (const text of textChunks) {
+      buffer += text;
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
 
@@ -273,17 +286,55 @@ export async function* streamChat(
         };
       }
     }
-  } finally {
-    reader.releaseLock();
+  } catch (err) {
+    // Tauri 우회 경로의 상태 에러를 Ollama 타입 에러로 매핑한다.
+    // (NDJSON 본문에 담긴 모델 에러는 위 루프에서 이미 Ollama* 로 던져진다)
+    throw mapTauriStreamError(err, req.model);
   }
+}
+
+/** Tauri 우회 호출의 에러를 Ollama 타입 에러로 매핑한다. */
+function mapTauriGetError(err: unknown): Error {
+  if (err instanceof TauriHttpStatusError) {
+    return new OllamaRequestError(err.body || `status ${err.status}`, err.status);
+  }
+  return new OllamaConnectionError(
+    err instanceof Error ? err.message : String(err),
+    err,
+  );
+}
+
+/** Tauri 우회 스트림의 상태 에러를 Ollama 타입 에러로 매핑한다. */
+function mapTauriStreamError(err: unknown, model: string): unknown {
+  if (err instanceof TauriHttpStatusError) {
+    if (err.status === 404) {
+      return new OllamaModelNotFoundError(model);
+    }
+    if (isContextOverflowMessage(err.body)) {
+      return new OllamaContextOverflowError(err.body);
+    }
+    return new OllamaRequestError(err.body || `status ${err.status}`, err.status);
+  }
+  return err;
 }
 
 export async function listModels(baseUrl?: string): Promise<OllamaModel[]> {
   const host = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  // GET에는 Content-Type을 보내지 않는다. body 없는 GET에
+  // application/json을 붙이면 CORS preflight(OPTIONS)가 발생해
+  // 로컬 서버 연결 확인이 실패할 수 있다.
+  if (isTauriRuntime()) {
+    try {
+      const text = await tauriHttpGetText(`${host}/api/tags`);
+      const data = JSON.parse(text) as { models?: OllamaModel[] };
+      return data.models || [];
+    } catch (err) {
+      throw mapTauriGetError(err);
+    }
+  }
   try {
     const res = await fetch(`${host}/api/tags`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
     });
     if (!res.ok) {
       throw new OllamaRequestError(res.statusText, res.status);
@@ -301,10 +352,32 @@ export async function listModels(baseUrl?: string): Promise<OllamaModel[]> {
 
 export async function getRunningModels(baseUrl?: string): Promise<import('@/lib/types/monitoring').OllamaRunningModel[]> {
   const host = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  if (isTauriRuntime()) {
+    try {
+      const text = await tauriHttpGetText(`${host}/api/ps`);
+      const data = JSON.parse(text) as {
+        models?: Array<{
+          name: string;
+          model: string;
+          size: number;
+          size_vram: number;
+          details?: {
+            format?: string;
+            family?: string;
+            parameter_size?: string;
+            quantization_level?: string;
+          };
+          expires_at?: string;
+        }>;
+      };
+      return data.models || [];
+    } catch (err) {
+      throw mapTauriGetError(err);
+    }
+  }
   try {
     const res = await fetch(`${host}/api/ps`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
     });
     if (!res.ok) {
       throw new OllamaRequestError(res.statusText, res.status);
@@ -347,26 +420,7 @@ export async function showModel(
 ): Promise<{ contextLength: number; supportsTools: boolean; thinking?: OllamaThinkingInfo }> {
   const host = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
   try {
-    const res = await fetch(`${host}/api/show`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: model }),
-    });
-
-    if (!res.ok) {
-      if (res.status === 404) throw new OllamaModelNotFoundError(model);
-      throw new OllamaRequestError(res.statusText, res.status);
-    }
-
-    const data = (await res.json()) as {
-      model_info?: Record<string, unknown>;
-      capabilities?: string[];
-      details?: Record<string, unknown>;
-      thinking?: {
-        values?: Array<boolean | string>;
-        default?: boolean | string | null;
-      };
-    };
+    const data = await fetchShowPayload(host, model);
 
     let contextLength = 4096;
     if (data.model_info) {
@@ -405,32 +459,66 @@ export async function showModel(
   }
 }
 
+/** Ollama /api/show 원시 응답 (showModel·getModelArchitectureInfo 공용). */
+interface ShowPayload {
+  model_info?: Record<string, unknown>;
+  capabilities?: string[];
+  details?: {
+    format?: string;
+    family?: string;
+    parameter_size?: string;
+    quantization_level?: string;
+  };
+  thinking?: {
+    values?: Array<boolean | string>;
+    default?: boolean | string | null;
+  };
+}
+
+/** Tauri 우회 /api/show의 상태 에러를 Ollama 타입 에러로 매핑한다. */
+function mapTauriShowError(err: unknown, model: string): Error {
+  if (err instanceof TauriHttpStatusError) {
+    if (err.status === 404) return new OllamaModelNotFoundError(model);
+    return new OllamaRequestError(err.body || `status ${err.status}`, err.status);
+  }
+  return new OllamaConnectionError(
+    err instanceof Error ? err.message : String(err),
+    err,
+  );
+}
+
+/** /api/show 조회. Tauri 안에서는 Rust 백엔드로 우회한다 (CORS 회피). */
+async function fetchShowPayload(host: string, model: string): Promise<ShowPayload> {
+  const body = JSON.stringify({ name: model });
+  if (isTauriRuntime()) {
+    try {
+      const text = await tauriHttpPostText(`${host}/api/show`, body);
+      return JSON.parse(text) as ShowPayload;
+    } catch (err) {
+      throw mapTauriShowError(err, model);
+    }
+  }
+  const res = await fetch(`${host}/api/show`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) throw new OllamaModelNotFoundError(model);
+    throw new OllamaRequestError(res.statusText, res.status);
+  }
+
+  return (await res.json()) as ShowPayload;
+}
+
 export async function getModelArchitectureInfo(
   baseUrl: string | undefined,
   model: string,
 ): Promise<import('@/lib/types/monitoring').OllamaModelArchitectureInfo> {
   const host = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
   try {
-    const res = await fetch(`${host}/api/show`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: model }),
-    });
-
-    if (!res.ok) {
-      if (res.status === 404) throw new OllamaModelNotFoundError(model);
-      throw new OllamaRequestError(res.statusText, res.status);
-    }
-
-    const data = (await res.json()) as {
-      model_info?: Record<string, unknown>;
-      details?: {
-        format?: string;
-        family?: string;
-        parameter_size?: string;
-        quantization_level?: string;
-      };
-    };
+    const data = await fetchShowPayload(host, model);
 
     const info = data.model_info || {};
     const arch = (info['general.architecture'] as string) || data.details?.family || 'unknown';

@@ -19,6 +19,7 @@ export const DEFAULT_AGENT: Agent = {
   llmProvider: 'ollama',
   llmBaseUrl: undefined,
   llmApiKey: undefined,
+  autoMonitor: true,
   isDefault: true,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Cpu,
   Thermometer,
@@ -16,10 +16,13 @@ import {
   SlidersHorizontal,
   ChevronDown,
   ChevronRight,
+  Activity,
 } from 'lucide-react';
 import type { Agent, ApprovalMode, BuiltinToolId, LlmProviderKind, ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
 import { Button } from '@/components/ui/button';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
+import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
+import { BUNDLED_SKILLS, installBundledSkills } from '@/lib/skills/bundledSkills';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { listModels, showModel, type OllamaModel, type OllamaThinkingInfo } from '@/lib/llm/ollamaClient';
@@ -31,7 +34,7 @@ import {
 } from '@/lib/llm/providers';
 import {
   checkProviderModel,
-  listProviderModels,
+  listProviderModelsWithFallback,
   type ProviderModelInfo,
 } from '@/lib/llm/providerRuntime';
 import { resolveCompactionSettings } from '@/lib/compaction/settings';
@@ -204,6 +207,7 @@ const ALL_BUILTIN_TOOLS: { id: BuiltinToolId; risk: string }[] = [
   { id: 'grep', risk: 'low' },
   { id: 'find', risk: 'low' },
   { id: 'shell', risk: 'critical' },
+  { id: 'wiki', risk: 'low' },
   { id: 'web_search', risk: 'low' },
   { id: 'web_fetch', risk: 'low' },
 ];
@@ -228,7 +232,13 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
   const { settings } = useSettings();
   const { t } = useLanguage();
   const skillsCtx = useSafeSkills();
-  const safeSkills = skillsCtx?.skills || [];
+  const workspaceRoot = useSafeWorkspace()?.workspaceRoot ?? null;
+  const scannedSkills = skillsCtx?.skills || [];
+  // 앱 기본 제공 스킬은 워크스페이스에 아직 없어도 목록에 노출한다 (활성화 후 저장 시 복사).
+  const bundledOnly = BUNDLED_SKILLS.filter(
+    (b) => !scannedSkills.some((s) => s.name === b.name),
+  ).map((b) => ({ name: b.name, description: b.description }));
+  const safeSkills: { name: string; description: string }[] = [...scannedSkills, ...bundledOnly];
   const refreshSkills = skillsCtx?.refreshSkills;
   const skillsLoading = skillsCtx?.isLoading ?? false;
 
@@ -240,7 +250,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
   const [systemPrompt, setSystemPrompt] = useState(
     initialAgent?.systemPrompt || DEFAULT_INITIAL_PROMPT,
   );
-  const [model, setModel] = useState(initialAgent?.model || 'qwen3.5:9b');
+  const [model, setModel] = useState(initialAgent?.model || '');
   const [temperature, setTemperature] = useState(initialAgent?.temperature ?? 0.7);
   // LLM Provider (기본 정보 카드 바로 아래 섹션)
   const [llmProvider, setLlmProvider] = useState<LlmProviderKind>(
@@ -281,6 +291,8 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
   const [approvalMode, setApprovalMode] = useState<ApprovalMode>(
     initialAgent?.approvalMode || settings.defaultApprovalMode || 'dangerous-only',
   );
+  // 자동 모니터링: 대화 시작 시 자동으로 모니터링을 시작하고 LLM完了 시 중단한다 (기본 on).
+  const [autoMonitor, setAutoMonitor] = useState(initialAgent?.autoMonitor ?? true);
   const [enabledBuiltinTools, setEnabledBuiltinTools] = useState<BuiltinToolId[]>(
     initialAgent?.enabledBuiltinTools || [
       'read',
@@ -289,6 +301,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
       'ls',
       'grep',
       'find',
+      'wiki',
       'web_search',
       'web_fetch',
     ],
@@ -304,6 +317,16 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
   const [modelsLoading, setModelsLoading] = useState(false);
   const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [connMessage, setConnMessage] = useState<string>('');
+  /** 마지막으로 연결을 시도한 Base URL (실패 진단 표시용) */
+  const [attemptUrl, setAttemptUrl] = useState<string>('');
+  /** 현재 모델 목록을 가져온 Base URL + 루프백 대체 여부 */
+  const [modelSourceUrl, setModelSourceUrl] = useState<string>('');
+  const [modelSourceFallback, setModelSourceFallback] = useState(false);
+  /** 대체 주소 적용 후 자동 재조회용 카운터 (Base URL 입력 중 자동 실행 방지용) */
+  const [autoTestSeq, setAutoTestSeq] = useState(0);
+  /** 모델 콤보박스 드롭다운 펼침 상태 */
+  const [modelListOpen, setModelListOpen] = useState(false);
+  const modelComboRef = useRef<HTMLDivElement>(null);
   const [legacyOllamaModels, setLegacyOllamaModels] = useState<OllamaModel[]>([]);
 
   const providerPreset = getProviderPreset(llmProvider);
@@ -347,28 +370,40 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
     return n;
   }, [topP, topK, repeatPenalty, frequencyPenalty, presencePenalty, seed, stopInput, maxOutputTokens]);
 
-  const refreshModels = async () => {
+  /** 모델 목록 새로고침. openAfter=true면 성공 시 드롭다운을 펼쳐 선택을 유도한다. */
+  const refreshModels = async (openAfter = false) => {
     setModelsLoading(true);
     try {
       const runtime = resolveAgentLlmRuntime(
         { llmProvider, llmBaseUrl, llmApiKey },
         settings.ollamaBaseUrl,
       );
-      const models = await listProviderModels(runtime);
-      setAvailableModels(models);
+      setAttemptUrl(runtime.baseUrl);
+      const fetched = await listProviderModelsWithFallback(runtime);
+      setAvailableModels(fetched.models);
+      setModelSourceUrl(fetched.baseUrl);
+      setModelSourceFallback(fetched.fromFallback);
       if (isOllamaProvider) {
         // Ollama 전용 상세 정보(용량 표시)는 기존 API로 보완
         try {
-          setLegacyOllamaModels(await listModels(runtime.baseUrl));
+          setLegacyOllamaModels(await listModels(fetched.baseUrl));
         } catch {
           setLegacyOllamaModels([]);
         }
       } else {
         setLegacyOllamaModels([]);
       }
-    } catch {
+      if (openAfter && fetched.models.length > 0) {
+        setModelListOpen(true);
+      }
+    } catch (err) {
       setAvailableModels([]);
       setLegacyOllamaModels([]);
+      setModelSourceUrl('');
+      setModelSourceFallback(false);
+      // 목록조차 가져올 수 없으면 이전 성공도 더는 믿을 수 없으므로 리셋한다.
+      setConnStatus('idle');
+      setConnMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setModelsLoading(false);
     }
@@ -379,7 +414,8 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
    * - Base URL/API 키 입력 중에는 자동 실행하지 않는다 (타이핑마다 요청 폭주 방지).
    *   Base URL·API 키·모델 변경은 연결 결과를 리셋하고 사용자가 수동 테스트한다.
    * - 목록 조회 성공 + 현재 모델이 목록에 있으면 자동 성공(ok)으로 저장 게이트를 연다.
-   *   목록에 없으면 모델 선택 후 수동 테스트가 필요하다 (idle 유지).
+   *   루프백 대체 주소(localhost↔127.0.0.1)로 가져온 목록은 설정 주소 미검증이므로
+   *   자동 성공으로 보지 않고, 안내 배너의 "이 주소로 변경"으로 적용 후 재테스트한다.
    */
   useEffect(() => {
     let active = true;
@@ -392,12 +428,15 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
           { llmProvider, llmBaseUrl, llmApiKey },
           settings.ollamaBaseUrl,
         );
-        const models = await listProviderModels(runtime);
+        setAttemptUrl(runtime.baseUrl);
+        const fetched = await listProviderModelsWithFallback(runtime);
         if (!active) return;
-        setAvailableModels(models);
+        setAvailableModels(fetched.models);
+        setModelSourceUrl(fetched.baseUrl);
+        setModelSourceFallback(fetched.fromFallback);
         if (isOllamaProvider) {
           try {
-            setLegacyOllamaModels(await listModels(runtime.baseUrl));
+            setLegacyOllamaModels(await listModels(fetched.baseUrl));
           } catch {
             if (active) setLegacyOllamaModels([]);
           }
@@ -405,9 +444,13 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
           setLegacyOllamaModels([]);
         }
         if (!active) return;
-        // 현재 모델이 목록에 있으면 자동 성공, 아니면 모델 선택 후 수동 테스트가 필요하다.
+        // 현재 모델이 "설정된 주소"의 목록에 있을 때만 자동 성공한다.
         // (API 키가 필요한 클라우드는 키 입력 전 실패하므로 아래 catch에서 idle로 둔다.)
-        if (model.trim() && models.some((m) => m.name === model.trim())) {
+        if (
+          !fetched.fromFallback &&
+          model.trim() &&
+          fetched.models.some((m) => m.name === model.trim())
+        ) {
           setConnStatus('ok');
         } else {
           setConnStatus('idle');
@@ -416,7 +459,9 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         if (!active) return;
         setAvailableModels([]);
         setLegacyOllamaModels([]);
-        // 연결 실패 (서버 미기동·키 미입력 등). 사용자가 Base URL·API 키·모델을
+        setModelSourceUrl('');
+        setModelSourceFallback(false);
+        // 연결 실패 (서버 미기동·모델 미로드·키 미입력 등). 사용자가 Base URL·API 키·모델을
         // 채운 뒤 수동 테스트하도록 idle로 두고 메시지만 남긴다.
         setConnStatus('idle');
         setConnMessage(err instanceof Error ? err.message : String(err));
@@ -427,13 +472,18 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
     return () => {
       active = false;
     };
-    // Provider 전환·전역 Ollama URL 변경 시에만 자동 실행한다.
+    // Provider 전환·대체 주소 적용(autoTestSeq)·전역 Ollama URL 변경 시에만 자동 실행한다.
     // llmBaseUrl·llmApiKey·model은 의도적으로 deps에서 제외한다:
     // 입력 중 자동 재요청(폭주)을 막고, 변경 시 결과 리셋 + 수동 테스트 흐름을 유지한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [llmProvider, settings.ollamaBaseUrl]);
+  }, [llmProvider, settings.ollamaBaseUrl, autoTestSeq]);
 
   const handleTestConnection = async () => {
+    if (!model.trim()) {
+      setConnStatus('fail');
+      setConnMessage(t('agentForm.modelRequired'));
+      return;
+    }
     setConnStatus('checking');
     setConnMessage('');
     try {
@@ -441,6 +491,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         { llmProvider, llmBaseUrl, llmApiKey },
         settings.ollamaBaseUrl,
       );
+      setAttemptUrl(runtime.baseUrl);
       const status = await checkProviderModel(runtime, model.trim());
       if (status === 'connected') {
         setConnStatus('ok');
@@ -451,25 +502,25 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         setConnMessage(t('agentForm.connModelMissing'));
       }
     } catch (err) {
+      // 목록 조회 자체가 실패하면 서버 도달 문제이므로 원본 에러를 표시한다.
       setConnStatus('fail');
       setConnMessage(err instanceof Error ? err.message : String(err));
     }
   };
 
   /**
-   * Provider 전환: 프리셋 기본값 따라가기 + 연결 결과 리셋.
+   * Provider 전환: Base URL 프리셋 따라가기 + 연결 결과 리셋.
    * - Base URL이 비어있거나 이전 프리셋 기본값과 같았으면 새 프리셋을 따라간다 ('' = 기본값 사용).
    *   사용자가 직접 입력한 커스텀 URL은 유지한다.
-   * - 모델이 비어있거나 이전 프리셋 대표 모델과 같았으면 새 프리셋 대표 모델을 제안한다.
-   *   사용자가 직접 입력한 모델명은 유지한다.
+   * - 모델은 미리 채우지 않는다. 연결 테스트/새로고침으로 목록을 가져와 드롭다운에서 선택한다.
    * - 실제 연결 테스트·모델 목록 갱신은 위 useEffect가 자동으로 수행한다 (프로그레스 표시).
    */
   const handleProviderChange = (next: LlmProviderKind) => {
     const prevPreset = getProviderPreset(llmProvider);
-    const nextPreset = getProviderPreset(next);
     setLlmProvider(next);
     setConnStatus('idle');
     setConnMessage('');
+    setModelListOpen(false);
     if (next !== 'ollama') {
       setModelSupportsTools(true);
       setModelThinking(undefined);
@@ -478,11 +529,39 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
     if (!llmBaseUrl.trim() || normBase(llmBaseUrl) === normBase(prevPreset.defaultBaseUrl)) {
       setLlmBaseUrl('');
     }
-    const curModel = model.trim();
-    if ((!curModel || (prevPreset.defaultModel && curModel === prevPreset.defaultModel)) && nextPreset.defaultModel) {
-      setModel(nextPreset.defaultModel);
-      setConnStatus('idle');
-    }
+  };
+
+  /** 콤보박스에서 모델 선택: 값 반영 + 연결 결과 리셋 + 드롭다운 닫기 */
+  const selectModel = (name: string) => {
+    setModel(name);
+    setConnStatus('idle');
+    setConnMessage('');
+    setModelListOpen(false);
+  };
+
+  // 드롭다운 바깥 클릭 시 닫기
+  useEffect(() => {
+    if (!modelListOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (modelComboRef.current && !modelComboRef.current.contains(e.target as Node)) {
+        setModelListOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [modelListOpen]);
+
+  /**
+   * 루프백 대체 주소 적용 (localhost↔127.0.0.1).
+   * 목록은 대체 주소에서 가져왔지만 설정된 주소는 미검증이므로,
+   * 대체 주소를 Base URL에 반영한 뒤 자동 재조회로 연결을 검증한다.
+   */
+  const applyFallbackUrl = () => {
+    if (!modelSourceUrl) return;
+    setLlmBaseUrl(modelSourceUrl);
+    setConnStatus('idle');
+    setConnMessage('');
+    setAutoTestSeq((s) => s + 1);
   };
 
   // Check tool calling capability for selected model (Ollama만 /api/show 지원)
@@ -542,6 +621,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
       setStopInput((initialAgent.stopSequences ?? []).join(', '));
       setMaxOutputTokens(initialAgent.maxOutputTokens);
       setApprovalMode(initialAgent.approvalMode);
+      setAutoMonitor(initialAgent.autoMonitor ?? true);
       setEnabledBuiltinTools(initialAgent.enabledBuiltinTools);
       setEnabledSkills(initialAgent.enabledSkills);
     }
@@ -648,6 +728,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         reserveTokens: Number(reserveTokens) || 0,
         keepRecentTokens: Number(keepRecentTokens) || 0,
         approvalMode,
+        autoMonitor,
         enabledBuiltinTools,
         enabledSkills,
         isDefault: initialAgent?.isDefault ?? false,
@@ -664,6 +745,12 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         saved = await updateAgent(initialAgent.id, agentPayload);
       } else {
         saved = await createAgent(agentPayload);
+      }
+
+      // 활성화된 앱 기본 스킬을 현재 워크스페이스 .agents/skills/ 로 복사한다.
+      if (workspaceRoot && enabledSkills.some((n) => bundledOnly.some((b) => b.name === n))) {
+        const installed = await installBundledSkills(workspaceRoot, enabledSkills);
+        if (installed.length > 0) await refreshSkills?.();
       }
 
       onSave(saved);
@@ -883,7 +970,7 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
               )}
               <button
                 type="button"
-                onClick={refreshModels}
+                onClick={() => void refreshModels(true)}
                 disabled={modelsLoading}
                 title={t('agentForm.refreshModels')}
                 className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
@@ -892,32 +979,89 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
               </button>
             </div>
           </div>
-          <input
-            id="agent-model-input"
-            type="text"
-            list="agent-model-datalist"
-            value={model}
-            onChange={(e) => {
-              setModel(e.target.value);
-              setConnStatus('idle');
-              setConnMessage('');
-            }}
-            placeholder={
-              providerPreset.defaultModel ?? t('agentForm.modelPlaceholder')
-            }
-            autoComplete="off"
-            className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-          <datalist id="agent-model-datalist">
-            {availableModels.map((m) => {
-              const legacy = legacyOllamaModels.find((l) => l.name === m.name);
-              return (
-                <option key={m.name} value={m.name}>
-                  {legacy ? `${m.name} (${(legacy.size / 1e9).toFixed(1)} GB)` : m.name}
-                </option>
-              );
-            })}
-          </datalist>
+          <div ref={modelComboRef} className="relative">
+            <input
+              id="agent-model-input"
+              type="text"
+              value={model}
+              onChange={(e) => {
+                setModel(e.target.value);
+                setConnStatus('idle');
+                setConnMessage('');
+              }}
+              onFocus={() => {
+                if (availableModels.length > 0) setModelListOpen(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setModelListOpen(false);
+              }}
+              placeholder={
+                providerPreset.defaultModel ?? t('agentForm.modelPlaceholder')
+              }
+              autoComplete="off"
+              role="combobox"
+              aria-expanded={modelListOpen}
+              aria-controls="agent-model-listbox"
+              aria-autocomplete="list"
+              className="w-full px-3 py-1.5 pr-9 text-xs rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <button
+              type="button"
+              onClick={() => setModelListOpen((prev) => !prev)}
+              disabled={modelsLoading || availableModels.length === 0}
+              title={t('agentForm.openModelList')}
+              aria-label={t('agentForm.openModelList')}
+              aria-expanded={modelListOpen}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${modelListOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+            {modelListOpen && (
+              <ul
+                id="agent-model-listbox"
+                role="listbox"
+                aria-label={t('agentForm.model')}
+                className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-md border border-border bg-background shadow-lg py-1"
+              >
+                {modelsLoading ? (
+                  <li className="px-3 py-1.5 text-[11px] text-muted-foreground">
+                    {t('agentForm.loadingModels')}
+                  </li>
+                ) : availableModels.length === 0 ? (
+                  <li className="px-3 py-1.5 text-[11px] text-muted-foreground">
+                    {t('agentForm.noModels')}
+                  </li>
+                ) : (
+                  availableModels.map((m) => {
+                    const legacy = legacyOllamaModels.find((l) => l.name === m.name);
+                    const selected = m.name === model;
+                    return (
+                      <li
+                        key={m.name}
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => selectModel(m.name)}
+                        className={`px-3 py-1.5 text-xs font-mono cursor-pointer flex items-center justify-between gap-2 ${
+                          selected
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-foreground hover:bg-muted/60'
+                        }`}
+                      >
+                        <span className="truncate">{m.name}</span>
+                        {legacy && (
+                          <span className="text-[10px] text-muted-foreground shrink-0">
+                            {(legacy.size / 1e9).toFixed(1)} GB
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            )}
+          </div>
           <span className="text-[10px] text-muted-foreground block leading-tight mt-1.5">
             {modelsLoading
               ? t('agentForm.loadingModels')
@@ -925,10 +1069,21 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
                 ? t('agentForm.modelListHelp', { n: availableModels.length })
                 : t('agentForm.modelManualHelp')}
           </span>
-          {providerPreset.defaultModel && model.trim() !== providerPreset.defaultModel && (
-            <span className="text-[10px] text-muted-foreground block leading-tight mt-1">
-              {t('agentForm.presetModelHint', { model: providerPreset.defaultModel })}
-            </span>
+          {/* 모델명은 미리 채우지 않는다. 프리셋 대표 모델은 placeholder로만 안내한다. */}
+          {modelSourceFallback && modelSourceUrl && !modelsLoading && (
+            <div className="mt-1.5 p-2 rounded bg-warning/10 border border-warning/30 text-[11px] text-warning leading-relaxed flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0">
+                {t('agentForm.fallbackNotice', { url: modelSourceUrl })}{' '}
+                <button
+                  type="button"
+                  onClick={applyFallbackUrl}
+                  className="font-medium underline hover:no-underline"
+                >
+                  {t('agentForm.fallbackApply')}
+                </button>
+              </span>
+            </div>
           )}
         </div>
 
@@ -974,6 +1129,16 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
             </span>
           )}
         </div>
+        {(connStatus === 'fail' || (connStatus === 'idle' && connMessage)) && !modelsLoading && (
+          <div className="text-[10px] text-muted-foreground leading-relaxed space-y-0.5">
+            {attemptUrl && (
+              <div className="font-mono break-all">
+                {t('agentForm.connUrlHint', { url: attemptUrl })}
+              </div>
+            )}
+            <div>{t('agentForm.serverCheckHint')}</div>
+          </div>
+        )}
 
         {!isOllamaProvider && (
           <div className="p-2.5 rounded bg-muted/40 border border-border/70 text-[11px] text-muted-foreground leading-relaxed">
@@ -1475,7 +1640,47 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
         )}
       </div>
 
-      {/* 6. Built-in Tools */}
+      {/* 6. 자동 모니터링 (대화 시작 시 자동 기록) */}
+      <div className="border border-border rounded-xl p-5 bg-card/40 space-y-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">{t('agentForm.autoMonitor')}</h3>
+        </div>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          {t('agentForm.autoMonitorDesc')}
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {(
+            [
+              {
+                id: true,
+                label: t('agentForm.autoMonitorOn'),
+                desc: t('agentForm.autoMonitorOnDesc'),
+              },
+              {
+                id: false,
+                label: t('agentForm.autoMonitorOff'),
+                desc: t('agentForm.autoMonitorOffDesc'),
+              },
+            ] as const
+          ).map((opt) => (
+            <div
+              key={String(opt.id)}
+              onClick={() => setAutoMonitor(opt.id)}
+              className={`border rounded-xl p-3.5 cursor-pointer transition-all ${
+                autoMonitor === opt.id
+                  ? 'border-primary bg-accent/40 ring-1 ring-primary/40 shadow-xs'
+                  : 'border-border hover:bg-accent/10'
+              }`}
+            >
+              <div className="text-xs font-semibold text-foreground">{opt.label}</div>
+              <div className="text-[11px] text-muted-foreground leading-relaxed mt-1">{opt.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 7. Built-in Tools */}
       <div className="border border-border rounded-xl p-5 bg-card/40 space-y-4">
         <div className="flex items-center gap-2">
           <Wrench className="h-4 w-4 text-primary" />
@@ -1580,6 +1785,11 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
                     <span className="text-xs font-mono font-medium text-foreground">
                       {skill.name}
                     </span>
+                    {bundledOnly.some((b) => b.name === skill.name) && (
+                      <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                        {t('agentForm.bundledSkill')}
+                      </span>
+                    )}
                     <p className="text-[11px] text-muted-foreground line-clamp-2">
                       {skill.description}
                     </p>

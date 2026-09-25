@@ -46,6 +46,7 @@ describe('AgentEditorForm', () => {
     expect(screen.getByText('LLM Provider')).toBeInTheDocument();
     expect(screen.getByText('LLM 생성 옵션')).toBeInTheDocument();
     expect(screen.getByText('도구 승인 정책')).toBeInTheDocument();
+    expect(screen.getByText('자동 모니터링')).toBeInTheDocument();
     expect(screen.getByText('활성 내장 도구')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /에이전트 생성/i })).toBeInTheDocument();
   });
@@ -87,7 +88,7 @@ describe('AgentEditorForm', () => {
     expect(handleSave).not.toHaveBeenCalled();
   });
 
-  it('submits valid agent creation after a successful connection test', async () => {
+  it('submits valid agent creation after picking a model and testing', async () => {
     const handleSave = vi.fn();
     render(
       <TestWrapper>
@@ -98,7 +99,14 @@ describe('AgentEditorForm', () => {
     const nameInput = screen.getByPlaceholderText(/예: 문서 분석 전문가/);
     fireEvent.change(nameInput, { target: { value: 'Doc Analyzer' } });
 
-    // Provider 마운트 시 자동 테스트가 기본 모델(qwen3.5:9b, 목 목록에 포함)로 성공한다.
+    // 마운트 시 자동 조회가 끝날 때까지 대기한다 (그동안 버튼명이 "확인 중..."이다).
+    await screen.findByText(/Provider·모델 변경 시/);
+
+    // 신규 화면의 모델은 비어 시작한다. 목록에서 선택(여기서는 직접 입력) 후 테스트한다.
+    const modelInput = screen.getByPlaceholderText('qwen3.5:9b');
+    fireEvent.change(modelInput, { target: { value: 'qwen3.5:9b' } });
+    fireEvent.click(screen.getByRole('button', { name: /연결 테스트/ }));
+
     await waitFor(() => {
       expect(screen.getByText('연결됨')).toBeInTheDocument();
     });
@@ -112,7 +120,20 @@ describe('AgentEditorForm', () => {
       expect(handleSave).toHaveBeenCalled();
       const saved = handleSave.mock.calls[0][0];
       expect(saved.name).toBe('Doc Analyzer');
+      expect(saved.model).toBe('qwen3.5:9b');
     });
+  });
+
+  it('asks for a model before testing when empty', async () => {
+    render(
+      <TestWrapper>
+        <AgentEditorForm mode="create" onSave={vi.fn()} />
+      </TestWrapper>,
+    );
+
+    await screen.findByText(/Provider·모델 변경 시/);
+    fireEvent.click(screen.getByRole('button', { name: /연결 테스트/ }));
+    expect(await screen.findByText(/모델을 먼저 선택하거나 입력/)).toBeInTheDocument();
   });
 
   it('locks saving while a chat with the agent is running', () => {

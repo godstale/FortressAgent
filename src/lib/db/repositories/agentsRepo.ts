@@ -8,6 +8,7 @@ import type {
   ReasoningMode,
 } from '@/lib/types/agent';
 import {
+  DEFAULT_AUTO_MONITOR,
   DEFAULT_REASONING_EFFORT,
   DEFAULT_REASONING_MODE,
 } from '@/lib/types/agent';
@@ -38,6 +39,7 @@ interface AgentRow {
   llm_provider: LlmProviderKind | null;
   llm_base_url: string | null;
   llm_api_key: string | null;
+  auto_monitor: number | null;
   is_default: number;
   created_at: string;
   updated_at: string;
@@ -89,6 +91,8 @@ function parseAgentRow(row: AgentRow): Agent {
     llmProvider: row.llm_provider ?? 'ollama',
     llmBaseUrl: row.llm_base_url ?? undefined,
     llmApiKey: row.llm_api_key ?? undefined,
+    // 자동 모니터링 미지정 구 행은 켜짐으로 해석 (기본 on)
+    autoMonitor: row.auto_monitor == null ? DEFAULT_AUTO_MONITOR : row.auto_monitor === 1,
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -163,9 +167,9 @@ export async function createAgent(
       reasoning, reasoning_effort,
       top_p, top_k, repeat_penalty, frequency_penalty, presence_penalty,
       seed, stop_sequences, max_output_tokens,
-      llm_provider, llm_base_url, llm_api_key,
+      llm_provider, llm_base_url, llm_api_key, auto_monitor,
       is_default, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       agent.id,
       agent.name,
@@ -192,6 +196,7 @@ export async function createAgent(
       agent.llmProvider ?? 'ollama',
       agent.llmBaseUrl ?? null,
       agent.llmApiKey ?? null,
+      (agent.autoMonitor ?? DEFAULT_AUTO_MONITOR) ? 1 : 0,
       shouldBeDefault ? 1 : 0,
       createdAt,
       updatedAt,
@@ -205,6 +210,7 @@ export async function createAgent(
     llmProvider: agent.llmProvider ?? 'ollama',
     llmBaseUrl: agent.llmBaseUrl ?? undefined,
     llmApiKey: agent.llmApiKey ?? undefined,
+    autoMonitor: agent.autoMonitor ?? DEFAULT_AUTO_MONITOR,
     isDefault: shouldBeDefault,
     createdAt,
     updatedAt,
@@ -262,7 +268,7 @@ export async function updateAgent(
       reasoning = ?, reasoning_effort = ?,
       top_p = ?, top_k = ?, repeat_penalty = ?, frequency_penalty = ?,
       presence_penalty = ?, seed = ?, stop_sequences = ?, max_output_tokens = ?,
-      llm_provider = ?, llm_base_url = ?, llm_api_key = ?,
+      llm_provider = ?, llm_base_url = ?, llm_api_key = ?, auto_monitor = ?,
       is_default = ?, updated_at = ?
     WHERE id = ?`,
     [
@@ -290,6 +296,7 @@ export async function updateAgent(
       merged.llmProvider ?? 'ollama',
       merged.llmBaseUrl ?? null,
       merged.llmApiKey ?? null,
+      (merged.autoMonitor ?? DEFAULT_AUTO_MONITOR) ? 1 : 0,
       merged.isDefault ? 1 : 0,
       merged.updatedAt,
       id,

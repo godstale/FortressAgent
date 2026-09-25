@@ -18,6 +18,16 @@ export type ThinkValue = boolean | string | undefined;
 export const DEFAULT_REASONING_MODE: ReasoningMode = 'default';
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'medium';
 
+/** 대화 시작 시 모니터링 자동 시작 여부. 미지정(구 DB 행) 시 켜짐으로 해석한다. */
+export const DEFAULT_AUTO_MONITOR = true;
+
+export function isAutoMonitorEnabled(
+  agent: Pick<Agent, 'autoMonitor'> | undefined | null,
+): boolean {
+  if (!agent) return DEFAULT_AUTO_MONITOR;
+  return agent.autoMonitor ?? DEFAULT_AUTO_MONITOR;
+}
+
 /**
  * 한 번의 사용자 요청이 실행된 에이전트 설정 스냅샷.
  * 사용자 메시지(`AgentMessage` role:'user')에 첨부되어 해당 턴이 어떤
@@ -153,7 +163,8 @@ export type BuiltinToolId =
   | 'find'
   | 'shell'
   | 'web_search'
-  | 'web_fetch';
+  | 'web_fetch'
+  | 'wiki';
 
 /**
  * LLM Provider 종류. Ollama 네이티브 규격(/api/chat, NDJSON)과
@@ -229,6 +240,12 @@ export interface Agent {
   llmBaseUrl?: string;
   /** 클라우드/인증 필요 서버용 API 키. 로컬 런타임은 보통 불필요(Jan은 임의 문자열 가능) */
   llmApiKey?: string;
+  /**
+   * 대화 시작 시 모니터링 자동 시작 여부. 미지정(구 DB 행) 시 true(켜짐)로 해석.
+   * on이면 대화 시작 시 자동으로 모니터링 상태로 전환하고,
+   * LLM 호출 작업이 모두 완료되면 모니터링을 중단한다.
+   */
+  autoMonitor?: boolean;
   isDefault: boolean; // exactly one agent is true
   createdAt: string; // ISO 8601
   updatedAt: string;

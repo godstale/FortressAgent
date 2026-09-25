@@ -230,21 +230,24 @@ tests:
 - **vLLM benchmark_serving / GuideLLM**: TTFT, TPOT, ITL, E2E, 출력/요청 처리량, 백분위(p50/p90/p99), SLO 기반 goodput.
 - **Ollama 응답 필드**: `total_duration`, `load_duration`, `prompt_eval_count`, `prompt_eval_duration`, `eval_count`, `eval_duration`(ns). Fortress 모니터링은 이미 이 필드를 수집한다.
 
-### 4.9 데이터셋 라이선스 (번들 여부 판단용 — **착수 시 원문 재확인 필수**)
+### 4.9 데이터셋 라이선스 (2026-09-25 HF 데이터셋 카드 원문 확인)
 
-| 데이터셋 | 라이선스(조사 시점 인식) | 번들 가능성 |
+| 데이터셋 | 라이선스(원문) | Fortress 처리(D4 "앱에 포함" 적용) |
 | --- | --- | --- |
-| GSM8K | MIT | 부분집합 번들 가능 |
-| MMLU / MMLU-Pro | MIT | 부분집합 번들 가능 |
-| IFEval | Apache-2.0 | 가능 |
-| HumanEval / EvalPlus | MIT / Apache-2.0 | 가능 |
-| MBPP | CC-BY-4.0 | 가능(출처 표기) |
-| BFCL | Apache-2.0 | 가능 |
-| GPQA | CC-BY-4.0, **평문 재배포 자제 요청** | 번들하지 않고 다운로드 방식 |
-| KMMLU | CC-BY-ND 계열로 인식(재확인) | ND 조건 → 원본 그대로 다운로드 방식 권장 |
-| HAE-RAE / CLIcK / KoBEST | 비상업·ND 조건이 있는 경우가 있음(재확인) | 다운로드 방식 권장 |
+| GSM8K (openai/gsm8k, test 1,319) | MIT | 번들 |
+| MMLU-Pro (TIGER-Lab, 12,032문항·14과목, 필드 question/options/answer/answer_index/category/src) | MIT | 부분집합 번들 |
+| IFEval (google/IFEval, 541 프롬프트, 필드 key/prompt/instruction_id_list/kwargs) | Apache-2.0 | 번들 |
+| IFEval-Ko (allganize) | Apache-2.0 | 번들 |
+| HumanEval+ (evalplus/humanevalplus, 164, 필드 task_id/prompt/canonical_solution/entry_point/test) | Apache-2.0 | 번들(실행은 Python 옵트인) |
+| BFCL (gorilla-llm) | Apache-2.0 | 부분집합 번들(HF `load_dataset` 비호환, 원본 JSON 직접 변환) |
+| KMMLU (HAERAE-HUB, 과목별 `data/{Subject}-{dev,test,train}.csv`, test 파일당 수십 KB) | **CC-BY-ND-4.0** | 원본 test CSV **무수정** 번들 + 런타임 변환 |
+| KoBEST (skt/kobest_v1) | **CC-BY-SA-4.0** | 부분집합 번들(파생 파일은 같은 라이선스로 배포) |
+| HAE-RAE Bench 1.1 | **CC-BY-NC-ND-4.0** | 번들 불가(비상업) → 임포터 |
+| GPQA | CC-BY-4.0 + "평문·이미지로 온라인 공개 금지" 요청 | 번들 불가(공개 리포) → 임포터 |
+| CLIcK | 데이터셋 카드·GitHub에 라이선스 표기 확인 불가 | 번들 불가 → 임포터 |
+| LogicKor (instructkr, 2024-10 아카이브) | 확인 불가 | 번들 불가 → 임포터 |
 
-→ 원칙: **Fortress 자체 제작 팩과 퍼미시브 라이선스 부분집합만 번들**하고, 나머지는 사용자가 HF에서 받아 로컬로 가져오는 "임포터"를 제공한다.
+참고: Ollama는 v0.12.11부터 `/api/chat`에서 `logprobs`/`top_logprobs`(출력 토큰)를 지원한다 → 객관식 확률 모드·양자화 충실도(출력 공통 접두 KL) 설계의 근거(Phase10 P10-14).
 
 ---
 

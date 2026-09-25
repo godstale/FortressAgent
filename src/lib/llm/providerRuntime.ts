@@ -102,30 +102,82 @@ export async function listProviderModels(runtime: ResolvedLlmRuntime): Promise<P
   return models.map((m) => ({ name: m.name, size: m.size }));
 }
 
-/** 모델 존재 여부 + 서버 도달 가능성을 확인한다. */
+/**
+ * 루프백 대체 주소. Windows에서는 `localhost`와 `127.0.0.1`의 해석(IPv6 ::1/IPv4)이
+ * 서버 바인딩과 어긋나 한쪽만 연결되는 경우가 있다 (LM Studio 등).
+ * 루프백이면 반대 표기를, 그 외·파싱 실패면 null을 반환한다.
+ */
+export function loopbackFallbackUrl(baseUrl: string): string | null {
+  try {
+    const u = new URL(baseUrl);
+    if (u.hostname === '127.0.0.1') {
+      u.hostname = 'localhost';
+    } else if (u.hostname.toLowerCase() === 'localhost') {
+      u.hostname = '127.0.0.1';
+    } else {
+      return null;
+    }
+    return u.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+export interface ModelListFetch {
+  models: ProviderModelInfo[];
+  /** 실제로 목록을 가져온 Base URL */
+  baseUrl: string;
+  /** 루프백 대체 주소로 가져왔으면 true (설정된 주소 자체는 미검증) */
+  fromFallback: boolean;
+}
+
+/**
+ * 모델 목록 조회 + 루프백 대체 재시도 (콤보박스 채우기용).
+ * 연결 판정(checkProviderModel)과 달리 목록 표시에만 쓰이며,
+ * 대체 주소로 가져와도 설정된 주소의 연결 성공으로 보지 않는다.
+ */
+export async function listProviderModelsWithFallback(
+  runtime: ResolvedLlmRuntime,
+): Promise<ModelListFetch> {
+  try {
+    return { models: await listProviderModels(runtime), baseUrl: runtime.baseUrl, fromFallback: false };
+  } catch (err) {
+    const alt = loopbackFallbackUrl(runtime.baseUrl);
+    if (!alt) throw err;
+    const models = await listProviderModels({ ...runtime, baseUrl: alt });
+    return { models, baseUrl: alt, fromFallback: true };
+  }
+}
+
+/**
+ * 모델 존재 여부를 확인한다.
+ * - 'connected': 모델이 목록에 있음 (Ollama는 /api/show 폴백 포함)
+ * - 'model-missing': 서버 도달은 됐으나 목록에 모델이 없음
+ * - 서버 도달 자체가 실패하면 throw (호출자가 네트워크 에러로 표시)
+ */
 export async function checkProviderModel(
   runtime: ResolvedLlmRuntime,
   model: string,
-): Promise<'connected' | 'disconnected'> {
-  try {
-    if (runtime.openAiCompatible) {
-      const models = await listOpenAiModels(runtime.baseUrl, runtime.apiKey);
-      if (models.some((m) => m.id === model || m.id.toLowerCase() === model.toLowerCase())) {
-        return 'connected';
-      }
-      // 목록에 없어도 실제 추론 가능 모델일 수 있으나, 호출 없이 확인할
-      // 방법이 없으므로 목록 기준을 따른다 (OpenAI 규격에 /show 상당 API 없음).
-      // 단, 목록 조회 자체가 성공하면 서버는 살아있는 것으로 본다.
-      return models.length > 0 ? 'disconnected' : 'disconnected';
-    }
-    const models = await listOllamaModels(runtime.baseUrl);
-    if (models.some((m) => m.name === model || m.name.toLowerCase() === model.toLowerCase())) {
+): Promise<'connected' | 'model-missing'> {
+  if (runtime.openAiCompatible) {
+    const models = await listOpenAiModels(runtime.baseUrl, runtime.apiKey);
+    if (models.some((m) => m.id === model || m.id.toLowerCase() === model.toLowerCase())) {
       return 'connected';
     }
+    // 목록에 없어도 실제 추론 가능 모델일 수 있으나, 호출 없이 확인할
+    // 방법이 없으므로 목록 기준을 따른다 (OpenAI 규격에 /show 상당 API 없음).
+    return 'model-missing';
+  }
+  const models = await listOllamaModels(runtime.baseUrl);
+  if (models.some((m) => m.name === model || m.name.toLowerCase() === model.toLowerCase())) {
+    return 'connected';
+  }
+  try {
     await showOllamaModel(runtime.baseUrl, model);
     return 'connected';
   } catch {
-    return 'disconnected';
+    // 목록 조회까지 성공했으므로 서버는 살아있다 → 모델 부재로 본다.
+    return 'model-missing';
   }
 }
 

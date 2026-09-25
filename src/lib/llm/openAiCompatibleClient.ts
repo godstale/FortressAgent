@@ -1,5 +1,12 @@
 import type { TokenUsage } from '@/lib/agent/types';
 import type { LlmPerformanceMetrics } from '@/lib/types/monitoring';
+import {
+  TauriHttpStatusError,
+  decodeFetchBodyStream,
+  isTauriRuntime,
+  tauriHttpGetText,
+  tauriHttpPostStreamText,
+} from '@/lib/llm/tauriLlmTransport';
 
 export class OpenAiConnectionError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -125,6 +132,19 @@ function buildHeaders(apiKey?: string): Record<string, string> {
   return headers;
 }
 
+/**
+ * GET용 헤더. body가 없는 GET에 Content-Type을 보내면
+ * 브라우저가 CORS preflight(OPTIONS)를 발생시키고,
+ * LM Studio 등 로컬 서버가 OPTIONS /v1/models를 처리하지 못해
+ * 연결 테스트가 실패한다. Authorization이 없으면 simple request로 나간다.
+ */
+function buildGetHeaders(apiKey?: string): Record<string, string> {
+  if (apiKey && apiKey.trim()) {
+    return { Authorization: `Bearer ${apiKey.trim()}` };
+  }
+  return {};
+}
+
 function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, '')}${path}`;
 }
@@ -195,53 +215,58 @@ export async function* streamChat(
     if (ollamaOnlyKey in body) delete body[ollamaOnlyKey];
   }
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: buildHeaders(req.apiKey),
-      body: JSON.stringify(body),
-      signal,
-    });
-  } catch (err: unknown) {
-    if (signal?.aborted) throw err;
-    throw new OpenAiConnectionError(err instanceof Error ? err.message : String(err), err);
-  }
-
-  if (!response.ok) {
-    let errBody = '';
+  const bodyJson = JSON.stringify(body);
+  // Tauri Webview의 fetch는 CORS를 강제하고 LM Studio 등은 ACAO를 보내지 않으므로,
+  // Tauri 안에서는 Rust 백엔드(reqwest)로 우회한다. 웹 프리뷰는 fetch를 쓴다.
+  let textChunks: AsyncIterable<string>;
+  if (isTauriRuntime()) {
+    textChunks = tauriHttpPostStreamText(url, bodyJson, req.apiKey, signal);
+  } else {
+    let response: Response;
     try {
-      errBody = await response.text();
-    } catch {
-      // ignore
+      response = await fetch(url, {
+        method: 'POST',
+        headers: buildHeaders(req.apiKey),
+        body: bodyJson,
+        signal,
+      });
+    } catch (err: unknown) {
+      if (signal?.aborted) throw err;
+      throw new OpenAiConnectionError(err instanceof Error ? err.message : String(err), err);
     }
-    if (response.status === 401 || response.status === 403) {
-      throw new OpenAiAuthError(errBody || response.statusText);
+
+    if (!response.ok) {
+      let errBody = '';
+      try {
+        errBody = await response.text();
+      } catch {
+        // ignore
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new OpenAiAuthError(errBody || response.statusText);
+      }
+      if (response.status === 404 && isModelNotFoundMessage(errBody)) {
+        throw new OpenAiModelNotFoundError(req.model);
+      }
+      if (isContextOverflowMessage(errBody)) {
+        throw new OpenAiContextOverflowError(errBody);
+      }
+      throw new OpenAiRequestError(errBody || response.statusText, response.status);
     }
-    if (response.status === 404 && isModelNotFoundMessage(errBody)) {
-      throw new OpenAiModelNotFoundError(req.model);
+
+    if (!response.body) {
+      throw new OpenAiRequestError('Response body is null', response.status);
     }
-    if (isContextOverflowMessage(errBody)) {
-      throw new OpenAiContextOverflowError(errBody);
-    }
-    throw new OpenAiRequestError(errBody || response.statusText, response.status);
+    textChunks = decodeFetchBodyStream(response.body);
   }
 
-  if (!response.body) {
-    throw new OpenAiRequestError('Response body is null', response.status);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   let buffer = '';
   const drafts = new Map<number, ToolCallDraft>();
   let usage: TokenUsage | undefined;
 
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    for await (const text of textChunks) {
+      buffer += text;
 
       // SSE는 빈 줄(\n\n)로 이벤트를 구분한다
       const events = buffer.split('\n\n');
@@ -369,17 +394,45 @@ export async function* streamChat(
         }
       }
     }
-  } finally {
-    reader.releaseLock();
+  } catch (err) {
+    // Tauri 우회 경로의 상태 에러를 fetch 경로와 같은 타입으로 매핑한다.
+    // (SSE 본문에 담긴 모델 에러는 위 루프에서 이미 OpenAi* 로 던져진다)
+    throw mapTauriStreamError(err, req.model);
   }
+}
+
+/** Tauri 우회 스트림의 상태 에러를 OpenAI 호환 타입 에러로 매핑한다. */
+function mapTauriStreamError(err: unknown, model: string): unknown {
+  if (err instanceof TauriHttpStatusError) {
+    if (err.status === 401 || err.status === 403) {
+      return new OpenAiAuthError(err.body || `status ${err.status}`);
+    }
+    if (err.status === 404 && isModelNotFoundMessage(err.body)) {
+      return new OpenAiModelNotFoundError(model);
+    }
+    if (isContextOverflowMessage(err.body)) {
+      return new OpenAiContextOverflowError(err.body);
+    }
+    return new OpenAiRequestError(err.body || `status ${err.status}`, err.status);
+  }
+  return err;
 }
 
 export async function listModels(baseUrl?: string, apiKey?: string): Promise<OpenAiModel[]> {
   const host = (baseUrl || 'http://127.0.0.1:1234/v1').replace(/\/+$/, '');
+  if (isTauriRuntime()) {
+    try {
+      const text = await tauriHttpGetText(joinUrl(host, '/models'), apiKey);
+      const data = JSON.parse(text) as { data?: OpenAiModel[] };
+      return data.data || [];
+    } catch (err) {
+      throw mapTauriListError(err);
+    }
+  }
   try {
     const res = await fetch(joinUrl(host, '/models'), {
       method: 'GET',
-      headers: buildHeaders(apiKey),
+      headers: buildGetHeaders(apiKey),
     });
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
@@ -398,4 +451,15 @@ export async function listModels(baseUrl?: string, apiKey?: string): Promise<Ope
     }
     throw new OpenAiConnectionError(err instanceof Error ? err.message : String(err), err);
   }
+}
+
+/** Tauri 우회 GET의 에러를 목록 조회 타입 에러로 매핑한다. */
+function mapTauriListError(err: unknown): Error {
+  if (err instanceof TauriHttpStatusError) {
+    if (err.status === 401 || err.status === 403) {
+      return new OpenAiAuthError(err.body || `status ${err.status}`);
+    }
+    return new OpenAiRequestError(err.body || `status ${err.status}`, err.status);
+  }
+  return new OpenAiConnectionError(err instanceof Error ? err.message : String(err), err);
 }

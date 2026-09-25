@@ -334,10 +334,11 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const settingsDefaultInterval = settings.monitoringIntervalMs ?? DEFAULT_MONITORING_INTERVAL_MS;
   const activeIntervalMs = intervalMs ?? settingsDefaultInterval;
 
-  // Stop collector immediately when tab unmounts or agent changes
+  // Stop collector immediately when tab unmounts or agent changes.
+  // 자동 모니터링으로 시작된 수집은 대화가 끝날 때까지 유지하므로 닫지 않는다.
   useEffect(() => {
     return () => {
-      if (agentId) {
+      if (agentId && !monitoringCollector.isAuto(agentId)) {
         monitoringCollector.stop(agentId);
       }
     };
@@ -441,12 +442,24 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
     return () => {
       unsubscribe();
-      // Ensure collector is stopped if tab unmounts while collecting
-      if (agent.id) {
+      // 탭이 닫혀도 자동 모니터링 수집은 대화 종료까지 유지한다.
+      if (agent.id && !monitoringCollector.isAuto(agent.id)) {
         monitoringCollector.stop(agent.id);
       }
     };
   }, [agent, settings.ollamaBaseUrl, isCollecting, activeIntervalMs, workspaceRoot]);
+
+  // 대화 시작 시 자동 모니터링이 켜졌을 수 있으므로 수집 실행 상태를 주기적으로 동기화한다.
+  // (채팅에서 시작/중단된 자동 수집을 모니터 탭의 시작/일시정지 버튼에 반영)
+  useEffect(() => {
+    if (!agent) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync external collector running flag
+    setIsCollecting(monitoringCollector.isRunning(agent.id));
+    const timer = setInterval(() => {
+      setIsCollecting(monitoringCollector.isRunning(agent.id));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [agent]);
 
   // Start of the current operational-status run (newest-first history scan).
   // Derived during render so no status-tracking effect is needed.
@@ -818,7 +831,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
         };
       case 'executing_tool':
         return {
-          label: 'Executing_Tool',
+          label: 'Tool',
           fullLabel: t('monitor.toolRunning'),
           className: 'bg-warning/20 text-warning border-warning/30 animate-pulse',
         };
@@ -1256,7 +1269,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           </div>
         </div>
 
-        {/* 8. Current Operational State — detailed phase (Thinking/Executing_Tool/Generating/Decoding/Prefill) */}
+        {/* 8. Current Operational State — detailed phase (Thinking/Tool/Generating/Decoding/Prefill) */}
         <div className="p-3.5 rounded-xl bg-card border border-border space-y-1.5">
           <div className="text-[11px] text-muted-foreground flex items-center justify-between">
             <span className="flex items-center gap-1.5">
@@ -1289,7 +1302,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 last.oldest = s.timestamp;
                 last.count += 1;
               } else {
-                if (runs.length >= 3) break;
+                if (runs.length >= 2) break;
                 runs.push({
                   status: s.agentStatus,
                   newest: s.timestamp,

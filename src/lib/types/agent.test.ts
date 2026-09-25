@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   captureChatConfigSnapshot,
   chatConfigSignature,
+  isAutoMonitorEnabled,
   resolveThinkValue,
 } from './agent';
 import type { Agent } from './agent';
@@ -23,6 +24,20 @@ describe('resolveThinkValue', () => {
     expect(resolveThinkValue('on', 'low')).toBe('low');
     expect(resolveThinkValue('on', 'medium')).toBe('medium');
     expect(resolveThinkValue('on', 'high')).toBe('high');
+  });
+});
+
+describe('isAutoMonitorEnabled', () => {
+  it('defaults to on when unset (legacy agents)', () => {
+    expect(isAutoMonitorEnabled(undefined)).toBe(true);
+    expect(isAutoMonitorEnabled(null)).toBe(true);
+    const legacy = { ...DEFAULT_AGENT, autoMonitor: undefined } as Agent;
+    expect(isAutoMonitorEnabled(legacy)).toBe(true);
+  });
+
+  it('respects the explicit on/off setting', () => {
+    expect(isAutoMonitorEnabled({ ...DEFAULT_AGENT, autoMonitor: true })).toBe(true);
+    expect(isAutoMonitorEnabled({ ...DEFAULT_AGENT, autoMonitor: false })).toBe(false);
   });
 });
 
