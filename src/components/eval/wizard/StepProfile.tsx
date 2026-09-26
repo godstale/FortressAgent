@@ -5,6 +5,7 @@ import { saveProfile } from '@/lib/db/repositories/evalRepo';
 import type { EvalDimension, EvalProfile } from '@/lib/eval/types';
 import { EVAL_DIMENSIONS } from '@/lib/eval/types';
 import { ProfileEditorDialog } from './ProfileEditorDialog';
+import { FieldInfo } from './FieldInfo';
 
 interface StepProfileProps {
   profiles: EvalProfile[];
@@ -35,8 +36,19 @@ export function StepProfile({ profiles, selectedId, profile, onSelect, onSaveCus
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-sm font-semibold">{t('eval.wizard.profile.select')}</h3>
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+          {t('eval.wizard.profile.select')}
+          <FieldInfo label={t('eval.wizard.profile.select')} help={t('eval.wizard.guide.profile')} />
+        </h3>
         <p className="text-xs text-muted-foreground">{t('eval.wizard.profile.desc')}</p>
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          {DIMS.map((d) => (
+            <span key={d} className="inline-flex items-center gap-1">
+              <span className="font-mono font-semibold">{d}</span> {t(`eval.common.dim.${d}`)}
+              <FieldInfo label={`${d} ${t(`eval.common.dim.${d}`)}`} help={t(`eval.wizard.profile.dimHelp.${d}`)} />
+            </span>
+          ))}
+        </div>
       </div>
       <div className="grid gap-2 md:grid-cols-2">
         {profiles.map((p) => {
@@ -54,8 +66,14 @@ export function StepProfile({ profiles, selectedId, profile, onSelect, onSaveCus
                 <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                   {p.builtIn ? t('eval.wizard.profile.builtin') : t('eval.wizard.profile.custom')}
                 </span>
+                {p.builtIn && (
+                  <FieldInfo label={p.name.ko} help={t(`eval.wizard.profile.use.${p.id}`)} />
+                )}
               </div>
               <div className="mt-1 text-muted-foreground">{p.description.ko}</div>
+              {p.builtIn && (
+                <div className="mt-1 text-muted-foreground">{t(`eval.wizard.profile.use.${p.id}`)}</div>
+              )}
               <div className="mt-2 flex h-2 gap-0.5 overflow-hidden rounded">
                 {DIMS.map((d) => (
                   <div

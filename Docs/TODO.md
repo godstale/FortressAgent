@@ -147,6 +147,7 @@
   - [x] P10-25 가져오기(JSONL/CSV/promptfoo/HF 프리셋)·내보내기(EEE/CSV)
   - [x] P10-19 팩 관리·편집기 + 개인 평가셋(채팅에서 저장·일괄 초안·픽스처 캡처·비밀 마스킹)
   - [x] P10-20 로컬 Arena(블라인드 A/B, BT 리더보드)
+  - [x] P10-27 실행 마법사 단순화(Quick/Standard/Full 자동조합·Advanced fold·[i] 안내·실행명 규칙 — P10-16 후속 UX 개편)
 - **콘텐츠 (P10-01 이후 언제든, 로더 검증은 P10-04 이후)**
   - [x] P10-21 FAB-A: `fab-tools-select`(60) · `fab-tools-relevance`(40) · `fab-viz`(30)
   - [x] P10-22 FAB-B: `fab-fs-tasks`(30, 픽스처 4종) · `fab-skill`(10) · `fab-compaction`(10) + compaction_recall 솔버
@@ -185,6 +186,7 @@
 | 2026-09-25 | P10-02 | 평가·연동 10 테이블 마이그레이션(`0001_init.sql`+`MIGRATION_STATEMENTS` 동기화) + `evalRepo`(run/candidate/trial/score/aggregate/profile/arena) + `integrationsRepo`(연동/설정/감사) + `MemorySqlFallback` 핸들러. 전역 DB 전용(`getGlobalDatabase`). 테스트 15건, `pnpm lint`/`typecheck` 통과. | 해결됨 |
 | 2026-09-25 | P10-01 | 평가 타입·상수·i18n 골격 구현(`src/lib/eval/types.ts`·`constants.ts`·`types.test.ts`, `src/lib/i18n/dictionaries/eval/` 12영역 ko/en + index, ko/en 스프레드). `pnpm lint`/`typecheck`/신규 테스트(4건) 통과. 전체 `pnpm test`는 기존 실패 1건(`bundledSkills` CRLF 정규식, P10-01 무관·클린 트리에서도 재현) 제외하고 통과. | 해결됨 |
 | 2026-09-25 | P9-11 | 앱 기본 제공 스킬 `basic-llm-wiki` 신설: llm-wiki에서 온톨로지·그래프·백업·lint·스크립트를 모두 제거하고 등록/조회(목록·검색)/삭제만 남긴 단일 `SKILL.md`(`src/lib/skills/bundled/basic-llm-wiki/`, 레이아웃은 `wiki` 도구와 동일한 `wiki/sources`·`index.md`·`log.md`). `bundledSkills.ts`(`BUNDLED_SKILLS`, `installBundledSkills`) + `src/vite-env.d.ts`(`?raw` 타입). `AgentEditorForm` 활성 스킬 목록에 미설치 번들 스킬을 `앱 기본 제공` 배지로 노출, 활성화 후 저장 시 워크스페이스 `.agents/skills/basic-llm-wiki/`로 복사(기존 파일 미덮어쓰기) 후 스킬 재스캔. 리포 루트 `.agents/skills/llm-wiki`는 미변경. 테스트 3건 추가, `pnpm lint`/`typecheck`/`test`(58파일 325건) 통과. **신규 의존성 없음**. | 해결됨 |
+| 2026-09-27 | P10-27 | 실행 마법사 단순화 개편(P10-16 후속, 소유 파일 범위 내). 설계 변경점: ① 평가셋 단계의 `Smoke-all/Standard/Full` 일괄 티어 버튼 → `Quick(~30분)/Standard(~90분)/Full` 크기 선택으로 교체(프로파일 가중치·팩 tier 실측 기반 자동조합, 신규 `wizard/sizePresets.ts`). smoke-all도 팩 20종 합산 약 290샘플+agentic/long_context로 3시간+가 걸렸던 것이 원인. ② 팩별 세부·매트릭스·Q8·실행옵션은 Advanced fold로 이동. ③ `Judge 설정` 문구를 `평가 모델 설정`으로 변경(키 유지, 값만 변경). ④ Q8 토글이 실행 설정에 미반영되던 문제(상태만 있고 `buildRunConfig`에 전달 안 됨) → 켜면 `fab-quant-probe` 팩 자동 포함으로 연결. ⑤ 실행명 규칙 `{첫후보명}_{프로파일}_{날짜}` 자동 제안(사용자 수정 시 유지). ⑥ 다음 버튼 비활성 사유 문구 + 단계별 [i] 안내 추가(`AgentEditorForm` ParamInfo와 동일 패턴). 외부 프론티어 LLM 후행 평가는 이번 범위 제외(후속 제안으로 남김). `Docs/phases/Phase10-Evaluation.md` P10-16절의旧 프리셋 설명과 달라지므로 해당 문서 동기화가 필요. **신규 의존성 없음**. | 해결됨 |
 
 ---
 
