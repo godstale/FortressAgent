@@ -13,6 +13,7 @@ import { detectableDiff } from '@/lib/eval/scoring/power';
 import { listIntegrations } from '@/lib/db/repositories/integrationsRepo';
 import type { EvalPackManifest, ExternalIntegration } from '@/lib/eval/types';
 import { buildRunConfig, type WizardDraft } from './buildRunConfig';
+import { FieldInfo } from './FieldInfo';
 import { WeightsAnchorsEditor } from './WeightsAnchorsEditor';
 import { ExternalTransferSummary } from './ExternalTransferSummary';
 
@@ -167,7 +168,10 @@ export function StepReview({ draft, onUpdate, refs, onProfileSaved }: StepReview
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">{t('eval.wizard.review.title')}</h3>
       <label className="flex items-center gap-2 text-xs">
-        <span className="w-24 shrink-0 font-semibold">{t('eval.wizard.review.runName')}</span>
+        <span className="flex w-24 shrink-0 items-center gap-1 font-semibold">
+          {t('eval.wizard.review.runName')}
+          <FieldInfo label={t('eval.wizard.review.runName')} help={t('eval.wizard.review.runNameHelp')} />
+        </span>
         <Input value={draft.runName} onChange={(e) => onUpdate({ runName: e.target.value })} className="h-7" />
       </label>
 

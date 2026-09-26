@@ -89,21 +89,39 @@ describe('EvalRunWizard', () => {
     // Step 1: profile
     expect(screen.getByText('평가 프로파일 선택')).toBeInTheDocument();
     fireEvent.click(screen.getByText('다음'));
-    // Step 2: packs — select one pack
-    expect(screen.getByText('평가셋 선택')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('ko-write-smoke'));
+    // Step 2: packs — quick preset auto-selects the pack
+    expect(screen.getByText('평가 크기 선택')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText('ko-write-smoke')).toBeChecked();
+    });
     fireEvent.click(screen.getByText('다음'));
-    // Step 3: candidates — select one agent
+    // Step 3: candidates — blocked reason until an agent is picked
     expect(screen.getByText('후보 에이전트 선택')).toBeInTheDocument();
+    expect(screen.getByTestId('next-blocked')).toHaveTextContent('1개 이상의 후보를 선택하세요.');
     fireEvent.click(screen.getByLabelText('작문가'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('next-blocked')).not.toBeInTheDocument();
+    });
     fireEvent.click(screen.getByText('다음'));
-    // Step 4: review — create button exists but is disabled (weights unconfirmed)
+    // Step 4: review — run name suggests agent + profile, create gated on confirmations
     await waitFor(() => {
       expect(screen.getByText('검토 후 실행 생성')).toBeInTheDocument();
     });
+    expect(screen.getByDisplayValue(/작문가_balanced_/)).toBeInTheDocument();
     const createBtn = screen.getByText('실행 생성');
     expect(createBtn).toBeInTheDocument();
     expect(createBtn.closest('button')).toBeDisabled();
+  });
+
+  it('offers quick/standard/full sizes with per-pack advanced settings', async () => {
+    render(<EvalRunWizard />);
+    fireEvent.click(screen.getByText('다음'));
+    expect(screen.getByText('Quick')).toBeInTheDocument();
+    expect(screen.getByText('Standard')).toBeInTheDocument();
+    expect(screen.getByText('Full')).toBeInTheDocument();
+    // per-pack details live behind the advanced fold
+    fireEvent.click(screen.getByText('고급 설정 (문제집별 세부)'));
+    expect(screen.getByText('티어')).toBeInTheDocument();
   });
 });
 
