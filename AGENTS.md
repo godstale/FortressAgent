@@ -55,21 +55,31 @@ pnpm check:ollama    # Ollama 서버/모델 상태 확인 (Phase 2 이상 로컬
 
 작업을 "완료"로 표시하기 전에 최소한 `pnpm lint`, `pnpm typecheck`, `pnpm test`가 통과해야 합니다. UI 변경은 `pnpm tauri dev`로 실제 동작을 확인한 뒤 완료 처리하십시오(타입 체크만으로는 기능 정확성을 보장하지 않습니다).
 
-## 5. Git / 커밋 규칙
+## 5. Git / 커밋 규칙 (단순 운용 + 세세한 히스토리)
 
 - 원격 저장소: `origin = https://github.com/godstale/FortressAgent.git`. **`git push`는 사용자의 명시적 승인 없이 실행하지 않습니다.** 로컬 커밋까지는 자유롭게 진행하되, 원격에 반영하는 시점은 항상 확인을 받습니다.
+- **main 직접 커밋 금지.** 코드/파일 변경 전에는 반드시 main에서 새 브랜치를 만듭니다.
+  - 시작 시: `git status -sb`로 dirty 여부 확인 → `git checkout main` → `git pull --ff-only`(가능하면) → `git checkout -b <type>/<short-topic>`
+  - 브랜치명: `feat/`·`fix/`·`chore/`·`docs/`·`refactor/`·`test/` + 짧은 영어 토픽. 예: `feat/chat-stream-stop`
+- **작게 나누어 자주 커밋.** 하나의 커밋은 하나의 논리 변경을 담습니다. 실험·아이디어 적용 단계이므로 중간 상태도 부담 없이 커밋합니다(나중에 squash/정리 가능).
 - 커밋 메시지는 Conventional Commits 스타일을 따릅니다: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`. 예: `feat(chat): add streaming stop button`.
 - 하나의 커밋은 하나의 작업 ID(P#-##)에 대응하는 것을 권장합니다. 커밋 메시지 본문에 관련 작업 ID를 남기면 추적이 쉬워집니다.
 - `--no-verify`, `--force`, `git reset --hard` 등 파괴적/훅 우회 명령은 사용자 명시적 지시 없이 사용하지 않습니다.
 - `Docs/TODO.md` 상태 갱신은 관련 코드 변경과 **같은 커밋**에 포함시키는 것을 권장합니다.
 
-## 6. 멀티 에이전트 협업 규칙
+## 6. 멀티 에이전트 협업 규칙 (브랜치/worktree 분리)
 
+- **같은 브랜치에서 2개 이상의 에이전트/작업이 동시에 작업하지 않습니다.** 서로 다른 작업은 반드시 서로 다른 브랜치에서 진행하고, 나중에 main 경유로 합칩니다(merge 또는 PR).
+- 병렬 작업이 필요하면 `git worktree`를 사용합니다. 예: `git worktree add ../Fortress-<topic> -b feat/<topic> main`. 작업이 끝나면 worktree를 정리합니다(`git worktree remove`).
 - 작업 시작 시 `Docs/TODO.md`에서 대상 항목을 `[ ]` → `[~]`로 변경하고 나서 코드를 작성합니다(선점 표시).
 - 자신의 작업 ID가 "소유"하지 않는 파일은 수정하지 않습니다. 여러 작업이 같은 파일을 나눠 소유하는 경우(예: `package.json`의 서로 다른 필드) 해당 Phase 문서에 명시된 "이 필드만 담당" 지침을 정확히 지킵니다.
 - 다른 작업 ID가 이미 `[~]`(진행중)이면 그 파일을 건드리지 않고, 필요하면 해당 작업이 끝난 뒤 이어서 진행합니다.
 - Phase 간 의존성(`Docs/ImplementationPlan.md`의 의존성 그래프)을 지킵니다. 선행 Phase의 완료 조건이 충족되지 않았는데 후행 Phase 작업을 시작하지 않습니다.
 - 설계 문서(`Docs/Architecture.md`)와 실제로 필요한 구현이 다르다고 판단되면, 임의로 다르게 구현하지 말고 먼저 `Docs/TODO.md` 이슈 로그에 기록한 뒤 문서 수정 여부를 결정합니다.
+- **작업 시작/중간/마지막 git 체크:**
+  - 시작: `git status -sb` + `git branch --show-current` 확인 → main 최신화 → 새 브랜치/worktree → `Docs/TODO.md` 선점 표시
+  - 중간: 변경 중간에도 `git status -sb`로 범위 이탈 확인 + 논리 단위마다 수시로 커밋
+  - 마지막: `git status -sb` + `git log --oneline -5`로 히스토리 확인 → `Docs/TODO.md` 갱신 포함 커밋 → `pnpm lint`·`typecheck`·`test` 결과 보고 → push는 승인 후에만
 
 ## 7. 안전/보안 원칙 (특히 중요)
 
