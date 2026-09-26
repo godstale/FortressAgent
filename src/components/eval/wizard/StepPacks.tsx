@@ -12,6 +12,8 @@ interface StepPacksProps {
   errors: Array<{ scope: PackScope; packId: string; error: string }>;
   selections: WizardPackSelection[];
   profile: EvalProfile;
+  loading?: boolean;
+  onRetry?: () => void;
   onChange: (selections: WizardPackSelection[]) => void;
 }
 
@@ -21,7 +23,7 @@ function selKey(scope: PackScope, packId: string): string {
   return `${scope}:${packId}`;
 }
 
-export function StepPacks({ packs, errors, selections, profile, onChange }: StepPacksProps) {
+export function StepPacks({ packs, errors, selections, profile, loading, onRetry, onChange }: StepPacksProps) {
   const { t, locale } = useLanguage();
   const byKey = useMemo(() => new Map(selections.map((s) => [selKey(s.scope, s.packId), s])), [selections]);
 
@@ -69,7 +71,17 @@ export function StepPacks({ packs, errors, selections, profile, onChange }: Step
           <Button type="button" size="sm" variant="outline" onClick={() => applyPreset('full')}>{t('eval.wizard.packs.presetFull')}</Button>
         </div>
       </div>
-      {packs.length === 0 && <div className="text-xs text-muted-foreground">{t('eval.wizard.packs.none')}</div>}
+      {loading && <div className="text-xs text-muted-foreground">{t('eval.wizard.packs.loading')}</div>}
+      {packs.length === 0 && !loading && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{t('eval.wizard.packs.none')}</span>
+          {onRetry && (
+            <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+              {t('eval.wizard.packs.retry')}
+            </Button>
+          )}
+        </div>
+      )}
       {errors.map((e, i) => (
         <div key={i} className="text-xs text-destructive">
           {t('eval.wizard.packs.loadError', { err: `${e.scope}/${e.packId}: ${e.error}` })}

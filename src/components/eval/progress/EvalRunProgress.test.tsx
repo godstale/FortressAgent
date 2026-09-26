@@ -99,6 +99,8 @@ function makeScore(): EvalScoreRow {
 const baseControls = {
   runs: [],
   packs: [],
+  packErrors: [],
+  packsLoading: false,
   pauseRun: vi.fn(),
   resumeRun: vi.fn(),
   cancelRun: vi.fn(),
