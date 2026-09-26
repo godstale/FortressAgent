@@ -9,11 +9,20 @@ import { StepPacks } from './StepPacks';
 import { StepCandidates, type QuantCompare } from './StepCandidates';
 import { StepReview } from './StepReview';
 import { needsJudge, type WizardDraft, type WizardPackSelection, type WizardRunOptions } from './buildRunConfig';
+import { QUANT_PROBE_PACK_ID } from './sizePresets';
+import { FieldInfo } from './FieldInfo';
 
 const STEPS = [0, 1, 2, 3] as const;
+const STEP_KEYS = ['profile', 'packs', 'candidates', 'review'] as const;
 
 function cloneProfile(p: EvalProfile): EvalProfile {
   return JSON.parse(JSON.stringify(p)) as EvalProfile;
+}
+
+function suggestRunName(candidates: CandidateSnapshot[], profile: EvalProfile): string {
+  const date = new Date().toISOString().slice(0, 10);
+  const head = candidates[0]?.label.split(' · ')[0]?.trim() || 'eval';
+  return `${head}_${profile.id}_${date}`;
 }
 
 export function EvalRunWizard() {
@@ -22,6 +31,7 @@ export function EvalRunWizard() {
   const [step, setStep] = useState(0);
   const [extraProfiles, setExtraProfiles] = useState<EvalProfile[]>([]);
   const [profileId, setProfileId] = useState(BUILTIN_PROFILES[0].id);
+  const [runNameTouched, setRunNameTouched] = useState(false);
   const [draft, setDraft] = useState<WizardDraft>(() => ({
     runName: `eval-${new Date().toISOString().slice(0, 10)}`,
     profile: cloneProfile(BUILTIN_PROFILES[0]),
@@ -47,14 +57,24 @@ export function EvalRunWizard() {
   const allProfiles = useMemo(() => [...profiles, ...extraProfiles.filter((e) => !profiles.some((p) => p.id === e.id))], [profiles, extraProfiles]);
 
   function patch(p: Partial<WizardDraft>): void {
+    if (p.runName !== undefined) setRunNameTouched(true);
     setDraft((prev) => ({ ...prev, ...p }));
   }
 
   function selectProfile(id: string): void {
     const found = allProfiles.find((p) => p.id === id);
     if (!found) return;
+    const cloned = cloneProfile(found);
     setProfileId(id);
-    patch({ profile: cloneProfile(found), weightsConfirmedAt: '' });
+    // 프로파일이 바뀌면 팩 조합을 처음부터 다시 맞춘다(자동 조합).
+    // 직접 수정한 실행명은 유지한다.
+    setDraft((prev) => ({
+      ...prev,
+      profile: cloned,
+      weightsConfirmedAt: '',
+      packSelections: prev.profile.id === id ? prev.packSelections : [],
+      runName: runNameTouched ? prev.runName : suggestRunName(prev.candidates, cloned),
+    }));
   }
 
   function saveCustomProfile(p: EvalProfile): void {
@@ -62,6 +82,43 @@ export function EvalRunWizard() {
     setProfileId(p.id);
     patch({ profile: cloneProfile(p), weightsConfirmedAt: '' });
   }
+
+  function handleCandidatesChange(candidates: CandidateSnapshot[]): void {
+    setDraft((prev) => ({
+      ...prev,
+      candidates,
+      runName: runNameTouched ? prev.runName : suggestRunName(candidates, prev.profile),
+    }));
+  }
+
+  function handleQuantChange(next: QuantCompare): void {
+    setQuant(next);
+    // Q8 비교를 켜면 양자화 프로브 팩을 평가셋에 자동 포함한다.
+    // 이전에는 토글이 실행 설정에 반영되지 않았다.
+    if (!next.enabled) return;
+    const ref = packs.find((r) => r.manifest.id === QUANT_PROBE_PACK_ID);
+    if (!ref) return;
+    setDraft((prev) => (
+      prev.packSelections.some((s) => s.packId === QUANT_PROBE_PACK_ID)
+        ? prev
+        : {
+          ...prev,
+          packSelections: [
+            ...prev.packSelections,
+            { scope: ref.scope, packId: ref.manifest.id, tier: 'smoke', epochs: 1, circular: false },
+          ],
+        }
+    ));
+  }
+
+  const quantPackExists = useMemo(
+    () => packs.some((r) => r.manifest.id === QUANT_PROBE_PACK_ID),
+    [packs],
+  );
+  const quantPackIncluded = useMemo(
+    () => draft.packSelections.some((s) => s.packId === QUANT_PROBE_PACK_ID),
+    [draft.packSelections],
+  );
 
   const selectedRefs = useMemo(() => {
     const byKey = new Map(packs.map((r) => [`${r.scope}:${r.manifest.id}`, r]));
@@ -75,10 +132,31 @@ export function EvalRunWizard() {
     [selectedRefs],
   );
 
-  const canNext =
-    (step === 0 || (step === 1 && draft.packSelections.length > 0) ||
-      (step === 2 && draft.candidates.length > 0 && (!judgeRequired || draft.judge !== null))) &&
-    step < 3;
+  const stepComplete: boolean[] = [
+    true,
+    draft.packSelections.length > 0,
+    draft.candidates.length > 0 && (!judgeRequired || draft.judge !== null),
+    false,
+  ];
+
+  // n단계가 끝나야 n+1 헤더로 갈 수 있다. 이전 단계는 항상 돌아갈 수 있다.
+  function isReachable(s: number): boolean {
+    for (let i = 0; i < s; i += 1) {
+      if (!stepComplete[i]) return false;
+    }
+    return true;
+  }
+
+  const blockReason =
+    step === 1 && draft.packSelections.length === 0
+      ? t('eval.wizard.packs.requireSelect')
+      : step === 2 && draft.candidates.length === 0
+        ? t('eval.wizard.candidates.requireSelect')
+        : step === 2 && judgeRequired && draft.judge === null
+          ? t('eval.wizard.judge.required')
+          : null;
+
+  const canNext = isReachable(step + 1) && step < 3;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4">
@@ -89,14 +167,20 @@ export function EvalRunWizard() {
             <button
               type="button"
               onClick={() => setStep(s)}
-              className={`flex-1 rounded px-2 py-1.5 text-center ${s === step ? 'bg-primary text-primary-foreground' : s < step ? 'bg-primary/15' : 'bg-muted text-muted-foreground'}`}
+              disabled={!isReachable(s)}
+              title={!isReachable(s) && blockReason && s === step + 1 ? blockReason : undefined}
+              className={`flex-1 rounded px-2 py-1.5 text-center disabled:cursor-not-allowed disabled:opacity-40 ${s === step ? 'bg-primary text-primary-foreground' : s < step ? 'bg-primary/15' : 'bg-muted text-muted-foreground'}`}
             >
-              {t(`eval.wizard.step.${['profile', 'packs', 'candidates', 'review'][s]}`)}
+              {t(`eval.wizard.step.${STEP_KEYS[s]}`)}
             </button>
           </li>
         ))}
       </ol>
-      <div className="text-[11px] text-muted-foreground">{t('eval.wizard.stepOf', { a: step + 1, b: 4 })}</div>
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <span>{t('eval.wizard.stepOf', { a: step + 1, b: 4 })}</span>
+        <FieldInfo label={t(`eval.wizard.step.${STEP_KEYS[step]}`)} help={t(`eval.wizard.guide.${STEP_KEYS[step]}`)} />
+        <span>{t(`eval.wizard.guide.${STEP_KEYS[step]}`)}</span>
+      </div>
 
       {step === 0 && (
         <StepProfile
@@ -116,12 +200,13 @@ export function EvalRunWizard() {
           selections={draft.packSelections}
           profile={draft.profile}
           onChange={(packSelections: WizardPackSelection[]) => patch({ packSelections })}
+          quantEnabled={quant.enabled}
         />
       )}
       {step === 2 && (
         <StepCandidates
           candidates={draft.candidates}
-          onChange={(candidates: CandidateSnapshot[]) => patch({ candidates })}
+          onChange={handleCandidatesChange}
           judge={draft.judge}
           onJudgeChange={(judge: JudgeConfig | null) => patch({ judge })}
           judgeRequired={judgeRequired}
@@ -131,7 +216,9 @@ export function EvalRunWizard() {
           sampleOrderSeed={draft.sampleOrderSeed}
           onSeedChange={(sampleOrderSeed: number) => patch({ sampleOrderSeed })}
           quant={quant}
-          onQuantChange={setQuant}
+          onQuantChange={handleQuantChange}
+          quantPackExists={quantPackExists}
+          quantPackIncluded={quantPackIncluded}
         />
       )}
       {step === 3 && (
@@ -139,13 +226,20 @@ export function EvalRunWizard() {
       )}
 
       {step < 3 && (
-        <div className="flex justify-between">
-          <Button type="button" size="sm" variant="outline" disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))}>
-            {t('eval.wizard.prev')}
-          </Button>
-          <Button type="button" size="sm" disabled={!canNext} onClick={() => setStep((s) => Math.min(3, s + 1))}>
-            {t('eval.wizard.next')}
-          </Button>
+        <div className="space-y-1">
+          <div className="flex justify-between">
+            <Button type="button" size="sm" variant="outline" disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))}>
+              {t('eval.wizard.prev')}
+            </Button>
+            <Button type="button" size="sm" disabled={!canNext} onClick={() => setStep((s) => Math.min(3, s + 1))}>
+              {t('eval.wizard.next')}
+            </Button>
+          </div>
+          {blockReason && (
+            <div data-testid="next-blocked" className="text-right text-xs text-destructive">
+              {blockReason}
+            </div>
+          )}
         </div>
       )}
     </div>

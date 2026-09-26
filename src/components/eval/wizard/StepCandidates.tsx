@@ -16,6 +16,7 @@ import type {
 } from '@/lib/eval/types';
 import { JUDGE_PROMPT_VERSION } from '@/lib/eval/constants';
 import { MatrixBuilder } from './MatrixBuilder';
+import { FieldInfo } from './FieldInfo';
 import type { WizardRunOptions } from './buildRunConfig';
 
 export interface QuantCompare {
@@ -36,6 +37,8 @@ interface StepCandidatesProps {
   onSeedChange: (seed: number) => void;
   quant: QuantCompare;
   onQuantChange: (quant: QuantCompare) => void;
+  quantPackExists: boolean;
+  quantPackIncluded: boolean;
 }
 
 function familyOf(model: string): string {
@@ -45,7 +48,6 @@ function familyOf(model: string): string {
 export function StepCandidates(props: StepCandidatesProps) {
   const { t } = useLanguage();
   const { agents } = useAgents();
-  const [tab, setTab] = useState<'list' | 'matrix'>('list');
   const [baseAgentId, setBaseAgentId] = useState(agents[0]?.id ?? '');
   const [axes, setAxes] = useState<MatrixAxes>({});
   const [integrations, setIntegrations] = useState<ExternalIntegration[]>([]);
@@ -129,53 +131,37 @@ export function StepCandidates(props: StepCandidatesProps) {
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-sm font-semibold">{t('eval.wizard.candidates.select')}</h3>
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+          {t('eval.wizard.candidates.select')}
+          <FieldInfo label={t('eval.wizard.candidates.select')} help={t('eval.wizard.guide.candidates')} />
+        </h3>
         <p className="text-xs text-muted-foreground">{t('eval.wizard.candidates.desc')}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{t('eval.wizard.candidates.snapshotNote')}</p>
       </div>
-      <div className="flex gap-1 text-xs">
-        <Button type="button" size="sm" variant={tab === 'list' ? 'default' : 'outline'} onClick={() => setTab('list')}>
-          {t('eval.wizard.candidates.tabList')}
-        </Button>
-        <Button type="button" size="sm" variant={tab === 'matrix' ? 'default' : 'outline'} onClick={() => setTab('matrix')}>
-          {t('eval.wizard.candidates.tabMatrix')}
-        </Button>
-        <span className="ml-auto self-center text-muted-foreground">
-          {t('eval.wizard.candidates.count', { n: props.candidates.length })}
-        </span>
-      </div>
-
-      {tab === 'list' ? (
-        <div className="grid gap-1.5 md:grid-cols-2">
-          {agents.map((agent) => {
-            const on = selectedIds.has(agent.id);
-            const external = (agent.llmBaseUrl ?? '').startsWith('https://') && !(agent.llmProvider ?? 'ollama').startsWith('ollama');
-            return (
-              <div key={agent.id} className={`flex items-center gap-2 rounded-lg border p-2 text-xs ${on ? 'border-primary bg-primary/5' : 'border-border'}`}>
-                <input type="checkbox" checked={on} onChange={() => toggleAgent(agent)} aria-label={agent.name} />
-                <div className="min-w-0">
-                  <div className="truncate font-semibold">{agent.name}</div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">
-                    {agent.llmProvider ?? 'ollama'} / {agent.model} / ctx {agent.contextSize}
-                  </div>
+      <div className="grid gap-1.5 md:grid-cols-2">
+        {agents.map((agent) => {
+          const on = selectedIds.has(agent.id);
+          const external = (agent.llmBaseUrl ?? '').startsWith('https://') && !(agent.llmProvider ?? 'ollama').startsWith('ollama');
+          return (
+            <div key={agent.id} className={`flex items-center gap-2 rounded-lg border p-2 text-xs ${on ? 'border-primary bg-primary/5' : 'border-border'}`}>
+              <input type="checkbox" checked={on} onChange={() => toggleAgent(agent)} aria-label={agent.name} />
+              <div className="min-w-0">
+                <div className="truncate font-semibold">{agent.name}</div>
+                <div className="truncate font-mono text-[11px] text-muted-foreground">
+                  {agent.llmProvider ?? 'ollama'} / {agent.model} / ctx {agent.contextSize}
                 </div>
-                {external && <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px]">{t('eval.wizard.candidates.external')}</span>}
               </div>
-            );
-          })}
-        </div>
-      ) : (
-        <MatrixBuilder
-          agents={agents}
-          baseAgentId={baseAgentId || agents[0]?.id || ''}
-          onBaseChange={setBaseAgentId}
-          axes={axes}
-          onAxesChange={setAxes}
-          onExpand={handleExpand}
-        />
-      )}
+              {external && <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px]">{t('eval.wizard.candidates.external')}</span>}
+            </div>
+          );
+        })}
+      </div>
 
       {props.candidates.length > 0 && (
         <div className="space-y-1">
+          <div className="text-xs text-muted-foreground">
+            {t('eval.wizard.candidates.count', { n: props.candidates.length })}
+          </div>
           {props.candidates.map((c, i) => (
             <div key={`${c.label}-${i}`} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-xs">
               <span className="truncate font-mono">{c.label}</span>
@@ -195,40 +181,15 @@ export function StepCandidates(props: StepCandidatesProps) {
       )}
       {props.candidates.length === 0 && <div className="text-xs text-destructive">{t('eval.wizard.candidates.requireSelect')}</div>}
 
-      <div className="space-y-1 rounded-lg border border-border p-3 text-xs">
-        <div className="font-semibold">{t('eval.wizard.quant.title')}</div>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={props.quant.enabled}
-            onChange={(e) => props.onQuantChange({ ...props.quant, enabled: e.target.checked })}
-          />
-          {t('eval.wizard.quant.enable')}
-        </label>
-        {props.quant.enabled && (
-          <>
-            <label className="flex items-center gap-2">
-              <span className="w-24 shrink-0">{t('eval.wizard.quant.base')}</span>
-              <select
-                value={props.quant.baseIndex}
-                onChange={(e) => props.onQuantChange({ ...props.quant, baseIndex: Number(e.target.value) })}
-                className="h-7 flex-1 rounded border border-input bg-background px-1"
-              >
-                {props.candidates.map((c, i) => <option key={i} value={i}>{c.label}</option>)}
-              </select>
-            </label>
-            {quantFamilyMismatch && <div className="text-amber-600">{t('eval.wizard.quant.sameFamily')}</div>}
-          </>
-        )}
-      </div>
-
       <div className="space-y-2 rounded-lg border border-border p-3 text-xs">
-        <div className="font-semibold">{t('eval.wizard.judge.title')}</div>
+        <div className="flex items-center gap-1.5 font-semibold">
+          {t('eval.wizard.judge.title')}
+          <FieldInfo label={t('eval.wizard.judge.title')} help={t('eval.wizard.judge.desc')} />
+        </div>
         {!props.judgeRequired ? (
           <div className="text-muted-foreground">{t('eval.wizard.judge.notNeeded')}</div>
         ) : (
           <>
-            <div className="text-muted-foreground">{t('eval.wizard.judge.desc')}</div>
             <label className="flex items-center gap-2">
               <span className="w-24 shrink-0">{t('eval.wizard.judge.mode')}</span>
               <select value={judgeMode} onChange={(e) => setJudgeMode(e.target.value as 'local' | 'integration')} className="h-7 flex-1 rounded border border-input bg-background px-1">
@@ -252,83 +213,149 @@ export function StepCandidates(props: StepCandidatesProps) {
                 </select>
               </label>
             )}
-            <div className="flex gap-3">
-              <label className="flex items-center gap-2">
-                {t('eval.wizard.judge.scale')}
-                <select value={judgeScale} onChange={(e) => setJudgeScale(e.target.value as '1-5' | '1-10')} className="h-7 rounded border border-input bg-background px-1">
-                  <option value="1-5">1-5</option>
-                  <option value="1-10">1-10</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-2">
-                {t('eval.wizard.judge.pairwise')}
-                <select value={judgePairwise} onChange={(e) => setJudgePairwise(e.target.value as 'none' | 'vs-reference' | 'round-robin')} className="h-7 rounded border border-input bg-background px-1">
-                  <option value="none">none</option>
-                  <option value="vs-reference">vs-reference</option>
-                  <option value="round-robin">round-robin</option>
-                </select>
-              </label>
-              <Button type="button" size="sm" variant="outline" onClick={applyJudge}>
-                {props.judge ? `${t('eval.wizard.judge.title')} ✓` : t('eval.wizard.judge.title')}
-              </Button>
-            </div>
+            <Button type="button" size="sm" variant="outline" onClick={applyJudge}>
+              {props.judge ? `${t('eval.wizard.judge.title')} ✓` : t('eval.wizard.judge.apply')}
+            </Button>
           </>
         )}
       </div>
 
-      <div className="space-y-1 rounded-lg border border-border p-3 text-xs">
-        <div className="font-semibold">{t('eval.wizard.options.title')}</div>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={props.options.deterministicMode}
-            onChange={(e) => props.onOptionsChange({ ...props.options, deterministicMode: e.target.checked })}
-          />
-          {t('eval.wizard.options.deterministic')}
-        </label>
-        <div className="flex flex-wrap gap-3">
-          <label className="flex items-center gap-1">
-            {t('eval.wizard.options.reliability')}
-            <Input
-              type="number" min={2} max={10} value={props.options.reliabilityEpochs}
-              onChange={(e) => props.onOptionsChange({ ...props.options, reliabilityEpochs: Number(e.target.value) })}
-              className="h-7 w-16"
+      <details className="rounded-lg border border-border">
+        <summary className="cursor-pointer px-3 py-2 text-xs font-semibold">
+          {t('eval.wizard.advanced.title')}
+        </summary>
+        <div className="space-y-3 border-t border-border p-3 text-xs">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 font-semibold">
+              {t('eval.wizard.advanced.matrix')}
+              <FieldInfo label={t('eval.wizard.advanced.matrix')} help={t('eval.wizard.advanced.matrixDesc')} />
+            </div>
+            <MatrixBuilder
+              agents={agents}
+              baseAgentId={baseAgentId || agents[0]?.id || ''}
+              onBaseChange={setBaseAgentId}
+              axes={axes}
+              onAxesChange={setAxes}
+              onExpand={handleExpand}
             />
-          </label>
-          <label className="flex items-center gap-1">
-            {t('eval.wizard.options.timeout')}
-            <Input
-              type="number" min={0.5} max={5} step={0.5} value={props.options.timeoutMultiplier}
-              onChange={(e) => props.onOptionsChange({ ...props.options, timeoutMultiplier: Number(e.target.value) })}
-              className="h-7 w-16"
-            />
-          </label>
-          <label className="flex items-center gap-1">
-            {t('eval.wizard.options.perfRepeats')}
-            <Input
-              type="number" min={1} max={10} value={props.options.perfRepeats ?? DEFAULT_RUN_OPTIONS.perfRepeats}
-              onChange={(e) => props.onOptionsChange({ ...props.options, perfRepeats: Number(e.target.value) })}
-              className="h-7 w-16"
-            />
-          </label>
-          <label className="flex items-center gap-1">
-            {t('eval.wizard.options.seed')}
-            <Input
-              type="number" value={props.sampleOrderSeed}
-              onChange={(e) => props.onSeedChange(Number(e.target.value))}
-              className="h-7 w-24"
-            />
-          </label>
+          </div>
+
+          <div className="space-y-1 rounded-lg border border-border p-3">
+            <div className="flex items-center gap-1.5 font-semibold">
+              {t('eval.wizard.quant.title')}
+              <FieldInfo label={t('eval.wizard.quant.title')} help={t('eval.wizard.quant.help')} />
+            </div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={props.quant.enabled}
+                disabled={!props.quantPackExists}
+                onChange={(e) => props.onQuantChange({ ...props.quant, enabled: e.target.checked })}
+              />
+              {t('eval.wizard.quant.enable')}
+            </label>
+            {!props.quantPackExists && (
+              <div className="text-muted-foreground">{t('eval.wizard.quant.packMissing')}</div>
+            )}
+            {props.quantPackExists && props.quantPackIncluded && (
+              <div className="text-muted-foreground">{t('eval.wizard.quant.packIncluded')}</div>
+            )}
+            {props.quant.enabled && (
+              <>
+                <label className="flex items-center gap-2">
+                  <span className="w-24 shrink-0">{t('eval.wizard.quant.base')}</span>
+                  <select
+                    value={props.quant.baseIndex}
+                    onChange={(e) => props.onQuantChange({ ...props.quant, baseIndex: Number(e.target.value) })}
+                    className="h-7 flex-1 rounded border border-input bg-background px-1"
+                  >
+                    {props.candidates.map((c, i) => <option key={i} value={i}>{c.label}</option>)}
+                  </select>
+                </label>
+                {quantFamilyMismatch && <div className="text-amber-600">{t('eval.wizard.quant.sameFamily')}</div>}
+              </>
+            )}
+          </div>
+
+          {props.judgeRequired && (
+            <div className="space-y-1 rounded-lg border border-border p-3">
+              <div className="font-semibold">{t('eval.wizard.advanced.judgeDetail')}</div>
+              <div className="flex gap-3">
+                <label className="flex items-center gap-2">
+                  {t('eval.wizard.judge.scale')}
+                  <select value={judgeScale} onChange={(e) => setJudgeScale(e.target.value as '1-5' | '1-10')} className="h-7 rounded border border-input bg-background px-1">
+                    <option value="1-5">1-5</option>
+                    <option value="1-10">1-10</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2">
+                  {t('eval.wizard.judge.pairwise')}
+                  <select value={judgePairwise} onChange={(e) => setJudgePairwise(e.target.value as 'none' | 'vs-reference' | 'round-robin')} className="h-7 rounded border border-input bg-background px-1">
+                    <option value="none">none</option>
+                    <option value="vs-reference">vs-reference</option>
+                    <option value="round-robin">round-robin</option>
+                  </select>
+                </label>
+              </div>
+              <div className="text-muted-foreground">{t('eval.wizard.advanced.judgeDetailHint')}</div>
+            </div>
+          )}
+
+          <div className="space-y-1 rounded-lg border border-border p-3">
+            <div className="font-semibold">{t('eval.wizard.options.title')}</div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={props.options.deterministicMode}
+                onChange={(e) => props.onOptionsChange({ ...props.options, deterministicMode: e.target.checked })}
+              />
+              {t('eval.wizard.options.deterministic')}
+            </label>
+            <div className="flex flex-wrap gap-3">
+              <label className="flex items-center gap-1">
+                {t('eval.wizard.options.reliability')}
+                <Input
+                  type="number" min={2} max={10} value={props.options.reliabilityEpochs}
+                  onChange={(e) => props.onOptionsChange({ ...props.options, reliabilityEpochs: Number(e.target.value) })}
+                  className="h-7 w-16"
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                {t('eval.wizard.options.timeout')}
+                <Input
+                  type="number" min={0.5} max={5} step={0.5} value={props.options.timeoutMultiplier}
+                  onChange={(e) => props.onOptionsChange({ ...props.options, timeoutMultiplier: Number(e.target.value) })}
+                  className="h-7 w-16"
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                {t('eval.wizard.options.perfRepeats')}
+                <Input
+                  type="number" min={1} max={10} value={props.options.perfRepeats ?? DEFAULT_RUN_OPTIONS.perfRepeats}
+                  onChange={(e) => props.onOptionsChange({ ...props.options, perfRepeats: Number(e.target.value) })}
+                  className="h-7 w-16"
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                {t('eval.wizard.options.seed')}
+                <Input
+                  type="number" value={props.sampleOrderSeed}
+                  onChange={(e) => props.onSeedChange(Number(e.target.value))}
+                  className="h-7 w-24"
+                />
+              </label>
+            </div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={props.options.unloadBetweenCandidates}
+                onChange={(e) => props.onOptionsChange({ ...props.options, unloadBetweenCandidates: e.target.checked })}
+              />
+              {t('eval.wizard.options.unload')}
+            </label>
+          </div>
         </div>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={props.options.unloadBetweenCandidates}
-            onChange={(e) => props.onOptionsChange({ ...props.options, unloadBetweenCandidates: e.target.checked })}
-          />
-          {t('eval.wizard.options.unload')}
-        </label>
-      </div>
+      </details>
     </div>
   );
 }

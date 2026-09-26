@@ -91,21 +91,65 @@ describe('EvalRunWizard', () => {
     // Step 1: profile
     expect(screen.getByText('평가 프로파일 선택')).toBeInTheDocument();
     fireEvent.click(screen.getByText('다음'));
-    // Step 2: packs — select one pack
-    expect(screen.getByText('평가셋 선택')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('ko-write-smoke'));
+    // Step 2: packs — quick preset auto-selects the pack
+    expect(screen.getByText('평가 크기 선택')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText('ko-write-smoke')).toBeChecked();
+    });
     fireEvent.click(screen.getByText('다음'));
-    // Step 3: candidates — select one agent
+    // Step 3: candidates — blocked reason until an agent is picked
     expect(screen.getByText('후보 에이전트 선택')).toBeInTheDocument();
+    expect(screen.getByTestId('next-blocked')).toHaveTextContent('1개 이상의 후보를 선택하세요.');
     fireEvent.click(screen.getByLabelText('작문가'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('next-blocked')).not.toBeInTheDocument();
+    });
     fireEvent.click(screen.getByText('다음'));
-    // Step 4: review — create button exists but is disabled (weights unconfirmed)
+    // Step 4: review — run name suggests agent + profile, create gated on confirmations
     await waitFor(() => {
       expect(screen.getByText('검토 후 실행 생성')).toBeInTheDocument();
     });
+    expect(screen.getByDisplayValue(/작문가_balanced_/)).toBeInTheDocument();
     const createBtn = screen.getByText('실행 생성');
     expect(createBtn).toBeInTheDocument();
     expect(createBtn.closest('button')).toBeDisabled();
+  });
+
+  it('disables future step headers until each step is complete', async () => {
+    render(<EvalRunWizard />);
+    const headerBtn = (label: string): HTMLButtonElement => {
+      const el = screen.getByText(label).closest('button');
+      if (!(el instanceof HTMLButtonElement)) throw new Error(`no header button: ${label}`);
+      return el;
+    };
+    // 처음에는 평가셋까지만 갈 수 있다 (프로파일은 항상 완료)
+    expect(headerBtn('프로파일').disabled).toBe(false);
+    expect(headerBtn('평가셋').disabled).toBe(false);
+    expect(headerBtn('후보').disabled).toBe(true);
+    expect(headerBtn('검토·생성').disabled).toBe(true);
+    // 다음으로 평가셋에 가면 quick이 자동 선택되어 후보 헤더가 열린다
+    fireEvent.click(screen.getByText('다음'));
+    await waitFor(() => {
+      expect(headerBtn('후보').disabled).toBe(false);
+    });
+    expect(headerBtn('검토·생성').disabled).toBe(true);
+    // 후보를 고르면 검토 헤더까지 열린다
+    fireEvent.click(screen.getByText('다음'));
+    fireEvent.click(screen.getByLabelText('작문가'));
+    await waitFor(() => {
+      expect(headerBtn('검토·생성').disabled).toBe(false);
+    });
+  });
+
+  it('offers quick/standard/full sizes with per-pack advanced settings', async () => {
+    render(<EvalRunWizard />);
+    fireEvent.click(screen.getByText('다음'));
+    expect(screen.getByText('Quick')).toBeInTheDocument();
+    expect(screen.getByText('Standard')).toBeInTheDocument();
+    expect(screen.getByText('Full')).toBeInTheDocument();
+    // per-pack details live behind the advanced fold
+    fireEvent.click(screen.getByText('고급 설정 (문제집별 세부)'));
+    expect(screen.getByText('티어')).toBeInTheDocument();
   });
 });
 
