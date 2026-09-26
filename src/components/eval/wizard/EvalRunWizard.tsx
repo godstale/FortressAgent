@@ -132,6 +132,21 @@ export function EvalRunWizard() {
     [selectedRefs],
   );
 
+  const stepComplete: boolean[] = [
+    true,
+    draft.packSelections.length > 0,
+    draft.candidates.length > 0 && (!judgeRequired || draft.judge !== null),
+    false,
+  ];
+
+  // n단계가 끝나야 n+1 헤더로 갈 수 있다. 이전 단계는 항상 돌아갈 수 있다.
+  function isReachable(s: number): boolean {
+    for (let i = 0; i < s; i += 1) {
+      if (!stepComplete[i]) return false;
+    }
+    return true;
+  }
+
   const blockReason =
     step === 1 && draft.packSelections.length === 0
       ? t('eval.wizard.packs.requireSelect')
@@ -141,10 +156,7 @@ export function EvalRunWizard() {
           ? t('eval.wizard.judge.required')
           : null;
 
-  const canNext =
-    (step === 0 || (step === 1 && draft.packSelections.length > 0) ||
-      (step === 2 && draft.candidates.length > 0 && (!judgeRequired || draft.judge !== null))) &&
-    step < 3;
+  const canNext = isReachable(step + 1) && step < 3;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4">
@@ -155,7 +167,9 @@ export function EvalRunWizard() {
             <button
               type="button"
               onClick={() => setStep(s)}
-              className={`flex-1 rounded px-2 py-1.5 text-center ${s === step ? 'bg-primary text-primary-foreground' : s < step ? 'bg-primary/15' : 'bg-muted text-muted-foreground'}`}
+              disabled={!isReachable(s)}
+              title={!isReachable(s) && blockReason && s === step + 1 ? blockReason : undefined}
+              className={`flex-1 rounded px-2 py-1.5 text-center disabled:cursor-not-allowed disabled:opacity-40 ${s === step ? 'bg-primary text-primary-foreground' : s < step ? 'bg-primary/15' : 'bg-muted text-muted-foreground'}`}
             >
               {t(`eval.wizard.step.${STEP_KEYS[s]}`)}
             </button>

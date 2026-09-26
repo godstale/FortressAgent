@@ -113,6 +113,32 @@ describe('EvalRunWizard', () => {
     expect(createBtn.closest('button')).toBeDisabled();
   });
 
+  it('disables future step headers until each step is complete', async () => {
+    render(<EvalRunWizard />);
+    const headerBtn = (label: string): HTMLButtonElement => {
+      const el = screen.getByText(label).closest('button');
+      if (!(el instanceof HTMLButtonElement)) throw new Error(`no header button: ${label}`);
+      return el;
+    };
+    // 처음에는 평가셋까지만 갈 수 있다 (프로파일은 항상 완료)
+    expect(headerBtn('프로파일').disabled).toBe(false);
+    expect(headerBtn('평가셋').disabled).toBe(false);
+    expect(headerBtn('후보').disabled).toBe(true);
+    expect(headerBtn('검토·생성').disabled).toBe(true);
+    // 다음으로 평가셋에 가면 quick이 자동 선택되어 후보 헤더가 열린다
+    fireEvent.click(screen.getByText('다음'));
+    await waitFor(() => {
+      expect(headerBtn('후보').disabled).toBe(false);
+    });
+    expect(headerBtn('검토·생성').disabled).toBe(true);
+    // 후보를 고르면 검토 헤더까지 열린다
+    fireEvent.click(screen.getByText('다음'));
+    fireEvent.click(screen.getByLabelText('작문가'));
+    await waitFor(() => {
+      expect(headerBtn('검토·생성').disabled).toBe(false);
+    });
+  });
+
   it('offers quick/standard/full sizes with per-pack advanced settings', async () => {
     render(<EvalRunWizard />);
     fireEvent.click(screen.getByText('다음'));
