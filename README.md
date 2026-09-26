@@ -28,6 +28,9 @@ Tauri 2와 React 19로 구축되었으며, 외부 프레임워크 오버헤드(N
   - 대화 및 모니터링 스냅샷은 워크스페이스 내 `.fortress/project.db` (SQLite)에 Append-Only 이벤트 소싱 방식으로 안전하게 보관.
 - 🛡 **인간 개입 승인 (Human-in-the-Loop, HITL)**
   - 파일 쓰기/편집 및 중요 도구 호출 시 사용자의 사전 승인을 강제하는 보안 계층.
+- 🧪 **자동 평가 (Evaluation)** — 구현 진행 중
+  - 평가셋(내장 20종 + 개인 팩)을 여러 후보(모델×설정)에 자동 실행해 품질·에이전트·성능·자원·신뢰성을 0~100으로 비교하고 최적 후보를 추천.
+  - 사용법은 **[Docs/EvaluationGuide.md](./Docs/EvaluationGuide.md)** 참고.
 - 📑 **생산성을 극대화하는 다중 탭 레이아웃**
   - 드래그 앤 드롭 탭 재정렬, 탭 컨텍스트 메뉴(우측/좌측/다른 탭 닫기), 3패널 반응형 분할, 파일 탐색기 CRUD.
 
@@ -132,6 +135,7 @@ Fortress의 내부 구조 파악, 커스텀 에이전트 개발, 벤치마크 �
 | **재구현 및 종합 청사진** | **[ReimplementationGuide.md](./Docs/ReimplementationGuide.md)**<br>현재까지의 구현사항, 계층별 아키텍처, 런타임 루프 분석, 디렉터리 구성, 신규 앱 개발 및 재구현 시 단계별 가이드라인을 집대성한 핵심 문서. | [바로가기](./Docs/ReimplementationGuide.md) |
 | **시스템 아키텍처 설계서** | **[Architecture.md](./Docs/Architecture.md)**<br>데이터 모델, 엔트리 스키마, 신뢰 경계(Security), 런타임 수명 주기, 도구 정의의 단일 진실 공급원(Single Source of Truth). | [바로가기](./Docs/Architecture.md) |
 | **사용자 가이드** | **[UserGuide.md](./Docs/UserGuide.md)**<br>화면 레이아웃 구성, 에이전트 편집, 도구 승인 절차, 시각화 기능 등 사용자를 위한 실전 매뉴얼. | [바로가기](./Docs/UserGuide.md) |
+| **자동 평가 사용법** | **[EvaluationGuide.md](./Docs/EvaluationGuide.md)**<br>평가셋 기반 자동 검증(실행 마법사·진행·리포트·개인 평가셋·Arena·가져오기/내보내기) 상세 매뉴얼. 기능 구현 진행 중이며 설계 기준 작성. | [바로가기](./Docs/EvaluationGuide.md) |
 | **Nemotron 64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Nemotron3.5_64k.md](./Docs/MonitoringAnalysis_Nemotron3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Nemotron-3.5-Lightning(30B MoE, A3B, Mamba-2 하이브리드) 64k 컨텍스트 실측 데이터 및 VRAM/속도 분석 리포트. | [바로가기](./Docs/MonitoringAnalysis_Nemotron3.5_64k.md) |
 | **Qwen 64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_64k.md](./Docs/MonitoringAnalysis_Qwen3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Qwen3.5 64k 컨텍스트 및 8개 도구/위키 연동 실측 데이터 분석 및 대용량 최적화 리포트. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_64k.md) |
 | **Qwen 8k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_8k.md](./Docs/MonitoringAnalysis_Qwen3.5_8k.md)**<br>8k 컨텍스트 환경의 하드웨어 리소스 병목 진단 및 VRAM 예산 산정 가이드. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_8k.md) |
