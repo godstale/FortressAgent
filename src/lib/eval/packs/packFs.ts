@@ -19,11 +19,25 @@ export interface PackFs {
 }
 
 export const tauriPackFs: PackFs = {
-  list(scope, workspaceRoot) {
-    return invoke<PackFileListItem[]>('eval_list_packs', {
+  async list(scope, workspaceRoot) {
+    // Rust serializes PackListEntry as snake_case (pack_id/manifest_text);
+    // accept that shape (and camelCase, defensively) instead of trusting
+    // the declared generic.
+    const raw = await invoke<
+      Array<{
+        pack_id?: string;
+        packId?: string;
+        manifest_text?: string;
+        manifestText?: string;
+      }>
+    >('eval_list_packs', {
       scope,
       workspace_root: workspaceRoot ?? null,
     });
+    return raw.map((r) => ({
+      packId: r.packId ?? r.pack_id ?? '',
+      manifestText: r.manifestText ?? r.manifest_text ?? '',
+    }));
   },
   read(scope, packId, relPath, workspaceRoot) {
     return invoke<string>('eval_read_pack_file', {
