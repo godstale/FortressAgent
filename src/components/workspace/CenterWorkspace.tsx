@@ -7,6 +7,7 @@ import {
   Bot,
   Puzzle,
   Activity,
+  FlaskConical,
   X,
   Plus,
   Columns2,
@@ -29,6 +30,7 @@ import { SkillViewerTab } from '@/components/workspace/SkillViewerTab';
 import { AgentEditorTab } from '@/components/workspace/AgentEditorTab';
 import { AgentStatsTab } from '@/components/workspace/AgentStatsTab';
 import { AgentMonitorTab } from '@/components/workspace/AgentMonitorTab';
+import { EvalTab } from '@/components/workspace/EvalTab';
 import { WelcomeGuide } from '@/components/workspace/WelcomeGuide';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -44,6 +46,7 @@ const TAB_ICONS: Record<WorkspaceTabType, LucideIcon> = {
   'agent-stats': Activity,
   'agent-monitor': Activity,
   'skill-viewer': Puzzle,
+  eval: FlaskConical,
 };
 
 function renderTabContent(tab: WorkspaceTab) {
@@ -62,6 +65,8 @@ function renderTabContent(tab: WorkspaceTab) {
       return <AgentMonitorTab tab={tab} />;
     case 'skill-viewer':
       return <SkillViewerTab tab={tab} />;
+    case 'eval':
+      return <EvalTab tab={tab} />;
     default:
       return null;
   }

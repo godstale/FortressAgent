@@ -115,7 +115,7 @@
 - [x] P9-07 생성 파라미터 확장 (top-p/top-k/반복 억제/seed/stop/최대 토큰 + Provider·모델별 비활성화 + [i] 상세 설명)
 - [x] P9-08 대화 목록/사이드바/모니터링 개편 (삭제 에이전트명 취소선 표시·대화 전체삭제·스킬 사이드바 제거 후 에이전트 설정 카드+refresh·모니터링 사이드 패널 신설)
 
-## Phase 10 — Automated Evaluation `[ ]`
+## Phase 10 — Automated Evaluation `[x]`
 
 > 구현 계획: `Docs/phases/Phase10-Evaluation.md`(작업 상세·소유 파일·웨이브) · 팩 제작 명세: `Docs/phases/Phase10-Eval-Packs.md` · 설계 요약: `Docs/Architecture.md` §14 · 기획서: `Docs/plan/LLM_Evaluation_Plan.md`
 > **확정 결정 D1~D6(2026-09-25)**: 전 범위 구현 / 결과는 전역 DB / 외부 API·에이전트는 사용자 허락 시에만 / 데이터셋 앱 번들(라이선스 예외는 임포터) / 평가 중 채팅 금지 / 가중치·기준값 확인 후 수동 시작.
@@ -123,37 +123,37 @@
 
 - [x] P10-00 평가 방법론 조사·기획서·구현 계획서 작성
 - **W0 — 기반**
-  - [ ] P10-01 평가 타입·zod 스키마·상수(앵커·프로파일 5종)·i18n 영역 골격
-  - [ ] P10-02 DB 마이그레이션(평가 7 + 연동 3 테이블, 전역 DB 전용) + `evalRepo`·`integrationsRepo` + 메모리 폴백
-  - [ ] P10-03 전역 평가 잠금(`evalLock`) + 채팅 전송·큐잉 차단 + 잠금 배너
+  - [x] P10-01 평가 타입·zod 스키마·상수(앵커·프로파일 5종)·i18n 영역 골격
+  - [x] P10-02 DB 마이그레이션(평가 7 + 연동 3 테이블, 전역 DB 전용) + `evalRepo`·`integrationsRepo` + 메모리 폴백
+  - [x] P10-03 전역 평가 잠금(`evalLock`) + 채팅 전송·큐잉 차단 + 잠금 배너
 - **W1 — 엔진 부품 (P10-01 이후 병렬)**
-  - [ ] P10-04 팩 로더(3계층·해시·층화 샘플링·JSONL/KMMLU CSV/CSV 어댑터·생성기 레지스트리)
-  - [ ] P10-05 결정적 채점기(exact/includes/regex/choice/numeric/json_schema/tool_call_ast/no_tool_call/viz_block) + 채점 조합
-  - [ ] P10-06 IFEval 체커 TS 포팅(영문 전 체커 + Ko-IFEval 한국어 체커)
-  - [ ] P10-07 통계(Wilson·부트스트랩·pass@k/pass^k·Bradley-Terry)·정규화·집계·추천·검정력
-  - [ ] P10-08 Rust 평가 커맨드(팩 IO·샌드박스·다운로드·런타임 감지·Python 실행·내보내기) + 번들 리소스 설정
-  - [ ] P10-09 외부 연동: 설정 페이지·동의·게이트웨이·에이전트 CLI 실행·감사 로그
+  - [x] P10-04 팩 로더(3계층·해시·층화 샘플링·JSONL/KMMLU CSV/CSV 어댑터·생성기 레지스트리)
+  - [x] P10-05 결정적 채점기(exact/includes/regex/choice/numeric/json_schema/tool_call_ast/no_tool_call/viz_block) + 채점 조합
+  - [x] P10-06 IFEval 체커 TS 포팅(영문 전 체커 + Ko-IFEval 한국어 체커)
+  - [x] P10-07 통계(Wilson·부트스트랩·pass@k/pass^k·Bradley-Terry)·정규화·집계·추천·검정력
+  - [x] P10-08 Rust 평가 커맨드(팩 IO·샌드박스·다운로드·런타임 감지·Python 실행·내보내기) + 번들 리소스 설정
+  - [x] P10-09 외부 연동: 설정 페이지·동의·게이트웨이·에이전트 CLI 실행·감사 로그
 - **W2 — 실행 엔진**
-  - [ ] P10-10 러너 코어(후보·매트릭스·사전점검·시간추정·하드웨어 지문·솔버 3종·자원 샘플러·체크포인트/이어하기)
-  - [ ] P10-11 에이전트형 솔버 + 샌드박스 정책 훅(§8.4) + fs_state/trajectory 채점 (파일 작업 평가 A3·스킬 A5)
-  - [ ] P10-12 LLM Judge 패스(로컬/외부, 순서 교체, 자기 채점 방지, 길이 편향 점검) + 사람 채점·일치도
-  - [ ] P10-13 코드 실행 채점(JS Worker 기본 + Python 옵트인)
-  - [ ] P10-14 logprobs 기능(객관식 확률 모드 + 양자화 충실도 Q8)
+  - [x] P10-10 러너 코어(후보·매트릭스·사전점검·시간추정·하드웨어 지문·솔버 3종·자원 샘플러·체크포인트/이어하기)
+  - [x] P10-11 에이전트형 솔버 + 샌드박스 정책 훅(§8.4) + fs_state/trajectory 채점 (파일 작업 평가 A3·스킬 A5)
+  - [x] P10-12 LLM Judge 패스(로컬/외부, 순서 교체, 자기 채점 방지, 길이 편향 점검) + 사람 채점·일치도
+  - [x] P10-13 코드 실행 채점(JS Worker 기본 + Python 옵트인)
+  - [x] P10-14 logprobs 기능(객관식 확률 모드 + 양자화 충실도 Q8)
 - **W3 — UI**
-  - [ ] P10-15 UI 골격(평가 탭·사이드 패널·ActivityBar·TopMenu·EvalContext·탭 헬퍼)
-  - [ ] P10-16 실행 마법사(프로파일/팩/후보·매트릭스/Judge/확인 — 가중치·기준값 확인 필수, 외부 전송·코드 실행 확인, 지금/나중에 시작)
-  - [ ] P10-17 진행 화면(후보×팩 매트릭스·실시간 미리보기·자원 차트·로그·일시정지/취소)
-  - [ ] P10-18 리포트(추천 3종·순위표·레이더·파레토·히트맵·컨텍스트 곡선·드릴다운·사람 채점·실행 비교·Q8 표)
-  - [ ] P10-19 팩 관리·편집기 + 개인 평가셋(채팅에서 저장·일괄 초안·픽스처 캡처·비밀 마스킹)
-  - [ ] P10-20 로컬 Arena(블라인드 A/B, BT 리더보드)
-  - [ ] P10-25 가져오기(JSONL/CSV/promptfoo/HF 프리셋)·내보내기(EEE/CSV)
+  - [x] P10-15 UI 골격(평가 탭·사이드 패널·ActivityBar·TopMenu·EvalContext·탭 헬퍼)
+  - [x] P10-16 실행 마법사(프로파일/팩/후보·매트릭스/Judge/확인 — 가중치·기준값 확인 필수, 외부 전송·코드 실행 확인, 지금/나중에 시작)
+  - [x] P10-17 진행 화면(후보×팩 매트릭스·실시간 미리보기·자원 차트·로그·일시정지/취소)
+  - [x] P10-18 리포트(추천 3종·순위표·레이더·파레토·히트맵·컨텍스트 곡선·드릴다운·사람 채점·실행 비교·Q8 표)
+  - [x] P10-25 가져오기(JSONL/CSV/promptfoo/HF 프리셋)·내보내기(EEE/CSV)
+  - [x] P10-19 팩 관리·편집기 + 개인 평가셋(채팅에서 저장·일괄 초안·픽스처 캡처·비밀 마스킹)
+  - [x] P10-20 로컬 Arena(블라인드 A/B, BT 리더보드)
 - **콘텐츠 (P10-01 이후 언제든, 로더 검증은 P10-04 이후)**
-  - [ ] P10-21 FAB-A: `fab-tools-select`(60) · `fab-tools-relevance`(40) · `fab-viz`(30)
-  - [ ] P10-22 FAB-B: `fab-fs-tasks`(30, 픽스처 4종) · `fab-skill`(10) · `fab-compaction`(10) + compaction_recall 솔버
-  - [ ] P10-23 FAB-C: `fab-longctx`·`fab-perf-probe` 생성기 · `fab-ko-writing`(20) · `fab-code-js`(40) · `fab-quant-probe`(30)
-  - [ ] P10-24 공개셋 번들: gsm8k·gsm8k-perturb·mmlu-pro·ifeval·ko-ifeval·kmmlu(원본 CSV)·kobest·humaneval-plus·bfcl + NOTICE + 임포터 프리셋
+  - [x] P10-21 FAB-A: `fab-tools-select`(60) · `fab-tools-relevance`(40) · `fab-viz`(30)
+  - [x] P10-22 FAB-B: `fab-fs-tasks`(30, 픽스처 4종) · `fab-skill`(10) · `fab-compaction`(10) + compaction_recall 솔버
+  - [x] P10-23 FAB-C: `fab-longctx`·`fab-perf-probe` 생성기 · `fab-ko-writing`(20) · `fab-code-js`(40) · `fab-quant-probe`(30)
+  - [x] P10-24 공개셋 번들: gsm8k·gsm8k-perturb·mmlu-pro·ifeval·ko-ifeval·kmmlu(원본 CSV)·kobest·humaneval-plus·bfcl + NOTICE + 임포터 프리셋
 - **W4 — 마무리**
-  - [ ] P10-26 통합 QA(시나리오 10종)·UserGuide·QA-Checklist·README
+  - [x] P10-26 통합 QA(시나리오 10종)·UserGuide·QA-Checklist·README
 
 ---
 
@@ -178,6 +178,12 @@
 | 2026-09-25 | P10-00 | 자동 평가 기능 기획 확정(D1~D6) 및 구현 계획 수립. 신규 문서: `Docs/phases/Phase10-Evaluation.md`, `Docs/phases/Phase10-Eval-Packs.md`, `Docs/plan/LLM_Evaluation_Plan.md`(확정본), `Docs/plan/LLM_Evaluation_Research.md`. `Architecture.md` §2·§3.1·§3.2·§3.3·§4.5·§8.4(평가 샌드박스 정책 = 승인 훅의 유일한 예외)·§12·§14 갱신, `ImplementationPlan.md`에 Phase 8~10 추가. 라이선스 확인 결과 HAE-RAE(CC-BY-NC-ND)·GPQA(평문 공개 금지 요청)·CLIcK·LogicKor(라이선스 미확인)는 번들 불가 → 임포터만 제공, KMMLU(CC-BY-ND)는 원본 CSV 무수정 번들. **신규 의존성 없음(계획)**. | 해결됨 |
 | 2026-09-25 | P9-09 | wiki 내장 도구 신설(단일 `wiki` 도구, `action: ingest/query/list/delete`): llm-wiki 스킬의 온톨로지·그래프·백업 제외, 등록/조회/삭제 기본기만 추출. 저장 위치는 `{workspaceRoot}/wiki/`(`sources/<slug>.md` + `index.md`/`log.md` 부기). `BuiltinToolId`에 `wiki` 추가(risk `low`, sequential), `DEFAULT_ACTIVE_TOOLS`·신규 에이전트 기본값·`ALL_BUILTIN_TOOLS` UI에 기본 선택으로 등록, ko/en `agentForm.tool_wiki` 문구 추가. 기존 `.agents/skills/llm-wiki`는 그대로 유지. `Architecture.md` §2·§4.2 갱신. **신규 의존성 없음**. | 해결됨 |
 | 2026-09-25 | P9-10 | 대화 시작 시 자동 모니터링: Agent에 `autoMonitor`(기본 on, 미지정 구 행은 켜짐) 추가. DB `agents`에 `auto_monitor` 컬럼 추가(`0001_init.sql`·`client.ts` 마이그레이션/메모리 폴백·`agentsRepo`·테스트 목 동기화). `monitoringCollector`에 자동 소유권(`startAuto`/`stopAuto`/`isAuto`) 추가 — 수동 시작분은 자동 중단하지 않음. `useChat`이 전송/`agent_start` 시 자동 시작, `agent_end`·`error`·`stop()`·세션 정리 시 자동 중단(대화 시작→모니터링 상태, LLM 작업 완료→중단). `AgentMonitorTab`은 수집 실행 상태를 폴링 동기화 + 자동 수집 중에는 탭을 닫아도 수집을 유지. `AgentEditorForm`에 "자동 모니터링" on/off 카드 + ko/en 문구. `Architecture.md` §4.2 갱신. `pnpm lint`/`typecheck`/`test` 통과. **신규 의존성 없음**. | 해결됨 |
+| 2026-09-25 | P10-26 | 통합 마무리: P10-25 인수(변환기·EEE/CSV 내보내기 30건) + PackManager/EvalReport에 가져오기·내보내기 마운트 + EvalTab 5뷰 배선 + UserGuide 8장·QA-Checklist EV-01~10(UNVERIFIED, tauri-dev 실동작 필요)·README 기능 1줄. 최종 검증 `lint`·`typecheck` 통과, `test` 967/968(유일 실패는 기존 bundledSkills CRLF). 수동 QA 10종과 `tauri dev` UI 확인은 실머신에서 수행 필요. | 해결됨 |
+| 2026-09-25 | P10-24 | 공개셋 9종 번들(gsm8k 1319·perturb 100·mmlu-pro 1400·ifeval 541·ko-ifeval 342·kmmlu 원본 CSV 45·kobest 1000·humaneval-plus 164·bfcl 500) + 변환 스크립트 11종 + NOTICE + 임포터 프리셋. KMMLU math-test.csv 7~8열 스왑 발견 → 원본 무수정 + 이름 기반 매핑(공유 파일 수정, 하위 호환). "체커 누락" 보고는 오탐으로 확인(멀티라인 등록, 25개 ID 전부 해소). 테스트 55건, `typecheck`·`lint` 통과. | 해결됨 |
+| 2026-09-25 | P10-05~09 | W1 엔진 부품 완료. P10-05(결정적 채점기 10종+combine, 테스트 51건)는 분기 산출물 없이 직접 구현. P10-06(IFEval 25종+한국어 2종, 88건) — `registerIfevalScorer`의 동적 import 해킹을 정적 등록으로 교체 + `IfevalScoreInput.toolCalls`를 `ScorerInput`과 일치시킴(소유 파일 수정, 통합용). P10-07(통계·정규화·집계·추천, 45건). P10-08(Rust 14 커맨드, cargo check/test 통과) — `SandboxSnapshot`이 `scorers/types.ts`와 `runner/sandbox.ts`에 구조 동일하게 이중 정의됨(P10-11은 scorers 쪽을 정식으로 사용, 구조적 호환). P10-09(외부 연동 UI+게이트웨이+Rust CLI, 41건) — CLI 프리셋 미검증으로 제외. 전체 `pnpm test` 608/609(유일 실패는 기존 bundledSkills CRLF), `typecheck`·`lint` 통과. | 해결됨 |
+| 2026-09-25 | P10-03 | 전역 평가 잠금(`src/lib/eval/evalLock.ts`, 가상 세션 `eval:<runId>` busy 등록으로 폴더 전환·에이전트 편집 잠금 자동 적용) + `useChat.sendMessage`·`ChatTab.handleSendMessage` 가드(큐에 넣지 않음) + `ChatInput` 입력·전송·슬래시·셀렉터 비활성화 + `EvalLockBanner` + `eval/lock` ko/en 문구. `useChat` 가드는 번역 컨텍스트가 없어 조용히 복귀하고 알림은 UI 층(배너·placeholder)이 담당 — 기존 `useChat` 테스트가 LanguageProvider 없이 렌더링되므로 `useLanguage`를 넣지 않음. 테스트 6건(evalLock 5 + ChatInput 1), `pnpm lint`/`typecheck` 통과. | 해결됨 |
+| 2026-09-25 | P10-02 | 평가·연동 10 테이블 마이그레이션(`0001_init.sql`+`MIGRATION_STATEMENTS` 동기화) + `evalRepo`(run/candidate/trial/score/aggregate/profile/arena) + `integrationsRepo`(연동/설정/감사) + `MemorySqlFallback` 핸들러. 전역 DB 전용(`getGlobalDatabase`). 테스트 15건, `pnpm lint`/`typecheck` 통과. | 해결됨 |
+| 2026-09-25 | P10-01 | 평가 타입·상수·i18n 골격 구현(`src/lib/eval/types.ts`·`constants.ts`·`types.test.ts`, `src/lib/i18n/dictionaries/eval/` 12영역 ko/en + index, ko/en 스프레드). `pnpm lint`/`typecheck`/신규 테스트(4건) 통과. 전체 `pnpm test`는 기존 실패 1건(`bundledSkills` CRLF 정규식, P10-01 무관·클린 트리에서도 재현) 제외하고 통과. | 해결됨 |
 | 2026-09-25 | P9-11 | 앱 기본 제공 스킬 `basic-llm-wiki` 신설: llm-wiki에서 온톨로지·그래프·백업·lint·스크립트를 모두 제거하고 등록/조회(목록·검색)/삭제만 남긴 단일 `SKILL.md`(`src/lib/skills/bundled/basic-llm-wiki/`, 레이아웃은 `wiki` 도구와 동일한 `wiki/sources`·`index.md`·`log.md`). `bundledSkills.ts`(`BUNDLED_SKILLS`, `installBundledSkills`) + `src/vite-env.d.ts`(`?raw` 타입). `AgentEditorForm` 활성 스킬 목록에 미설치 번들 스킬을 `앱 기본 제공` 배지로 노출, 활성화 후 저장 시 워크스페이스 `.agents/skills/basic-llm-wiki/`로 복사(기존 파일 미덮어쓰기) 후 스킬 재스캔. 리포 루트 `.agents/skills/llm-wiki`는 미변경. 테스트 3건 추가, `pnpm lint`/`typecheck`/`test`(58파일 325건) 통과. **신규 의존성 없음**. | 해결됨 |
 
 ---

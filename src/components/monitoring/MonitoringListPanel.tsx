@@ -1,17 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Bot,
   BotOff,
-  Cpu,
-  Server,
-  Gauge,
   Trash2,
   RefreshCw,
   Loader2,
-  ChevronDown,
-  ChevronRight,
-  Filter,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,20 +20,19 @@ import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
-import { getProviderPreset } from '@/lib/llm/providers';
-import type { LlmProviderKind } from '@/lib/types/agent';
+import type { Agent } from '@/lib/types/agent';
 import type { AgentMonitoringSnapshot } from '@/lib/types/monitoring';
 import {
   listRecentMonitoringSnapshots,
-  deleteMonitoringSnapshot,
+  getMonitoringSnapshots,
+  getMonitoringAgentStats,
+  clearMonitoringSnapshots,
+  clearConversationSummaries,
   clearAllMonitoringSnapshots,
   clearAllConversationSummaries,
+  type MonitoringAgentStats,
 } from '@/lib/db/repositories/monitoringRepo';
-import {
-  groupMonitoringSnapshots,
-  UNKNOWN_MONITOR_SEGMENT,
-  type MonitoringFilterMode,
-} from '@/lib/monitoring/monitoringGroups';
+import { monitoringCollector } from '@/lib/monitoring/monitoringCollector';
 
 type TFn = (key: string, params?: Record<string, string | number>) => string;
 
@@ -59,120 +52,216 @@ function formatTime(iso: string, t: TFn): string {
   }
 }
 
-const FILTER_STORAGE_KEY = 'fortress:monitoring-filter';
-
-function readStoredFilterMode(): MonitoringFilterMode {
-  try {
-    const saved = window.localStorage.getItem(FILTER_STORAGE_KEY);
-    if (
-      saved === 'agent' ||
-      saved === 'provider' ||
-      saved === 'model' ||
-      saved === 'status'
-    ) {
-      return saved;
-    }
-  } catch {
-    // localStorage 미지원 환경에서는 전체 보기로 폴백한다.
-  }
-  return 'all';
+interface AgentHistoryEntry {
+  agentId: string;
+  agent: Agent | undefined;
+  displayName: string;
+  deleted: boolean;
+  count: number;
+  latestTimestamp: string | null;
+  latest: AgentMonitoringSnapshot | undefined;
 }
 
+/**
+ * 모니터링 기록 패널.
+ * 개별 스냅샷이 아니라 에이전트 설정 단위 항목을 보여준다.
+ * 에이전트 관리 패널과 동일하게 "현재 등록된 에이전트" + "삭제된 에이전트"
+ * 항목으로 구성되며, 각 항목은 해당 에이전트의 전체 모니터링 정보·history를
+ * 의미한다. 항목 클릭 시 모니터링 화면으로 이동한다.
+ */
 export function MonitoringListPanel() {
   const { t } = useLanguage();
   const { openTab } = useWorkspaceTabs();
   const {
+    agents,
     getAgent,
     getKnownAgentName,
     loading: agentsLoading,
   } = useAgents();
   const { workspaceRoot } = useWorkspace();
 
+  const [stats, setStats] = useState<MonitoringAgentStats[]>([]);
   const [snapshots, setSnapshots] = useState<AgentMonitoringSnapshot[]>([]);
+  const [olderLatest, setOlderLatest] = useState<
+    Record<string, AgentMonitoringSnapshot>
+  >({});
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [filterMode, setFilterMode] =
-    useState<MonitoringFilterMode>(readStoredFilterMode);
-  const [manuallyCollapsed, setManuallyCollapsed] = useState<Set<string>>(
-    () => new Set(),
+  // 최근 200건 밖에 있는 에이전트의 최신 스냅샷을 중복 조회하지 않기 위한 집합.
+  const fetchedOlderRef = useRef<Set<string>>(new Set());
+  const loadedRootRef = useRef<string | null | undefined>(undefined);
+
+  const loadData = useCallback(
+    async (quiet = false) => {
+      if (loadedRootRef.current !== workspaceRoot) {
+        loadedRootRef.current = workspaceRoot;
+        fetchedOlderRef.current.clear();
+        setOlderLatest({});
+      }
+      if (!quiet) setIsLoading(true);
+      try {
+        const [statsRows, recentRows] = await Promise.all([
+          getMonitoringAgentStats(workspaceRoot),
+          listRecentMonitoringSnapshots(200, workspaceRoot),
+        ]);
+        setStats(statsRows);
+        setSnapshots(recentRows);
+        // 최근 200건에 없는 에이전트는 최신 1건만 별도로 조회해
+        // 모델·상태·시각 표시에 사용한다.
+        const seen = new Set(recentRows.map((r) => r.agentId));
+        const missing = statsRows
+          .map((s) => s.agentId)
+          .filter((id) => !seen.has(id) && !fetchedOlderRef.current.has(id));
+        if (missing.length > 0) {
+          const extra = await Promise.all(
+            missing.map((id) =>
+              getMonitoringSnapshots(id, 1, workspaceRoot)
+                .then((rows) => rows[0])
+                .catch(() => undefined),
+            ),
+          );
+          const found = extra.filter(
+            (s): s is AgentMonitoringSnapshot => s !== undefined,
+          );
+          for (const s of found) fetchedOlderRef.current.add(s.agentId);
+          if (found.length > 0) {
+            setOlderLatest((prev) => {
+              const next = { ...prev };
+              for (const s of found) next[s.agentId] = s;
+              return next;
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load monitoring history:', err);
+      } finally {
+        if (!quiet) setIsLoading(false);
+      }
+    },
+    [workspaceRoot],
   );
 
-  const loadSnapshots = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const rows = await listRecentMonitoringSnapshots(200, workspaceRoot);
-      setSnapshots(rows);
-    } catch (err) {
-      console.error('Failed to load monitoring snapshots:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [workspaceRoot]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트/워크스페이스 변경 시 외부 DB와 초기 동기화
+    void loadData(false);
+  }, [loadData]);
 
+  // 수집기가 새 스냅샷을 만들 때마다 DB를 다시 읽는다 (쓰로틀로 폭주 방지).
   useEffect(() => {
     let active = true;
-    void (async () => {
-      try {
-        const rows = await listRecentMonitoringSnapshots(200, workspaceRoot);
-        if (!active) return;
-        setSnapshots(rows);
-      } catch (err) {
-        console.error('Failed to load monitoring snapshots:', err);
-      } finally {
-        if (active) setIsLoading(false);
+    let lastReload = 0;
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = monitoringCollector.subscribeAll(() => {
+      if (!active) return;
+      const now = Date.now();
+      const elapsed = now - lastReload;
+      if (elapsed >= 2000) {
+        lastReload = now;
+        void loadData(true);
+      } else if (pendingTimer === null) {
+        pendingTimer = setTimeout(() => {
+          pendingTimer = null;
+          if (!active) return;
+          lastReload = Date.now();
+          void loadData(true);
+        }, 2000 - elapsed);
       }
-    })();
+    });
     return () => {
       active = false;
+      if (pendingTimer !== null) clearTimeout(pendingTimer);
+      unsubscribe();
     };
-  }, [workspaceRoot]);
+  }, [loadData]);
 
-  const handleFilterChange = (mode: MonitoringFilterMode) => {
-    setFilterMode(mode);
-    try {
-      window.localStorage.setItem(FILTER_STORAGE_KEY, mode);
-    } catch {
-      // 저장 실패는 무시하고 이번 세션 동안만 유지한다.
+  // 최근 스냅샷에서 에이전트별 최신 행을 구한다.
+  const latestByAgent = useMemo(() => {
+    const map = new Map<string, AgentMonitoringSnapshot>();
+    for (const s of snapshots) {
+      if (!map.has(s.agentId)) map.set(s.agentId, s);
     }
-  };
+    for (const s of Object.values(olderLatest)) {
+      if (!map.has(s.agentId)) map.set(s.agentId, s);
+    }
+    return map;
+  }, [snapshots, olderLatest]);
 
-  const toggleGroup = (key: string) => {
-    setManuallyCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
+  const statsById = useMemo(() => {
+    const map = new Map<string, MonitoringAgentStats>();
+    for (const s of stats) map.set(s.agentId, s);
+    return map;
+  }, [stats]);
+
+  const registeredEntries = useMemo<AgentHistoryEntry[]>(() => {
+    if (agentsLoading) return [];
+    return agents.map((agent) => {
+      const stat = statsById.get(agent.id);
+      const latest = latestByAgent.get(agent.id);
+      return {
+        agentId: agent.id,
+        agent,
+        displayName: agent.name,
+        deleted: false,
+        count: stat?.count ?? 0,
+        latestTimestamp: latest?.timestamp ?? stat?.latestTimestamp ?? null,
+        latest,
+      };
     });
-  };
+  }, [agents, agentsLoading, statsById, latestByAgent]);
 
-  const handleOpenMonitor = (snapshot: AgentMonitoringSnapshot) => {
-    const agent = getAgent(snapshot.agentId);
-    const name =
-      agent?.name ?? getKnownAgentName(snapshot.agentId) ?? snapshot.agentId;
+  const deletedEntries = useMemo<AgentHistoryEntry[]>(() => {
+    if (agentsLoading) return [];
+    return stats
+      .filter((s) => getAgent(s.agentId) === undefined)
+      .map((s) => ({
+        agentId: s.agentId,
+        agent: undefined,
+        displayName:
+          getKnownAgentName(s.agentId) ?? t('sessions.agentDeleted'),
+        deleted: true,
+        count: s.count,
+        latestTimestamp:
+          latestByAgent.get(s.agentId)?.timestamp ?? s.latestTimestamp,
+        latest: latestByAgent.get(s.agentId),
+      }));
+  }, [stats, agentsLoading, getAgent, getKnownAgentName, latestByAgent, t]);
+
+  const totalRecords = useMemo(
+    () => stats.reduce((acc, s) => acc + s.count, 0),
+    [stats],
+  );
+
+  const handleOpenMonitor = (entry: AgentHistoryEntry) => {
     openTab({
-      id: `agent-monitor:${snapshot.agentId}`,
+      id: `agent-monitor:${entry.agentId}`,
       type: 'agent-monitor',
-      title: t('agentList.monitor', { name }),
-      meta: { agentId: snapshot.agentId },
+      title: t('agentList.monitor', { name: entry.displayName }),
+      meta: { agentId: entry.agentId },
     });
   };
 
-  const handleDeleteSnapshot = async (
+  const handleDeleteAgentHistory = async (
     e: React.MouseEvent,
-    snapshotId: string,
+    agentId: string,
   ) => {
     e.stopPropagation();
-    setDeletingId(snapshotId);
+    setDeletingId(agentId);
     try {
-      await deleteMonitoringSnapshot(snapshotId, workspaceRoot);
-      setSnapshots((prev) => prev.filter((s) => s.id !== snapshotId));
+      await clearMonitoringSnapshots(agentId, workspaceRoot);
+      await clearConversationSummaries(agentId, workspaceRoot);
+      setStats((prev) => prev.filter((s) => s.agentId !== agentId));
+      setSnapshots((prev) => prev.filter((s) => s.agentId !== agentId));
+      fetchedOlderRef.current.delete(agentId);
+      setOlderLatest((prev) => {
+        if (!(agentId in prev)) return prev;
+        const next = { ...prev };
+        delete next[agentId];
+        return next;
+      });
     } catch (err) {
-      console.error('Failed to delete monitoring snapshot:', err);
+      console.error('Failed to delete monitoring history:', err);
     } finally {
       setDeletingId(null);
     }
@@ -183,7 +272,10 @@ export function MonitoringListPanel() {
     try {
       await clearAllMonitoringSnapshots(workspaceRoot);
       await clearAllConversationSummaries(workspaceRoot);
+      setStats([]);
       setSnapshots([]);
+      fetchedOlderRef.current.clear();
+      setOlderLatest({});
       setClearConfirmOpen(false);
     } catch (err) {
       console.error('Failed to clear monitoring history:', err);
@@ -192,76 +284,25 @@ export function MonitoringListPanel() {
     }
   };
 
-  const groups = useMemo(
-    () =>
-      filterMode === 'all'
-        ? null
-        : groupMonitoringSnapshots(snapshots, filterMode, getAgent),
-    [snapshots, filterMode, getAgent],
-  );
-
-  const collapsedGroups = useMemo(() => manuallyCollapsed, [manuallyCollapsed]);
-
-  const resolveGroupHeader = (key: string) => {
-    if (filterMode === 'agent') {
-      const agentId = key.slice('agent:'.length);
-      const agent = agentsLoading ? undefined : getAgent(agentId);
-      if (agent) return { label: agent.name, Icon: Bot, deleted: false };
-      const known = agentsLoading ? null : getKnownAgentName(agentId);
-      return {
-        label: agentsLoading ? '…' : (known ?? t('sessions.agentDeleted')),
-        Icon: BotOff,
-        deleted: !agentsLoading,
-      };
-    }
-    if (filterMode === 'provider') {
-      const segment = key.slice('provider:'.length);
-      if (segment === UNKNOWN_MONITOR_SEGMENT) {
-        return {
-          label: agentsLoading ? '…' : t('sessions.agentDeleted'),
-          Icon: BotOff,
-          deleted: true,
-        };
-      }
-      return {
-        label: getProviderPreset(segment as LlmProviderKind).label,
-        Icon: Server,
-        deleted: false,
-      };
-    }
-    if (filterMode === 'status') {
-      return { label: key.slice('status:'.length), Icon: Gauge, deleted: false };
-    }
-    const segment = key.slice('model:'.length);
-    if (segment === UNKNOWN_MONITOR_SEGMENT) {
-      return {
-        label: agentsLoading ? '…' : t('sessions.agentDeleted'),
-        Icon: BotOff,
-        deleted: true,
-      };
-    }
-    return { label: segment, Icon: Cpu, deleted: false };
-  };
-
-  const renderSnapshotRow = (snapshot: AgentMonitoringSnapshot) => {
-    const isDeleting = deletingId === snapshot.id;
-    const agent = agentsLoading ? undefined : getAgent(snapshot.agentId);
-    const knownName = agentsLoading
-      ? undefined
-      : (agent?.name ?? getKnownAgentName(snapshot.agentId));
-    const isAgentDeleted = !agentsLoading && !agent;
-    const displayName = knownName ?? t('sessions.agentDeleted');
-    const model = snapshot.llmModel || agent?.model || '—';
+  const renderAgentRow = (entry: AgentHistoryEntry) => {
+    const isDeleting = deletingId === entry.agentId;
+    const Icon = entry.deleted ? BotOff : Bot;
+    const model =
+      entry.latest?.llmModel || entry.agent?.model || '—';
+    const sub =
+      entry.count > 0
+        ? `${model} • ${t('monitoringList.recordsCount', { n: entry.count })}${entry.latest ? ` • ${entry.latest.agentStatus}` : ''}`
+        : `${model} • ${t('monitoringList.noRecords')}`;
 
     return (
       <div
-        key={snapshot.id}
+        key={entry.agentId}
         role="button"
         tabIndex={0}
-        onClick={() => handleOpenMonitor(snapshot)}
+        onClick={() => handleOpenMonitor(entry)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
-            handleOpenMonitor(snapshot);
+            handleOpenMonitor(entry);
           }
         }}
         className="group relative flex items-start justify-between rounded-lg p-2.5 text-xs transition-colors cursor-pointer border text-foreground hover:bg-muted/60 border-transparent"
@@ -269,44 +310,54 @@ export function MonitoringListPanel() {
         <div className="flex-1 min-w-0 pr-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 font-medium truncate min-w-0">
-              <Activity className="h-3.5 w-3.5 text-primary shrink-0" />
+              <Icon className="h-3.5 w-3.5 text-primary shrink-0" />
               <span
-                className={`truncate ${isAgentDeleted ? 'line-through text-muted-foreground' : ''}`}
-                title={isAgentDeleted ? t('sessions.agentDeleted') : undefined}
+                className={`truncate ${entry.deleted ? 'line-through text-muted-foreground' : ''}`}
+                title={entry.deleted ? t('sessions.agentDeleted') : undefined}
               >
-                {displayName}
+                {entry.displayName}
               </span>
             </div>
-            <span className="text-[11px] text-muted-foreground shrink-0">
-              {formatTime(snapshot.timestamp, t)}
-            </span>
+            {entry.latestTimestamp && (
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                {formatTime(entry.latestTimestamp, t)}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground truncate">
-            <span className="truncate font-mono">
-              {model} • {snapshot.agentStatus}
-              {snapshot.gpuUtilizationPct > 0 &&
-                ` • GPU ${Math.round(snapshot.gpuUtilizationPct)}%`}
-            </span>
+            <span className="truncate font-mono">{sub}</span>
           </div>
         </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          disabled={isDeleting}
-          onClick={(e) => void handleDeleteSnapshot(e, snapshot.id)}
-          className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-opacity shrink-0"
-          title={t('monitoringList.deleteRecord')}
-        >
-          {isDeleting ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Trash2 className="h-3.5 w-3.5" />
-          )}
-        </Button>
+        {entry.count > 0 && (
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={isDeleting}
+            onClick={(e) => void handleDeleteAgentHistory(e, entry.agentId)}
+            className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-opacity shrink-0"
+            title={t('monitoringList.deleteHistory')}
+          >
+            {isDeleting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        )}
       </div>
     );
   };
+
+  const itemCount = registeredEntries.length + deletedEntries.length;
+  const showLoading =
+    (isLoading || agentsLoading) &&
+    registeredEntries.length === 0 &&
+    deletedEntries.length === 0;
+  const showEmpty =
+    !showLoading &&
+    registeredEntries.length === 0 &&
+    deletedEntries.length === 0;
 
   return (
     <div className="flex flex-col h-full bg-sidebar select-none">
@@ -314,14 +365,14 @@ export function MonitoringListPanel() {
       <div className="flex items-center justify-between p-3 border-b border-border">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
           <Activity className="h-3.5 w-3.5" />
-          {t('monitoringList.titleCount', { n: snapshots.length })}
+          {t('monitoringList.titleCount', { n: itemCount })}
         </span>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6 text-muted-foreground hover:text-foreground"
-            onClick={() => void loadSnapshots()}
+            onClick={() => void loadData(false)}
             disabled={isLoading}
             title={t('monitoringList.refresh')}
           >
@@ -334,7 +385,7 @@ export function MonitoringListPanel() {
             size="icon"
             className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 disabled:opacity-40"
             onClick={() => setClearConfirmOpen(true)}
-            disabled={snapshots.length === 0 || isClearing}
+            disabled={totalRecords === 0 || isClearing}
             title={t('monitoringList.clearAll')}
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -342,33 +393,14 @@ export function MonitoringListPanel() {
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border">
-        <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <select
-          value={filterMode}
-          onChange={(e) =>
-            handleFilterChange(e.target.value as MonitoringFilterMode)
-          }
-          aria-label={t('monitoringList.filterLabel')}
-          className="w-full bg-transparent text-xs text-foreground outline-none cursor-pointer"
-        >
-          <option value="all">{t('sessions.filterAll')}</option>
-          <option value="agent">{t('sessions.filterByAgent')}</option>
-          <option value="provider">{t('sessions.filterByProvider')}</option>
-          <option value="model">{t('sessions.filterByModel')}</option>
-          <option value="status">{t('monitoringList.filterByStatus')}</option>
-        </select>
-      </div>
-
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {isLoading && snapshots.length === 0 ? (
+        {showLoading ? (
           <div className="flex items-center justify-center p-8 text-xs text-muted-foreground gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span>{t('monitoringList.loading')}</span>
           </div>
-        ) : snapshots.length === 0 ? (
+        ) : showEmpty ? (
           <div className="flex flex-col items-center justify-center p-6 text-center text-muted-foreground">
             <Activity className="h-8 w-8 mb-2 opacity-40" />
             <p className="text-xs font-medium">{t('monitoringList.empty')}</p>
@@ -376,45 +408,25 @@ export function MonitoringListPanel() {
               {t('monitoringList.emptyDesc')}
             </p>
           </div>
-        ) : groups ? (
-          groups.map((group) => {
-            const isCollapsed = collapsedGroups.has(group.key);
-            const { label, Icon, deleted } = resolveGroupHeader(group.key);
-            const ToggleIcon = isCollapsed ? ChevronRight : ChevronDown;
-            return (
-              <div key={group.key} className="space-y-1">
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(group.key)}
-                  aria-expanded={!isCollapsed}
-                  title={
-                    isCollapsed
-                      ? t('sessions.expandGroup')
-                      : t('sessions.collapseGroup')
-                  }
-                  className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
-                >
-                  <ToggleIcon className="h-3.5 w-3.5 shrink-0" />
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                  <span
-                    className={`truncate font-medium text-left flex-1 min-w-0 ${deleted ? 'line-through' : ''}`}
-                  >
-                    {label}
-                  </span>
-                  <span className="text-[11px] tabular-nums shrink-0">
-                    {group.snapshots.length}
-                  </span>
-                </button>
-                {!isCollapsed && (
-                  <div className="space-y-1">
-                    {group.snapshots.map(renderSnapshotRow)}
-                  </div>
-                )}
-              </div>
-            );
-          })
         ) : (
-          snapshots.map(renderSnapshotRow)
+          <>
+            {registeredEntries.length > 0 && (
+              <div className="space-y-1">
+                <div className="px-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t('monitoringList.currentAgents')}
+                </div>
+                {registeredEntries.map(renderAgentRow)}
+              </div>
+            )}
+            {deletedEntries.length > 0 && (
+              <div className="space-y-1">
+                <div className="px-2 pt-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t('monitoringList.deletedAgents')}
+                </div>
+                {deletedEntries.map(renderAgentRow)}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -424,7 +436,7 @@ export function MonitoringListPanel() {
           <DialogHeader>
             <DialogTitle>{t('monitoringList.clearConfirmTitle')}</DialogTitle>
             <DialogDescription>
-              {t('monitoringList.clearConfirmDesc', { n: snapshots.length })}
+              {t('monitoringList.clearConfirmDesc', { n: totalRecords })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

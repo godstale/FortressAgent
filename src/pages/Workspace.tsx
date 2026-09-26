@@ -11,6 +11,7 @@ import { WorkspaceProvider, useWorkspace } from '@/lib/context/WorkspaceContext'
 import { SkillsProvider } from '@/lib/context/SkillsContext';
 import { AgentsProvider } from '@/lib/context/AgentsContext';
 import { ChatSessionsProvider } from '@/lib/context/ChatSessionsContext';
+import { EvalProvider } from '@/lib/context/EvalContext';
 import { TrustWorkspaceDialog } from '@/components/workspace/TrustWorkspaceDialog';
 import { ApprovalDialog } from '@/components/chat/ApprovalDialog';
 import type { SidePanelView } from '@/lib/types/workspaceTab';
@@ -109,9 +110,11 @@ export function Workspace() {
           <ChatSessionsProvider>
             <WorkspaceTabsProvider>
               <SidePanelProvider>
-                <WorkspaceContent />
-                <TrustWorkspaceDialog />
-                <ApprovalDialog />
+                <EvalProvider>
+                  <WorkspaceContent />
+                  <TrustWorkspaceDialog />
+                  <ApprovalDialog />
+                </EvalProvider>
               </SidePanelProvider>
             </WorkspaceTabsProvider>
           </ChatSessionsProvider>

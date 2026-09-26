@@ -31,7 +31,7 @@ export async function saveMonitoringSnapshot(
       decoding_tokens, decoding_duration_ms, decoding_speed, total_duration_ms,
       thinking_tokens, conversation_id, conversation_seq,
       details, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       snapshot.id,
       snapshot.agentId,
@@ -220,6 +220,36 @@ export async function deleteMonitoringSnapshot(
 ): Promise<void> {
   const db = await getDatabase(workspaceRoot);
   await db.execute('DELETE FROM agent_monitoring_snapshots WHERE id = ?', [id]);
+}
+
+export interface MonitoringAgentStats {
+  agentId: string;
+  count: number;
+  latestTimestamp: string;
+}
+
+interface DbAgentStatsRow {
+  agent_id: string;
+  count: number;
+  latest_timestamp: string;
+}
+
+/**
+ * 에이전트별 모니터링 기록 보유 현황 (전체 기간 집계).
+ * 기록 패널의 에이전트 단위 목록(등록/삭제) 구성에 사용한다.
+ */
+export async function getMonitoringAgentStats(
+  workspaceRoot?: string | null,
+): Promise<MonitoringAgentStats[]> {
+  const db = await getDatabase(workspaceRoot);
+  const rows = await db.select<DbAgentStatsRow[]>(
+    'SELECT agent_id, COUNT(*) as count, MAX(timestamp) as latest_timestamp FROM agent_monitoring_snapshots GROUP BY agent_id ORDER BY latest_timestamp DESC',
+  );
+  return rows.map((row) => ({
+    agentId: row.agent_id,
+    count: row.count,
+    latestTimestamp: row.latest_timestamp,
+  }));
 }
 
 export async function clearAllMonitoringSnapshots(

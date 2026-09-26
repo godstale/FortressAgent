@@ -3,6 +3,8 @@ import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test-utils';
 import '@testing-library/jest-dom/vitest';
 import { ChatInput } from './ChatInput';
+import { evalLock } from '@/lib/eval/evalLock';
+import { chatQueueManager } from '@/lib/agent/chatQueueManager';
 import type { SkillManifest } from '@/lib/types/skill';
 
 // Mock tauri core invoke
@@ -245,6 +247,42 @@ describe('ChatInput component', () => {
     const selects = container.querySelectorAll('select');
     expect(selects.length).toBe(2);
     expect(selects[0]).not.toBeDisabled();
+  });
+
+  it('disables input, send, and selects while evaluation lock is held (P10-03)', () => {
+    chatQueueManager.resetAll();
+    expect(evalLock.acquire('run-1', 'Test run')).toBe(true);
+    try {
+      const onSend = vi.fn();
+      const onQueue = vi.fn();
+      const { container } = render(
+        <ChatInput
+          onSend={onSend}
+          onSteer={vi.fn()}
+          onStop={vi.fn()}
+          onQueue={onQueue}
+          isStreaming={false}
+        />,
+      );
+
+      const textarea = screen.getByRole('textbox');
+      expect(textarea).toBeDisabled();
+      expect(textarea.getAttribute('placeholder')).toContain('평가 실행 중');
+
+      // Enter is ignored: neither send nor queue fires
+      fireEvent.change(textarea, { target: { value: 'hello' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      expect(onSend).not.toHaveBeenCalled();
+      expect(onQueue).not.toHaveBeenCalled();
+
+      const selects = container.querySelectorAll('select');
+      expect(selects.length).toBe(2);
+      selects.forEach((select) => {
+        expect(select).toBeDisabled();
+      });
+    } finally {
+      evalLock.release('run-1');
+    }
   });
 });
 

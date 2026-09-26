@@ -25,6 +25,7 @@ import { resolveSkillInvocation, parseSkillCommand } from '@/lib/skills/invokeSk
 
 import { ContextGauge } from './ContextGauge';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
+import { useEvalLock } from '@/lib/eval/evalLock';
 import { cn } from '@/lib/utils';
 
 export interface SlashCommandOption {
@@ -111,6 +112,7 @@ export function ChatInput({
   isAgentDeleted = false,
 }: ChatInputProps) {
   const { t } = useLanguage();
+  const evalLocked = useEvalLock() !== null;
   const safeSkillsCtx = useSafeSkills();
   const availableSkills = useMemo(() => {
     return skillsProp ?? safeSkillsCtx?.skills ?? [];
@@ -159,7 +161,7 @@ export function ChatInput({
   }, [autocompleteQuery, availableSkills]);
 
   const isAutocompleteOpen =
-    autocompleteQuery !== null && filteredOptions.length > 0;
+    autocompleteQuery !== null && filteredOptions.length > 0 && !evalLocked;
 
   // Derive clamped selected index without setting state in effect
   const activeIndex =
@@ -198,7 +200,7 @@ export function ChatInput({
   };
 
   const handleSubmit = async () => {
-    if (isLockedByOtherSession || isAgentDeleted) return;
+    if (isLockedByOtherSession || isAgentDeleted || evalLocked) return;
     const trimmed = text.trim();
     if (!trimmed) return;
 
@@ -370,7 +372,9 @@ export function ChatInput({
     }
   };
 
-  const defaultPlaceholder = isAgentDeleted
+  const defaultPlaceholder = evalLocked
+    ? t('eval.lock.inputPlaceholder')
+    : isAgentDeleted
     ? t('chatInput.agentDeletedPlaceholder')
     : isLockedByOtherSession
     ? t('chatInput.lockedOther')
@@ -380,8 +384,9 @@ export function ChatInput({
 
   // LLM 동작 중에는 다음 턴에 적용되는 실행 설정도 변경할 수 없다.
   // (입력 텍스트의 대기 큐 추가는 허용하되 reasoning/effort 셀렉터만 잠근다.)
+  // 평가 잠금 중에는 입력·전송·큐·슬래시·셀렉터가 모두 막힌다(D5).
   const settingsLocked =
-    isAgentDeleted || isStreaming || isThisSessionBusy || isLockedByOtherSession;
+    isAgentDeleted || isStreaming || isThisSessionBusy || isLockedByOtherSession || evalLocked;
   const settingsLockTitle = settingsLocked && !isAgentDeleted ? t('chatInput.settingsLocked') : undefined;
 
   return (
@@ -570,12 +575,12 @@ export function ChatInput({
           value={text}
           onChange={(e) => handleTextChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isLockedByOtherSession || isAgentDeleted}
+          disabled={isLockedByOtherSession || isAgentDeleted || evalLocked}
           placeholder={placeholder || defaultPlaceholder}
           style={customHeight ? undefined : { maxHeight: `${maxHeight}px` }}
           className={cn(
             'w-full resize-none bg-transparent px-3.5 py-2.5 pr-20 text-sm text-foreground placeholder:text-muted-foreground/60 border-0 outline-none focus:outline-none focus:ring-0 shadow-none leading-normal font-sans',
-            (isLockedByOtherSession || isAgentDeleted) && 'opacity-60 cursor-not-allowed',
+            (isLockedByOtherSession || isAgentDeleted || evalLocked) && 'opacity-60 cursor-not-allowed',
             customHeight
               ? 'flex-1 min-h-0 h-full overflow-y-auto'
               : 'min-h-[38px] overflow-y-auto',
@@ -600,10 +605,12 @@ export function ChatInput({
             type="button"
             size="icon"
             onClick={() => void handleSubmit()}
-            disabled={isLockedByOtherSession || isAgentDeleted || !text.trim()}
+            disabled={isLockedByOtherSession || isAgentDeleted || evalLocked || !text.trim()}
             className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-30 disabled:pointer-events-none"
             title={
-              isAgentDeleted
+              evalLocked
+                ? t('eval.lock.chatBlocked')
+                : isAgentDeleted
                 ? t('chatInput.agentDeletedBanner')
                 : isLockedByOtherSession
                 ? t('chatInput.sendLocked')

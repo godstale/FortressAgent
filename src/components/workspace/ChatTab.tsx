@@ -16,6 +16,8 @@ import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { ChatExecutionLog } from '@/components/chat/ChatExecutionLog';
 import { ErrorBanner } from '@/components/chat/ErrorBanner';
+import { EvalLockBanner } from '@/components/eval/EvalLockBanner';
+import { evalLock } from '@/lib/eval/evalLock';
 import {
   Dialog,
   DialogContent,
@@ -232,7 +234,8 @@ export function ChatTab({ tab }: ChatTabProps) {
   const handleSendMessage = useCallback(
     async (text: string) => {
       // 삭제된 에이전트 설정의 채팅은 대화를 지속할 수 없다.
-      if (isAgentDeleted) return;
+      // 평가 실행 중에는 전송·큐잉 모두 금지된다(D5).
+      if (isAgentDeleted || evalLock.get()) return;
       chatQueueManager.setSessionBusy(sessionId);
       const isFirstUserMessage = messages.filter((m) => m.role === 'user').length === 0;
 
@@ -570,6 +573,9 @@ export function ChatTab({ tab }: ChatTabProps) {
 
       {/* Error banner if present */}
       <ErrorBanner error={error} onRetry={() => { if (!isAgentDeleted) void retry(); }} />
+
+      {/* 평가 실행 중 배너: 전송·큐잉 차단 안내 (P10-03, D5) */}
+      <EvalLockBanner />
 
       {/* Deleted-agent notice: 기록은 읽을 수 있지만 대화를 지속할 수 없다 */}
       {isAgentDeleted && (

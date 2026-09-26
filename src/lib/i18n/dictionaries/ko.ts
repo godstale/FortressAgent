@@ -1,5 +1,7 @@
 export type Dict = Record<string, string>;
 
+import { evalKo } from './eval/index';
+
 const ko: Dict = {
   // ---- language select (first-run) ----
   'languageSelect.title': '언어 선택',
@@ -1015,6 +1017,11 @@ const ko: Dict = {
   'agentForm.skillsLoading': '스킬 목록을 불러오는 중...',
   'agentForm.bundledSkill': '앱 기본 제공',
   'monitoringList.titleCount': '모니터링 기록 ({n})',
+  'monitoringList.currentAgents': '등록된 에이전트',
+  'monitoringList.deletedAgents': '삭제된 에이전트',
+  'monitoringList.recordsCount': '기록 {n}건',
+  'monitoringList.noRecords': '기록 없음',
+  'monitoringList.deleteHistory': '이 에이전트의 모니터링 기록 삭제',
   'monitoringList.refresh': '새로고침',
   'monitoringList.clearAll': '모니터링 기록 전체 삭제',
   'monitoringList.deleteRecord': '모니터링 기록 삭제',
@@ -1025,6 +1032,8 @@ const ko: Dict = {
   'monitoringList.emptyDesc': '에이전트 모니터링을 시작하면 기록이 여기에 쌓입니다.',
   'monitoringList.clearConfirmTitle': '모니터링 기록 전체 삭제',
   'monitoringList.clearConfirmDesc': '총 {n}개의 모니터링 기록을 모두 삭제하시겠습니까? (복구할 수 없습니다)',
+
+  ...evalKo,
 };
 
 export type KoDict = typeof ko;

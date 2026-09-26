@@ -4,6 +4,7 @@ import SettingsLayout from '@/pages/Settings/SettingsLayout';
 import SettingsGeneral from '@/pages/Settings/SettingsGeneral';
 import SettingsModel from '@/pages/Settings/SettingsModel';
 import SettingsApproval from '@/pages/Settings/SettingsApproval';
+import SettingsIntegrations from '@/pages/Settings/SettingsIntegrations';
 
 import { ThemeProvider } from '@/lib/context/ThemeContext';
 import { SettingsProvider } from '@/lib/context/SettingsContext';
@@ -23,6 +24,7 @@ export default function App() {
                 <Route path="general" element={<SettingsGeneral />} />
                 <Route path="model" element={<SettingsModel />} />
                 <Route path="approval" element={<SettingsApproval />} />
+                <Route path="integrations" element={<SettingsIntegrations />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

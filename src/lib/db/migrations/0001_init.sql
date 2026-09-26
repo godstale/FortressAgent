@@ -119,3 +119,133 @@ CREATE TABLE IF NOT EXISTS conversation_token_summaries (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conv_tokens_agent_started ON conversation_token_summaries(agent_id, started_at);
+
+-- Phase 10: automated evaluation (global DB only)
+CREATE TABLE IF NOT EXISTS eval_runs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  hardware_json TEXT NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT,
+  progress_done INTEGER NOT NULL DEFAULT 0,
+  progress_total INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT,
+  finished_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eval_candidates (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  label TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  model_meta_json TEXT,
+  load_ms REAL,
+  status TEXT NOT NULL,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_eval_candidates_run ON eval_candidates(run_id, position);
+CREATE TABLE IF NOT EXISTS eval_trials (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+  candidate_id TEXT NOT NULL REFERENCES eval_candidates(id) ON DELETE CASCADE,
+  pack_id TEXT NOT NULL,
+  sample_id TEXT NOT NULL,
+  epoch INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  output_text TEXT,
+  reasoning_text TEXT,
+  transcript_json TEXT,
+  final_state_json TEXT,
+  extra_json TEXT,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  thinking_tokens INTEGER,
+  ttft_ms REAL,
+  prefill_tps REAL,
+  decode_tps REAL,
+  total_ms REAL,
+  timing_source TEXT,
+  cache_hit INTEGER,
+  vram_peak_mb INTEGER,
+  gpu_util_avg REAL,
+  gpu_temp_max REAL,
+  offload_ratio REAL,
+  turns INTEGER,
+  tool_calls INTEGER,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  UNIQUE(candidate_id, pack_id, sample_id, epoch)
+);
+CREATE INDEX IF NOT EXISTS idx_eval_trials_run ON eval_trials(run_id, candidate_id, pack_id);
+CREATE TABLE IF NOT EXISTS eval_scores (
+  id TEXT PRIMARY KEY,
+  trial_id TEXT NOT NULL REFERENCES eval_trials(id) ON DELETE CASCADE,
+  scorer_key TEXT NOT NULL,
+  scorer_type TEXT NOT NULL,
+  value REAL NOT NULL,
+  verdict TEXT NOT NULL,
+  reason TEXT,
+  extracted TEXT,
+  judge_raw TEXT,
+  source TEXT NOT NULL DEFAULT 'auto',
+  created_at TEXT NOT NULL,
+  UNIQUE(trial_id, scorer_key, source)
+);
+CREATE TABLE IF NOT EXISTS eval_aggregates (
+  run_id TEXT NOT NULL REFERENCES eval_runs(id) ON DELETE CASCADE,
+  candidate_id TEXT NOT NULL,
+  level TEXT NOT NULL,
+  key TEXT NOT NULL,
+  raw REAL,
+  normalized REAL,
+  ci_low REAL,
+  ci_high REAL,
+  n INTEGER,
+  anchors_version TEXT,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, candidate_id, level, key)
+);
+CREATE TABLE IF NOT EXISTS eval_profiles (
+  id TEXT PRIMARY KEY,
+  profile_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS arena_votes (
+  id TEXT PRIMARY KEY,
+  prompt_hash TEXT NOT NULL,
+  prompt_preview TEXT,
+  a_snapshot_json TEXT NOT NULL,
+  b_snapshot_json TEXT NOT NULL,
+  a_label TEXT NOT NULL,
+  b_label TEXT NOT NULL,
+  winner TEXT NOT NULL,
+  workspace_root TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS external_integrations (
+  id TEXT PRIMARY KEY,
+  integration_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS integration_settings (
+  id TEXT PRIMARY KEY DEFAULT 'singleton',
+  settings_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS integration_audit_log (
+  id TEXT PRIMARY KEY,
+  integration_id TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  data_classes TEXT NOT NULL,
+  run_id TEXT,
+  request_count INTEGER NOT NULL,
+  bytes_sent INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  error TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_integration_audit_created ON integration_audit_log(created_at);

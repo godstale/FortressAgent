@@ -1,4 +1,5 @@
 import type { Dict } from './ko';
+import { evalEn } from './eval/index';
 
 const en: Dict = {
   'languageSelect.title': 'Select language',
@@ -1000,6 +1001,11 @@ const en: Dict = {
   'agentForm.skillsLoading': 'Loading skill list...',
   'agentForm.bundledSkill': 'App built-in',
   'monitoringList.titleCount': 'Monitoring records ({n})',
+  'monitoringList.currentAgents': 'Registered agents',
+  'monitoringList.deletedAgents': 'Deleted agents',
+  'monitoringList.recordsCount': '{n} records',
+  'monitoringList.noRecords': 'No records yet',
+  'monitoringList.deleteHistory': 'Delete this agent’s monitoring history',
   'monitoringList.refresh': 'Refresh',
   'monitoringList.clearAll': 'Delete all monitoring records',
   'monitoringList.deleteRecord': 'Delete monitoring record',
@@ -1010,6 +1016,8 @@ const en: Dict = {
   'monitoringList.emptyDesc': 'Start agent monitoring to collect records here.',
   'monitoringList.clearConfirmTitle': 'Delete all monitoring records',
   'monitoringList.clearConfirmDesc': 'Delete all {n} monitoring records? (cannot be undone)',
+
+  ...evalEn,
 };
 
 export default en;

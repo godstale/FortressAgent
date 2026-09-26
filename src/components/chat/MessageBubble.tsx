@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain, Clock, AlertCircle, Info, Settings2 } from 'lucide-react';
+import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain, Clock, AlertCircle, Info, Settings2, BookmarkPlus } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentMessage } from '@/lib/agent/types';
+import { dispatchSaveEvalCase } from '@/lib/eval/personal/caseBuilder';
 import type { ChatConfigSnapshot } from '@/lib/types/agent';
 import { getProviderPreset } from '@/lib/llm/providers';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -364,14 +365,25 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="flex items-center gap-1 text-xs hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/70 cursor-pointer"
-              >
-                {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
-                <span>{copied ? t('chat.copied') : t('chat.copy')}</span>
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => dispatchSaveEvalCase({ sessionId: null, content: 'content' in message ? message.content : '', role: message.role })}
+                  className="flex items-center gap-1 text-xs hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/70 cursor-pointer"
+                  title={t('eval.personal.saveAsCase')}
+                >
+                  <BookmarkPlus className="h-3 w-3" />
+                  <span>{t('eval.personal.saveAsCase')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="flex items-center gap-1 text-xs hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/70 cursor-pointer"
+                >
+                  {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
+                  <span>{copied ? t('chat.copied') : t('chat.copy')}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
