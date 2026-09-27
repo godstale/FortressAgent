@@ -222,6 +222,106 @@ describe('eval runner', () => {
     expect(cands[0].status).toBe('skipped');
     expect((await getRun(runId))?.status).toBe('completed');
   });
+
+  it('continues past a timed-out trial and completes the run', async () => {
+    const fastManifest = { ...MANIFEST, defaults: { epochs: 1, timeoutSec: 1 } };
+    const fastFs = () =>
+      createMemoryPackFs({
+        builtin: {
+          demo: {
+            'manifest.json': JSON.stringify(fastManifest),
+            'samples.jsonl': SAMPLES,
+          },
+        },
+      });
+    // NOTE: the run config must carry the fast manifest's hash, otherwise the
+    // runner rejects the pack as changed since configuration.
+    const { loadPack, listPacks } = await import('../packs/packLoader');
+    const cfgFs = fastFs();
+    const { refs } = await listPacks(cfgFs);
+    const fastPack = await loadPack(cfgFs, refs[0]);
+    const fastConfig = await makeConfig();
+    fastConfig.packs[0].contentHash = fastPack.contentHash;
+    const runId = await createRun(fastConfig, hardware);
+    const seen: string[] = [];
+    let calls = 0;
+    const hangingFirst: LlmStreamChatFn = async function* (req) {
+      calls += 1;
+      const lastUser = [...req.messages].reverse().find((m) => m.role === 'user');
+      const input = typeof lastUser?.content === 'string' ? lastUser.content : '';
+      if (input.includes('q1')) {
+        // Never yields: the trial timeout (1s) must record and continue.
+        await new Promise<never>(() => undefined);
+        return;
+      }
+      yield { content: input.includes('q2') ? 'world' : '?', done: false };
+      yield { content: '', done: true, usage: { input: 10, output: 2, total: 12 } };
+    };
+    const runner = new EvalRunner({
+      packFs: fastFs(),
+      streamChatFactory: () => hangingFirst,
+    });
+    runner.on((e) => {
+      if (e.type === 'log') seen.push(e.message);
+    });
+    await runner.start(runId);
+
+    const run = await getRun(runId);
+    expect(run?.status).toBe('completed');
+    expect(run?.progressDone).toBe(2);
+    const trials = await listTrials(runId);
+    expect(trials).toHaveLength(2);
+    const bySample = new Map(trials.map((t) => [t.sampleId, t]));
+    expect(bySample.get('s1')?.outcome).toBe('timeout');
+    expect(bySample.get('s2')?.outcome).toBe('ok');
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(seen.some((m) => m.includes('timeout on demo/s1') && m.includes('continuing'))).toBe(true);
+  });
+
+  it('runs the code-exec pass after trials and keeps sync scores on pass failure', async () => {
+    const runId = await createRun(await makeConfig(), hardware);
+    const codeExecPass = vi.fn(async () => ({ scoredTrials: 1, scoresWritten: 2 }));
+    const runner = new EvalRunner({
+      packFs: packFs(),
+      streamChatFactory: () => cannedFactory((input) => (input.includes('q1') ? 'hello' : 'world')),
+      codeExecPass,
+    });
+    await runner.start(runId);
+    expect(codeExecPass).toHaveBeenCalledTimes(1);
+    expect(codeExecPass).toHaveBeenCalledWith(runId);
+    expect((await getRun(runId))?.status).toBe('completed');
+    expect(await listScores(runId)).toHaveLength(2);
+  });
+
+  it('writes run lifecycle and trial lines to the progress log', async () => {
+    const { createMemoryProgressLogStore } = await import('./progressLog');
+    const { parseProgressLog } = await import('./progressLog');
+    const store = createMemoryProgressLogStore();
+    const runId = await createRun(await makeConfig(), hardware);
+    const runner = new EvalRunner({
+      packFs: packFs(),
+      streamChatFactory: () => cannedFactory((input) => (input.includes('q1') ? 'hello' : 'world')),
+      progressLogStore: store,
+    });
+    await runner.start(runId);
+
+    const records = parseProgressLog((await store.read(runId)).text);
+    const kinds = records.map((r) => r.kind);
+    expect(kinds[0]).toBe('run_started');
+    expect(kinds).toContain('candidate_started');
+    expect(kinds).toContain('candidate_finished');
+    expect(records.filter((r) => r.kind === 'trial_started')).toHaveLength(2);
+    expect(records.filter((r) => r.kind === 'trial_finished')).toHaveLength(2);
+    expect(kinds[kinds.length - 1]).toBe('run_finished');
+    // No streaming deltas are persisted.
+    expect(kinds).not.toContain('trial_delta');
+    const finished = records.find((r) => r.kind === 'run_finished');
+    expect(finished?.kind === 'run_finished' && finished.status).toBe('completed');
+    expect(finished?.kind === 'run_finished' && finished.results[0].trials).toBe(2);
+    expect(finished?.kind === 'run_finished' && finished.results[0].avgScore).toBe(1);
+    const started = records[0];
+    expect(started.kind === 'run_started' && started.hardware.gpuName).toBe('Test GPU');
+  });
 });
 
 describe('candidates', () => {

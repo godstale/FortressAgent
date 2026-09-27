@@ -23,12 +23,13 @@ function formatDate(iso: string): string {
 
 export function EvalListPanel() {
   const { t } = useLanguage();
-  const { runs, activeRunner, startRun, deleteRun, renameRun, cloneRun } = useEval();
+  const { runs, packs, packErrors, packsLoading, activeRunner, startRun, deleteRun, renameRun, cloneRun } = useEval();
   const lock = useEvalLock();
   const { openEvalWizard, openEvalRun, openEvalPacks } = useOpenEvalTab();
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const packsNeedAttention = !packsLoading && (packs.length === 0 || packErrors.length > 0);
 
   const handleResume = async (runId: string) => {
     if (window.confirm(t('eval.common.panel.resume'))) {
@@ -53,11 +54,20 @@ export function EvalListPanel() {
           type="button"
           size="sm"
           variant="outline"
-          className="gap-1.5"
+          className="relative gap-1.5"
           onClick={openEvalPacks}
-          title={t('eval.common.panel.managePacks')}
+          title={packsNeedAttention ? t('eval.common.panel.managePacksAlert') : t('eval.common.panel.managePacks')}
+          aria-label={packsNeedAttention ? t('eval.common.panel.managePacksAlert') : t('eval.common.panel.managePacks')}
         >
           <FolderOpen className="h-3.5 w-3.5" />
+          {packsNeedAttention && (
+            <span
+              aria-hidden
+              className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground"
+            >
+              !
+            </span>
+          )}
         </Button>
       </div>
 

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { FlaskConical, Pause, Play, SkipForward, XCircle } from 'lucide-react';
+import { FlaskConical, Pause, Play, SkipForward, XCircle, FileDown } from 'lucide-react';
 import { useEval } from '@/lib/context/EvalContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { FieldInfo } from '../wizard/FieldInfo';
 import {
   getRun,
+  listAggregates,
   listCandidates,
   listScores,
   listTrials,
@@ -17,13 +19,24 @@ import type {
   EvalTrialRow,
 } from '@/lib/eval/types';
 import type { RunnerEvent } from '@/lib/eval/runner/events';
+import {
+  mergeLogEvents,
+  parseProgressLog,
+  progressLogRelPath,
+  tauriProgressLogStore,
+  toPersistedLogs,
+  toPersistedResources,
+  type ProgressRecord,
+} from '@/lib/eval/runner/progressLog';
 import { CandidatePackMatrix } from './CandidatePackMatrix';
+import { CandidateResults } from './CandidateResults';
 import { LiveSamplePreview } from './LiveSamplePreview';
-import { ResourceMiniChart, type ResourcePoint } from './ResourceMiniChart';
+import { RunEnvironment } from './RunEnvironment';
 import { RunLog } from './RunLog';
+import { isDeferredScorerType } from '@/lib/eval/scorers/deferredScorers';
+import { scorerKeyOf } from '@/lib/eval/scorers/index';
 
 const POLL_MS = 2000;
-const RESOURCE_CAP = 600;
 
 type LogEvent = Extract<RunnerEvent, { type: 'log' }>;
 type TrialStartEvent = Extract<RunnerEvent, { type: 'trial_start' }>;
@@ -52,13 +65,33 @@ function makeCellKey(candidateId: string, packId: string): string {
 
 const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'failed']);
 
+interface LatestResource {
+  vramUsedMb: number | null;
+  gpuUtilPct: number | null;
+  gpuTempC: number | null;
+}
+
+function latestResourceOf(live: RunnerEvent[], persisted: ProgressRecord[]): LatestResource | null {
+  for (let i = live.length - 1; i >= 0; i -= 1) {
+    const e = live[i];
+    if (e.type === 'resource') {
+      return { vramUsedMb: e.vramUsedMb, gpuUtilPct: e.gpuUtilPct, gpuTempC: e.gpuTempC };
+    }
+  }
+  const points = toPersistedResources(persisted);
+  const last = points.length > 0 ? points[points.length - 1] : null;
+  return last
+    ? { vramUsedMb: last.vramUsedMb, gpuUtilPct: last.gpuUtilPct, gpuTempC: null }
+    : null;
+}
+
 export function EvalRunProgress({ runId }: { runId: string }) {
   return <EvalRunProgressInner key={runId} runId={runId} />;
 }
 
 function EvalRunProgressInner({ runId }: { runId: string }) {
-  const { t } = useLanguage();
-  const { runs, packs, activeRunner, events, pauseRun, resumeRun, cancelRun, skipCandidate } =
+  const { t, locale } = useLanguage();
+  const { runs, packs, activeRunner, events, pausePending, pauseRun, resumeRun, cancelRun, skipCandidate } =
     useEval();
 
   const [run, setRun] = useState<EvalRunRow | null>(null);
@@ -68,13 +101,14 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [resourceHistory, setResourceHistory] = useState<ResourcePoint[]>([]);
   const [cachedInput, setCachedInput] = useState<{
     key: string;
     input: string | null;
   } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const processedEventsRef = useRef(0);
+  const [composites, setComposites] = useState<Record<string, number>>({});
+  const [persistedRecords, setPersistedRecords] = useState<ProgressRecord[]>([]);
+  const [logTruncated, setLogTruncated] = useState(false);
 
   const isActiveRun = activeRunner?.runId === runId;
   const liveEvents = useMemo(
@@ -86,17 +120,23 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
     let cancelled = false;
     async function poll(): Promise<void> {
       try {
-        const [nextRun, nextCandidates, nextTrials, nextScores] = await Promise.all([
+        const [nextRun, nextCandidates, nextTrials, nextScores, nextAggregates] = await Promise.all([
           getRun(runId),
           listCandidates(runId),
           listTrials(runId),
           listScores(runId),
+          listAggregates(runId).catch(() => []),
         ]);
         if (cancelled) return;
         setRun(nextRun);
         setCandidates(nextCandidates);
         setTrials(nextTrials);
         setScores(nextScores);
+        const comp: Record<string, number> = {};
+        for (const row of nextAggregates) {
+          if (row.level === 'composite' && row.normalized != null) comp[row.candidateId] = row.normalized;
+        }
+        setComposites(comp);
         setLoaded(true);
         setLoadError(nextRun == null);
       } catch {
@@ -113,31 +153,24 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
     };
   }, [runId]);
 
-  useEffect(() => {
-    const fresh = liveEvents.slice(processedEventsRef.current);
-    processedEventsRef.current = liveEvents.length;
-    if (fresh.length === 0) return;
-    const points: ResourcePoint[] = [];
-    for (const e of fresh) {
-      if (e.type === 'resource') {
-        points.push({
-          t: Date.now(),
-          decodeTps: e.decodeTps,
-          vramUsedMb: e.vramUsedMb,
-          gpuUtilPct: e.gpuUtilPct,
-        });
-      }
-    }
-    if (points.length === 0) return;
-    const timer = setTimeout(() => {
-      setResourceHistory((prev) => [...prev, ...points].slice(-RESOURCE_CAP));
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [liveEvents]);
-
   const status = isActiveRun && activeRunner ? activeRunner.status : (run?.status ?? 'pending');
   const isTerminal = TERMINAL_STATUSES.has(status);
   const showControls = isActiveRun && !isTerminal;
+  const showPausePending = showControls && pausePending && status === 'running';
+
+  // Run finished while watching: reload the file once for the final tail.
+  const reloadedTailRef = useRef(false);
+  useEffect(() => {
+    if (!isTerminal || reloadedTailRef.current) return;
+    reloadedTailRef.current = true;
+    tauriProgressLogStore
+      .read(runId)
+      .then((readout) => {
+        setPersistedRecords(parseProgressLog(readout.text));
+        setLogTruncated(readout.truncated);
+      })
+      .catch(() => undefined);
+  }, [isTerminal, runId]);
 
   useEffect(() => {
     if (!showControls) return;
@@ -289,10 +322,72 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
 
   const sampleInput = trialKey != null && cachedInput?.key === trialKey ? cachedInput.input : null;
 
+  // Persisted JSONL history: loaded once on mount (covers restarts), and
+  // reloaded when the run reaches a terminal state to pick up the tail
+  // (aggregates summary, final status). Missing file / non-Tauri env → empty.
+  useEffect(() => {
+    let cancelled = false;
+    tauriProgressLogStore
+      .read(runId)
+      .then((readout) => {
+        if (cancelled) return;
+        setPersistedRecords(parseProgressLog(readout.text));
+        setLogTruncated(readout.truncated);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
   const logEvents = useMemo<LogEvent[]>(
     () => liveEvents.filter((e): e is LogEvent => e.type === 'log'),
     [liveEvents],
   );
+
+  const persistedLogs = useMemo(() => toPersistedLogs(persistedRecords), [persistedRecords]);
+
+  const mergedLogs = useMemo<LogEvent[]>(
+    () =>
+      mergeLogEvents(persistedLogs, logEvents).map((e) => ({
+        type: 'log' as const,
+        level: e.level,
+        message: e.message,
+      })) as LogEvent[],
+    [persistedLogs, logEvents],
+  );
+
+  const latestResource = useMemo(
+    () => latestResourceOf(liveEvents, persistedRecords),
+    [liveEvents, persistedRecords],
+  );
+
+  const totalSamples = useMemo(
+    () => (run?.config.packs ?? []).reduce((a, p) => a + p.sampleIds.length * p.epochs, 0),
+    [run],
+  );
+
+  function downloadLog(): void {
+    if (!run) return;
+    const payload = {
+      runId,
+      runName: run.name,
+      status: run.status,
+      exportedAt: new Date().toISOString(),
+      hardware: run.hardware,
+      candidates: candidates.map((c) => ({ label: c.label, model: c.snapshot?.model ?? null })),
+      persistedRecords,
+      fileTruncated: logTruncated,
+      liveTail: liveEvents.filter((e) => e.type !== 'trial_delta' && e.type !== 'eta'),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `eval-log-${runId.slice(0, 8)}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   const liveCell = useMemo(() => {
     if (!currentStart || isTerminal) return null;
@@ -303,6 +398,68 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
     if (!currentStart) return null;
     return candidates.find((c) => c.id === currentStart.candidateId)?.label ?? null;
   }, [candidates, currentStart]);
+
+  const judgeLabel = useMemo(() => {
+    const judge = run?.config.judge;
+    if (!judge) return t('eval.progress.matrix.judgeNone');
+    if (judge.target.type === 'local') return judge.target.model;
+    return judge.target.integrationId;
+  }, [run, t]);
+
+  const packTitles = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const p of packs) {
+      out[p.manifest.id] = locale === 'ko' ? p.manifest.title.ko : p.manifest.title.en;
+    }
+    for (const p of (run?.config.packs ?? [])) {
+      if (!out[p.packId]) out[p.packId] = p.packId;
+    }
+    return out;
+  }, [packs, run, locale]);
+
+  const packHelps = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const p of packs) {
+      const desc = locale === 'ko' ? p.manifest.description.ko : p.manifest.description.en;
+      out[p.manifest.id] = `${desc} (${p.manifest.category} · ${p.manifest.kind})`;
+    }
+    return out;
+  }, [packs, locale]);
+
+  // Deferred (async) scorer keys per pack, from the pack manifest. A trial is
+  // "pending finalization" while any of those keys has no score row yet:
+  // its visible % covers deterministic checks only (FAB Q4) or nothing at
+  // all (FAB Q5 before the code-exec pass).
+  const deferredKeysByPack = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const p of packs) {
+      const keys = (p.manifest.scorers ?? [])
+        .filter((s) => isDeferredScorerType(s.type))
+        .map((s) => scorerKeyOf(s));
+      if (keys.length > 0) out[p.manifest.id] = keys;
+    }
+    for (const p of (run?.config.packs ?? [])) {
+      out[p.packId] ??= [];
+    }
+    return out;
+  }, [packs, run]);
+
+  const pendingTrialIds = useMemo(() => {
+    const keysByTrial = new Map<string, Set<string>>();
+    for (const s of scores) {
+      const set = keysByTrial.get(s.trialId) ?? new Set<string>();
+      set.add(s.scorerKey);
+      keysByTrial.set(s.trialId, set);
+    }
+    const out = new Set<string>();
+    for (const tr of trials) {
+      const keys = deferredKeysByPack[tr.packId];
+      if (!keys || keys.length === 0) continue;
+      const have = keysByTrial.get(tr.id);
+      if (keys.some((k) => !have?.has(k))) out.add(tr.id);
+    }
+    return out;
+  }, [trials, scores, deferredKeysByPack]);
 
   if (!loaded) {
     return (
@@ -328,6 +485,7 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
           <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-foreground">
             {runName}
           </h2>
+          <FieldInfo label={t('eval.progress.title')} help={t('eval.progress.header.help')} />
           <span
             className={cn(
               'rounded-full px-2 py-0.5 text-[11px] font-semibold',
@@ -336,6 +494,11 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
           >
             {t('eval.progress.status')}: {status}
           </span>
+          {showPausePending && (
+            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">
+              {t('eval.progress.pausePending')}
+            </span>
+          )}
         </div>
         <div className="mt-2.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -367,11 +530,12 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
         </div>
         {showControls && (
           <div className="mt-3">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <FieldInfo label={t('eval.progress.pause')} help={t('eval.progress.controls.help')} />
               {status === 'running' && (
-                <Button type="button" size="sm" variant="outline" onClick={pauseRun}>
+                <Button type="button" size="sm" variant="outline" disabled={showPausePending} onClick={pauseRun}>
                   <Pause className="h-3.5 w-3.5" />
-                  {t('eval.progress.pause')}
+                  {showPausePending ? t('eval.progress.pausePending') : t('eval.progress.pause')}
                 </Button>
               )}
               {status === 'paused' && (
@@ -422,6 +586,19 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
         )}
       </header>
 
+      <section className="rounded-xl border border-border bg-card/40 p-3.5">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+          {t('eval.progress.env.title')}
+          <FieldInfo label={t('eval.progress.env.title')} help={t('eval.progress.env.help')} />
+        </h3>
+        <RunEnvironment
+          run={run}
+          judgeLabel={judgeLabel}
+          totalSamples={totalSamples}
+          latest={latestResource}
+        />
+      </section>
+
       {status === 'completed' && (
         <div className="rounded-xl border border-success/30 bg-success/5 p-3 text-xs">
           <p className="font-medium text-foreground">{t('eval.progress.completed')}</p>
@@ -440,9 +617,28 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
       )}
 
       <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 text-xs font-semibold text-foreground">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
           {t('eval.progress.matrix.title')}
+          <FieldInfo label={t('eval.progress.matrix.title')} help={t('eval.progress.matrix.help')} />
         </h3>
+        <div className="mb-3 space-y-1 rounded-md border border-border/60 bg-card/30 p-2.5 text-[11px]">
+          <div className="flex items-start gap-1.5">
+            <span className="shrink-0 font-semibold text-foreground">
+              {t('eval.progress.matrix.models')}
+            </span>
+            <FieldInfo label={t('eval.progress.matrix.models')} help={t('eval.progress.models.help')} />
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              {candidates.map((c) => `${c.label} · ${c.snapshot?.model ?? '?'}`).join(' / ') || '—'}
+            </span>
+          </div>
+          <div className="flex items-start gap-1.5">
+            <span className="shrink-0 font-semibold text-foreground">
+              {t('eval.progress.matrix.judge')}
+            </span>
+            <FieldInfo label={t('eval.progress.matrix.judge')} help={t('eval.progress.models.help')} />
+            <span className="min-w-0 flex-1 font-mono text-muted-foreground">{judgeLabel}</span>
+          </div>
+        </div>
         <CandidatePackMatrix
           candidates={candidates}
           packIds={packIds}
@@ -450,12 +646,32 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
           scores={scores}
           expectedPerCell={expectedPerCell}
           liveCell={liveCell}
+          packTitles={packTitles}
+          packHelps={packHelps}
+          pendingTrialIds={pendingTrialIds}
         />
       </section>
 
       <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 text-xs font-semibold text-foreground">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+          {t('eval.progress.results.title')}
+          <FieldInfo label={t('eval.progress.results.title')} help={t('eval.progress.results.help')} />
+        </h3>
+        <CandidateResults
+          candidates={candidates}
+          trials={trials}
+          scores={scores}
+          config={run.config}
+          composites={composites}
+          hardware={run.hardware}
+          pendingTrialIds={pendingTrialIds}
+        />
+      </section>
+
+      <section className="rounded-xl border border-border bg-card/40 p-3.5">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
           {t('eval.progress.preview.title')}
+          <FieldInfo label={t('eval.progress.preview.title')} help={t('eval.progress.preview.help')} />
         </h3>
         <LiveSamplePreview
           packId={currentStart?.packId ?? null}
@@ -470,17 +686,22 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
       </section>
 
       <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 text-xs font-semibold text-foreground">
-          {t('eval.progress.resources.title')}
-        </h3>
-        <ResourceMiniChart points={resourceHistory} now={nowMs} />
-      </section>
-
-      <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 text-xs font-semibold text-foreground">
-          {t('eval.progress.log.title')}
-        </h3>
-        <RunLog events={logEvents} />
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            {t('eval.progress.log.title')}
+            <FieldInfo label={t('eval.progress.log.title')} help={t('eval.progress.log.help')} />
+          </h3>
+          <span className="flex-1" />
+          <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={downloadLog}>
+            <FileDown className="h-3 w-3" />
+            {t('eval.progress.log.download')}
+          </Button>
+        </div>
+        <p className="mb-2 font-mono text-[11px] text-muted-foreground">
+          {t('eval.progress.log.fileNote', { path: progressLogRelPath(runId) })}
+          {logTruncated && ` ${t('eval.progress.log.truncated')}`}
+        </p>
+        <RunLog events={mergedLogs} />
       </section>
     </div>
   );

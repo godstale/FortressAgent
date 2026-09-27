@@ -65,6 +65,8 @@ pub fn run() {
             eval_read_pack_file,
             eval_write_pack_files,
             eval_delete_pack,
+            eval_append_run_log,
+            eval_read_run_log,
             eval_sandbox_create,
             eval_sandbox_create_from_files,
             eval_sandbox_snapshot,

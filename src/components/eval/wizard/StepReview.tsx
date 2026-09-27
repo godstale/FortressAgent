@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useEval } from '@/lib/context/EvalContext';
+import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
+import { useOpenEvalTab } from '@/lib/eval/ui/openEvalTab';
 import { useEvalLock } from '@/lib/eval/evalLock';
 import { loadPack, type LoadedPack, type LoadedPackRef } from '@/lib/eval/packs/packLoader';
 import { tauriPackFs } from '@/lib/eval/packs/packFs';
@@ -27,6 +29,8 @@ interface StepReviewProps {
 export function StepReview({ draft, onUpdate, refs, onProfileSaved }: StepReviewProps) {
   const { t } = useLanguage();
   const { createRun, startRun } = useEval();
+  const { closeTab } = useWorkspaceTabs();
+  const { openEvalRun } = useOpenEvalTab();
   const lock = useEvalLock();
   const [loaded, setLoaded] = useState<LoadedPack[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -155,13 +159,25 @@ export function StepReview({ draft, onUpdate, refs, onProfileSaved }: StepReview
 
   async function handleStartNow(): Promise<void> {
     if (!createdRunId || lock || starting) return;
+    const runId = createdRunId;
+    const runName = draft.runName;
+    // 팝업을 닫고 위자드 탭을 정리한 뒤 실행 탭을 열어 보여준다.
+    // startRun은 실행 전체가 끝날 때까지 끝나지 않으므로 기다리지 않고 띄운다.
+    setCreatedRunId(null);
+    closeTab('eval:wizard');
+    openEvalRun(runId, runName);
     setStarting(true);
     try {
-      await startRun(createdRunId);
-      setCreatedRunId(null);
+      await startRun(runId);
     } finally {
       setStarting(false);
     }
+  }
+
+  function handleCloseDialog(): void {
+    // 등록은 이미 끝난 상태이므로 팝업을 닫으면 위자드 탭도 함께 닫는다.
+    setCreatedRunId(null);
+    closeTab('eval:wizard');
   }
 
   return (
@@ -270,14 +286,15 @@ export function StepReview({ draft, onUpdate, refs, onProfileSaved }: StepReview
         {creating ? t('eval.wizard.create.creating') : t('eval.wizard.create.run')}
       </Button>
 
-      <Dialog open={createdRunId !== null} onOpenChange={(next) => { if (!next) setCreatedRunId(null); }}>
+      <Dialog open={createdRunId !== null} onOpenChange={(next) => { if (!next) handleCloseDialog(); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-sm">{t('eval.wizard.create.done')}</DialogTitle>
           </DialogHeader>
+          <p className="text-xs text-muted-foreground">{t('eval.wizard.create.doneDesc')}</p>
           {lock && <div className="text-xs text-amber-600">{t('eval.wizard.create.locked')}</div>}
           <DialogFooter>
-            <Button type="button" size="sm" variant="outline" onClick={() => setCreatedRunId(null)}>
+            <Button type="button" size="sm" variant="outline" onClick={handleCloseDialog}>
               {t('eval.wizard.create.startLater')}
             </Button>
             <Button type="button" size="sm" disabled={lock !== null || starting} onClick={() => void handleStartNow()}>

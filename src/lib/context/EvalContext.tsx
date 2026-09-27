@@ -24,6 +24,7 @@ import { getIntegrationSettings } from '@/lib/db/repositories/integrationsRepo';
 import { markInterruptedRuns } from '@/lib/db/repositories/evalRepo';
 import { cleanupAllSandboxes } from '@/lib/eval/runner/sandbox';
 import { runJudgePass } from '@/lib/eval/judge/judgePass';
+import { runCodeExecPass } from '@/lib/eval/runner/codeExecPass';
 import type { RunnerEvent } from '@/lib/eval/runner/events';
 import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 
@@ -44,6 +45,8 @@ export interface EvalContextValue {
   activeRunner: ActiveRunnerState | null;
   /** Live runner events for the active run (capped, cleared on start). Progress UI reads these + polls the DB. */
   events: RunnerEvent[];
+  /** True after pause is requested until resume/cancel/finish. Pause applies between trials. */
+  pausePending: boolean;
   refreshRuns: () => Promise<void>;
   refreshPacks: () => Promise<void>;
   createRun: (config: EvalRunConfig) => Promise<string>;
@@ -78,6 +81,7 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings | null>(null);
   const [activeRunner, setActiveRunner] = useState<ActiveRunnerState | null>(null);
   const [events, setEvents] = useState<RunnerEvent[]>([]);
+  const [pausePending, setPausePending] = useState(false);
   const runnerRef = useRef<EvalRunner | null>(null);
 
   const refreshRuns = useCallback(async () => {
@@ -138,9 +142,11 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
       const runner = new EvalRunner({
         workspaceRoot,
         judgePass: (id) => runJudgePass(id).then(() => undefined),
+        codeExecPass: (id) => runCodeExecPass(id).then((r) => ({ scoredTrials: r.scoredTrials, scoresWritten: r.scoresWritten })),
       });
       runnerRef.current = runner;
       setEvents([]);
+      setPausePending(false);
       runner.on((e) => {
         setEvents((prev) => (prev.length > 300 ? [...prev.slice(-300), e] : [...prev, e]));
         if (e.type === 'run_status') {
@@ -148,6 +154,7 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
             prev && prev.runId === runId ? { ...prev, status: e.status } : prev,
           );
           if (e.status === 'completed' || e.status === 'cancelled' || e.status === 'failed') {
+            setPausePending(false);
             void refreshRuns();
           }
         } else if (e.type === 'candidate_start') {
@@ -161,6 +168,7 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
       } finally {
         runnerRef.current = null;
         setActiveRunner(null);
+        setPausePending(false);
         await refreshRuns();
       }
     },
@@ -197,6 +205,21 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
     [refreshRuns],
   );
 
+  const pauseRun = useCallback(() => {
+    runnerRef.current?.pause();
+    setPausePending(true);
+  }, []);
+
+  const resumeRun = useCallback(() => {
+    runnerRef.current?.resume();
+    setPausePending(false);
+  }, []);
+
+  const cancelRun = useCallback(() => {
+    runnerRef.current?.cancel();
+    setPausePending(false);
+  }, []);
+
   const value = useMemo<EvalContextValue>(
     () => ({
       runs,
@@ -207,13 +230,14 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
       integrationSettings,
       activeRunner,
       events,
+      pausePending,
       refreshRuns,
       refreshPacks,
       createRun,
       startRun,
-      pauseRun: () => runnerRef.current?.pause(),
-      resumeRun: () => runnerRef.current?.resume(),
-      cancelRun: () => runnerRef.current?.cancel(),
+      pauseRun,
+      resumeRun,
+      cancelRun,
       skipCandidate: () => runnerRef.current?.skipCurrentCandidate(),
       deleteRun,
       renameRun,
@@ -228,10 +252,14 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
       integrationSettings,
       activeRunner,
       events,
+      pausePending,
       refreshRuns,
       refreshPacks,
       createRun,
       startRun,
+      pauseRun,
+      resumeRun,
+      cancelRun,
       deleteRun,
       renameRun,
       cloneRun,

@@ -74,4 +74,25 @@ describe('CandidatePackMatrix', () => {
       screen.getByText('표시할 후보 또는 팩이 없습니다.'),
     ).toBeInTheDocument();
   });
+
+  it('marks trials with pending deferred scores', () => {
+    render(
+      <CandidatePackMatrix
+        candidates={[candidate('c1', 'model-a')]}
+        packIds={['pack-x']}
+        trials={[trial('t1', 'c1', 'pack-x'), { ...trial('t2', 'c1', 'pack-x'), sampleId: 's2' }]}
+        scores={[score('t1', 1)]}
+        expectedPerCell={{ 'c1|pack-x': 2 }}
+        liveCell={null}
+        pendingTrialIds={new Set(['t1', 't2'])}
+      />,
+    );
+    // Cell-level marker counts both pending trials.
+    expect(screen.getByText(/확정 전 2/)).toBeInTheDocument();
+    // Scored-but-pending row is "partial", scoreless pending row waits.
+    expect(screen.getByText('부분')).toBeInTheDocument();
+    expect(screen.getByText('채점 대기')).toBeInTheDocument();
+    // Deterministic hint explains the partial score.
+    expect(screen.getByText(/비동기 채점이 끝나면 확정됩니다/)).toBeInTheDocument();
+  });
 });

@@ -47,6 +47,7 @@ export const evalCommonKo: Dict = {
   'eval.common.tab.arena': 'Arena',
   'eval.common.panel.newEval': '새 평가',
   'eval.common.panel.managePacks': '평가셋 관리',
+  'eval.common.panel.managePacksAlert': '평가셋 확인 필요',
   'eval.common.panel.running': '실행 중',
   'eval.common.panel.recent': '최근 실행',
   'eval.common.panel.resume': '이어하기',

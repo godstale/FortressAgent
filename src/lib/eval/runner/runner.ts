@@ -2,6 +2,7 @@ import { getAgent } from '@/lib/db/repositories/agentsRepo';
 import {
   getRun,
   insertCandidates,
+  listAggregates,
   listCandidates,
   listCompletedTrialKeys,
   listScores,
@@ -47,6 +48,12 @@ import {
 } from './solvers/compactionRecall';
 import { unloadOllamaModel, withTimeout } from './timing';
 import type { RunnerEvent } from './events';
+import {
+  makeRecord,
+  ProgressLogWriter,
+  tauriProgressLogStore,
+  type ProgressLogStore,
+} from './progressLog';
 
 const KIND_RANK: Record<string, number> = {
   perf_probe: 0,
@@ -63,7 +70,9 @@ export interface RunnerDeps {
   packFs?: PackFs;
   streamChatFactory?: (candidate: CandidateSnapshot) => LlmStreamChatFn;
   judgePass?: (runId: string) => Promise<void>;
+  codeExecPass?: (runId: string) => Promise<{ scoredTrials: number; scoresWritten: number }>;
   workspaceRoot?: string;
+  progressLogStore?: ProgressLogStore;
 }
 
 interface TrialPlanItem {
@@ -100,18 +109,25 @@ export class EvalRunner {
   private packFs: PackFs;
   private streamChatFactory: (candidate: CandidateSnapshot) => LlmStreamChatFn;
   private judgePass?: (runId: string) => Promise<void>;
+  private codeExecPass?: (runId: string) => Promise<{ scoredTrials: number; scoresWritten: number }>;
   private workspaceRoot?: string;
   private listeners = new Set<(e: RunnerEvent) => void>();
   private paused = false;
   private cancelled = false;
   private skipCandidateId: string | null = null;
   private aborter: AbortController | null = null;
+  private progressLogStore: ProgressLogStore;
+  private progressLog: ProgressLogWriter | null = null;
+  private progressLogRunId: string | null = null;
+  private consecutiveTimeouts = 0;
 
   constructor(deps: RunnerDeps = {}) {
     this.packFs = deps.packFs ?? tauriPackFs;
     this.streamChatFactory = deps.streamChatFactory ?? defaultStreamChatFactory;
     this.judgePass = deps.judgePass;
+    this.codeExecPass = deps.codeExecPass;
     this.workspaceRoot = deps.workspaceRoot;
+    this.progressLogStore = deps.progressLogStore ?? tauriProgressLogStore;
     registerSingleTurnSolver();
     registerToolCallSolver();
     registerPerfProbeSolver();
@@ -134,23 +150,77 @@ export class EvalRunner {
         // ignore listener errors
       }
     }
+    this.mirrorToProgressLog(e);
+  }
+
+  // Live events mirrored to the persisted JSONL log (streaming deltas and
+  // ETA ticks are too noisy; detailed trial lines are written explicitly).
+  private mirrorToProgressLog(e: RunnerEvent): void {
+    const log = this.progressLog;
+    if (!log) return;
+    const runId = this.progressLogRunId;
+    if (!runId) return;
+    switch (e.type) {
+      case 'run_status':
+        log.record(makeRecord(runId, { kind: 'run_status', status: e.status, error: e.error }));
+        break;
+      case 'candidate_start':
+        log.record(
+          makeRecord(runId, { kind: 'candidate_started', candidateId: e.candidateId, label: e.label }),
+        );
+        break;
+      case 'trial_start':
+        log.record(
+          makeRecord(runId, {
+            kind: 'trial_started',
+            candidateId: e.candidateId,
+            packId: e.packId,
+            sampleId: e.sampleId,
+            epoch: e.epoch,
+          }),
+        );
+        break;
+      case 'resource':
+        log.record(
+          makeRecord(runId, {
+            kind: 'resource',
+            vramUsedMb: e.vramUsedMb,
+            gpuUtilPct: e.gpuUtilPct,
+            gpuTempC: e.gpuTempC,
+            decodeTps: e.decodeTps,
+          }),
+        );
+        break;
+      case 'log':
+        log.record(makeRecord(runId, { kind: 'log', level: e.level, message: e.message }));
+        break;
+      default:
+        break;
+    }
   }
 
   pause(): void {
+    if (this.paused) return;
     this.paused = true;
+    this.emit({ type: 'log', level: 'info', message: 'pause requested; applies after the current trial finishes' });
   }
 
   resume(): void {
+    if (!this.paused) return;
     this.paused = false;
+    this.emit({ type: 'log', level: 'info', message: 'run resumed' });
   }
 
   cancel(): void {
+    if (this.cancelled) return;
     this.cancelled = true;
+    this.emit({ type: 'log', level: 'warn', message: 'cancel requested; finishing the current trial' });
     this.aborter?.abort();
   }
 
   skipCurrentCandidate(): void {
     this.skipCandidateId = '__current__';
+    this.emit({ type: 'log', level: 'info', message: 'skip requested; applies after the current trial finishes' });
     this.aborter?.abort();
   }
 
@@ -158,6 +228,7 @@ export class EvalRunner {
     this.paused = false;
     this.cancelled = false;
     this.skipCandidateId = null;
+    this.consecutiveTimeouts = 0;
 
     const run = await getRun(runId);
     if (!run) {
@@ -171,6 +242,31 @@ export class EvalRunner {
       this.emit({ type: 'log', level: 'warn', message: 'eval lock busy or chat running; start aborted' });
       return;
     }
+    this.progressLogRunId = runId;
+    this.progressLog = new ProgressLogWriter(this.progressLogStore, runId, this.workspaceRoot);
+    this.progressLog.record(
+      makeRecord(runId, {
+        kind: 'run_started',
+        name: config.name,
+        packs: config.packs.map((p) => ({
+          packId: p.packId,
+          samples: p.sampleIds.length,
+          epochs: p.epochs,
+        })),
+        candidates: config.candidates.map((c) => ({
+          label: c.label,
+          provider: c.provider,
+          model: c.model,
+        })),
+        judge:
+          config.judge == null
+            ? null
+            : config.judge.target.type === 'local'
+              ? config.judge.target.model
+              : config.judge.target.integrationId,
+        hardware: run.hardware,
+      }),
+    );
     this.aborter = new AbortController();
     const runSignal = this.aborter.signal;
     const startedAtWall = Date.now();
@@ -243,7 +339,17 @@ export class EvalRunner {
           await this.waitIfPaused(runSignal);
           if (this.cancelled) break;
           if (completed.has(this.trialKey(item))) continue;
-          await this.runTrial(runId, item);
+          // A single trial's bookkeeping must never kill the whole run:
+          // record the failure in the log and keep going with the next item.
+          try {
+            await this.runTrial(runId, item);
+          } catch (err) {
+            this.emit({
+              type: 'log',
+              level: 'error',
+              message: `trial bookkeeping failed for ${item.pack.manifest.id}/${item.sampleId}; continuing with the next item (${err instanceof Error ? err.message : String(err)})`,
+            });
+          }
           done += 1;
           await updateRunProgress(runId, done, plan.length);
           const elapsedSec = (Date.now() - startedAtWall) / 1000;
@@ -255,12 +361,22 @@ export class EvalRunner {
           status: this.cancelled ? 'failed' : candidateSkipped ? 'skipped' : 'done',
           ...(this.cancelled ? { error: 'cancelled' } : {}),
         });
+        const candidateStatus = this.cancelled ? 'failed' : candidateSkipped ? 'skipped' : 'done';
+        this.progressLog?.record(
+          makeRecord(runId, {
+            kind: 'candidate_finished',
+            candidateId: candidate.id,
+            label: candidate.label,
+            status: candidateStatus,
+          }),
+        );
         this.emit({ type: 'candidate_end', candidateId: candidate.id, label: candidate.label });
       }
 
       if (this.cancelled) {
         await updateRunStatus(runId, 'cancelled', { finishedAt: new Date().toISOString() });
         this.emit({ type: 'run_status', status: 'cancelled' });
+        await this.writeRunFinished(runId, 'cancelled');
         return;
       }
 
@@ -274,17 +390,96 @@ export class EvalRunner {
         }
       }
 
+      if (this.codeExecPass) {
+        try {
+          const r = await this.codeExecPass(runId);
+          this.emit({
+            type: 'log',
+            level: 'info',
+            message: `code-execution scoring: ${r.scoredTrials} trial(s), ${r.scoresWritten} score(s) written`,
+          });
+        } catch (err) {
+          this.emit({
+            type: 'log',
+            level: 'warn',
+            message: `code-execution scoring failed; sync scores are kept (${err instanceof Error ? err.message : String(err)})`,
+          });
+        }
+      }
+
       await this.aggregate(runId, config, candidates, packs, run.hardware);
       await updateRunStatus(runId, 'completed', { finishedAt: new Date().toISOString() });
       this.emit({ type: 'run_status', status: 'completed' });
+      await this.writeRunFinished(runId, 'completed');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const status: RunStatus = 'failed';
       await updateRunStatus(runId, status, { error: message, finishedAt: new Date().toISOString() }).catch(() => undefined);
       this.emit({ type: 'run_status', status, error: message });
+      await this.writeRunFinished(runId, 'failed');
     } finally {
       evalLock.release(runId);
       this.aborter = null;
+      const log = this.progressLog;
+      this.progressLog = null;
+      this.progressLogRunId = null;
+      if (log) await log.close().catch(() => undefined);
+    }
+  }
+
+  // Final per-candidate summary line for the persisted log. Best effort:
+  // failures here must never change the run outcome.
+  private async writeRunFinished(runId: string, status: string): Promise<void> {
+    try {
+      const [trials, scores, candidates] = await Promise.all([
+        listTrials(runId),
+        listScores(runId),
+        listCandidates(runId),
+      ]);
+      const valuesByTrial = new Map<string, number[]>();
+      for (const s of scores) {
+        const list = valuesByTrial.get(s.trialId) ?? [];
+        list.push(s.value);
+        valuesByTrial.set(s.trialId, list);
+      }
+      const compositeByCandidate = new Map<string, number>();
+      if (status === 'completed') {
+        try {
+          for (const row of await listAggregates(runId)) {
+            if (row.level === 'composite' && row.normalized != null) {
+              compositeByCandidate.set(row.candidateId, row.normalized);
+            }
+          }
+        } catch {
+          // aggregates optional for the summary
+        }
+      }
+      const run = await getRun(runId).catch(() => null);
+      this.progressLog?.record(
+        makeRecord(runId, {
+          kind: 'run_finished',
+          status,
+          done: run?.progressDone ?? trials.length,
+          total: run?.progressTotal ?? trials.length,
+          results: candidates.map((c) => {
+            const cellTrials = trials.filter((tr) => tr.candidateId === c.id);
+            const values: number[] = [];
+            for (const tr of cellTrials) {
+              const v = valuesByTrial.get(tr.id);
+              if (v) values.push(...v);
+            }
+            return {
+              candidateId: c.id,
+              label: c.label,
+              trials: cellTrials.length,
+              avgScore: values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null,
+              composite: compositeByCandidate.get(c.id) ?? null,
+            };
+          }),
+        }),
+      );
+    } catch {
+      // ignore logging failures
     }
   }
 
@@ -497,6 +692,24 @@ export class EvalRunner {
         err instanceof Error && err.message.includes('eval trial timeout');
       const outcome = this.skipCandidateId !== null || this.cancelled ? 'cancelled' : classifyOutcome(err, timedOut);
       await this.storeFailed(runId, candidate, pack, sampleId, item, startedAt, outcome);
+      if (outcome === 'timeout') {
+        this.consecutiveTimeouts += 1;
+        const budgetSec = Math.round(item.timeoutMs / 1000);
+        this.emit({
+          type: 'log',
+          level: 'info',
+          message: `timeout on ${pack.manifest.id}/${sampleId} (budget ${budgetSec}s) — trial recorded, continuing with the next item`,
+        });
+        if (this.consecutiveTimeouts === 3 || this.consecutiveTimeouts % 5 === 0) {
+          this.emit({
+            type: 'log',
+            level: 'warn',
+            message: `${this.consecutiveTimeouts} consecutive timeouts — the model may be overloaded or too slow; consider a smaller pack tier, a larger timeout multiplier, or "후보 건너뛰기"`,
+          });
+        }
+      } else {
+        this.consecutiveTimeouts = 0;
+      }
       return;
     } finally {
       sampler.stop();
@@ -605,6 +818,7 @@ export class EvalRunner {
     }
 
     const combined = scored.length > 0 ? combineSampleScore(scored).value : null;
+    this.consecutiveTimeouts = 0;
     this.emit({
       type: 'trial_end',
       candidateId: candidate.id,
@@ -614,6 +828,31 @@ export class EvalRunner {
       outcome: result.outcome,
       score: combined,
     });
+    this.progressLog?.record(
+      makeRecord(runId, {
+        kind: 'trial_finished',
+        candidateId: candidate.id,
+        packId: pack.manifest.id,
+        sampleId,
+        epoch: item.epochSlot,
+        outcome: result.outcome,
+        score: combined,
+        timing: {
+          ttftMs: result.timing.ttftMs,
+          prefillTps: result.timing.prefillTps,
+          decodeTps: result.timing.decodeTps,
+          totalMs: result.timing.totalMs,
+        },
+        resources: {
+          vramPeakMb: summary.vramPeakMb,
+          gpuUtilAvg: summary.gpuUtilAvg,
+          gpuTempMax: summary.gpuTempMax,
+          offloadRatio: summary.offloadRatio,
+        },
+        turns: result.turns ?? null,
+        toolCalls: result.toolCalls.length,
+      }),
+    );
     const latest = sampler.latest();
     if (latest) {
       this.emit({
@@ -677,6 +916,21 @@ export class EvalRunner {
       outcome,
       score: null,
     });
+    this.progressLog?.record(
+      makeRecord(runId, {
+        kind: 'trial_finished',
+        candidateId: candidate.id,
+        packId: pack.manifest.id,
+        sampleId,
+        epoch: item.epochSlot,
+        outcome,
+        score: null,
+        timing: { ttftMs: null, prefillTps: null, decodeTps: null, totalMs: null },
+        resources: { vramPeakMb: null, gpuUtilAvg: null, gpuTempMax: null, offloadRatio: null },
+        turns: null,
+        toolCalls: null,
+      }),
+    );
   }
 
   private async storeFailed(
