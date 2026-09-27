@@ -33,6 +33,8 @@ import { CandidateResults } from './CandidateResults';
 import { LiveSamplePreview } from './LiveSamplePreview';
 import { RunEnvironment } from './RunEnvironment';
 import { RunLog } from './RunLog';
+import { isDeferredScorerType } from '@/lib/eval/scorers/deferredScorers';
+import { scorerKeyOf } from '@/lib/eval/scorers/index';
 
 const POLL_MS = 2000;
 
@@ -424,6 +426,41 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
     return out;
   }, [packs, locale]);
 
+  // Deferred (async) scorer keys per pack, from the pack manifest. A trial is
+  // "pending finalization" while any of those keys has no score row yet:
+  // its visible % covers deterministic checks only (FAB Q4) or nothing at
+  // all (FAB Q5 before the code-exec pass).
+  const deferredKeysByPack = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const p of packs) {
+      const keys = (p.manifest.scorers ?? [])
+        .filter((s) => isDeferredScorerType(s.type))
+        .map((s) => scorerKeyOf(s));
+      if (keys.length > 0) out[p.manifest.id] = keys;
+    }
+    for (const p of (run?.config.packs ?? [])) {
+      out[p.packId] ??= [];
+    }
+    return out;
+  }, [packs, run]);
+
+  const pendingTrialIds = useMemo(() => {
+    const keysByTrial = new Map<string, Set<string>>();
+    for (const s of scores) {
+      const set = keysByTrial.get(s.trialId) ?? new Set<string>();
+      set.add(s.scorerKey);
+      keysByTrial.set(s.trialId, set);
+    }
+    const out = new Set<string>();
+    for (const tr of trials) {
+      const keys = deferredKeysByPack[tr.packId];
+      if (!keys || keys.length === 0) continue;
+      const have = keysByTrial.get(tr.id);
+      if (keys.some((k) => !have?.has(k))) out.add(tr.id);
+    }
+    return out;
+  }, [trials, scores, deferredKeysByPack]);
+
   if (!loaded) {
     return (
       <p className="p-4 text-xs text-muted-foreground">
@@ -611,6 +648,7 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
           liveCell={liveCell}
           packTitles={packTitles}
           packHelps={packHelps}
+          pendingTrialIds={pendingTrialIds}
         />
       </section>
 
@@ -625,6 +663,8 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
           scores={scores}
           config={run.config}
           composites={composites}
+          hardware={run.hardware}
+          pendingTrialIds={pendingTrialIds}
         />
       </section>
 

@@ -252,6 +252,12 @@ describe('EvalRunProgress', () => {
     expect(screen.getByText('실행 환경')).toBeInTheDocument();
     expect(screen.getByText('Test GPU')).toBeInTheDocument();
     expect(screen.getByText('후보별 결과·자원')).toBeInTheDocument();
+    // Monitoring-style per-candidate cards replace the old text-only summary.
+    expect(screen.getByText('CPU/GPU 오프로딩')).toBeInTheDocument();
+    expect(screen.getByText('메모리 분배')).toBeInTheDocument();
+    expect(screen.getByText('GPU·VRAM 추이')).toBeInTheDocument();
+    expect(screen.getByText('토큰 정보')).toBeInTheDocument();
+    expect(screen.getByText('모델 아키텍처')).toBeInTheDocument();
     expect(screen.getByText(/progress\.jsonl/)).toBeInTheDocument();
     // Persisted file log merges with live events.
     expect(await screen.findByText('persisted warning')).toBeInTheDocument();

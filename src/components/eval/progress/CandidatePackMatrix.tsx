@@ -22,6 +22,8 @@ interface CandidatePackMatrixProps {
   liveCell: LiveCell | null;
   packTitles?: Record<string, string>;
   packHelps?: Record<string, string>;
+  /** Trial IDs whose deferred (Judge / code-exec / human) scores are still missing. */
+  pendingTrialIds?: ReadonlySet<string>;
 }
 
 interface CellData {
@@ -29,6 +31,7 @@ interface CellData {
   total: number;
   pct: number;
   accuracy: number | null;
+  pending: number;
 }
 
 function cellKey(candidateId: string, packId: string): string {
@@ -44,6 +47,7 @@ export function CandidatePackMatrix({
   liveCell,
   packTitles,
   packHelps,
+  pendingTrialIds,
 }: CandidatePackMatrixProps) {
   const { t } = useLanguage();
   const [selected, setSelected] = useState<LiveCell | null>(liveCell);
@@ -92,19 +96,21 @@ export function CandidatePackMatrix({
         const total = expectedPerCell[key] ?? done;
         const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
         const values: number[] = [];
+        let pending = 0;
         for (const tr of cellTrials) {
           const v = valuesByTrial.get(tr.id);
           if (v) values.push(...v);
+          if (pendingTrialIds?.has(tr.id)) pending += 1;
         }
         const accuracy =
           values.length > 0
             ? values.reduce((a, b) => a + b, 0) / values.length
             : null;
-        out.set(key, { done, total, pct, accuracy });
+        out.set(key, { done, total, pct, accuracy, pending });
       }
     }
     return out;
-  }, [candidates, packIds, trialsByCell, valuesByTrial, expectedPerCell]);
+  }, [candidates, packIds, trialsByCell, valuesByTrial, expectedPerCell, pendingTrialIds]);
 
   const detail = useMemo(() => {
     if (!active) return null;
@@ -117,13 +123,15 @@ export function CandidatePackMatrix({
       outcomes.set(tr.outcome, (outcomes.get(tr.outcome) ?? 0) + 1);
     }
     const values: number[] = [];
+    let pending = 0;
     for (const tr of cellTrials) {
       const v = valuesByTrial.get(tr.id);
       if (v) values.push(...v);
+      if (pendingTrialIds?.has(tr.id)) pending += 1;
     }
     const avg = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null;
-    return { cellTrials, outcomes, scoreCount: values.length, avg };
-  }, [active, trialsByCell, valuesByTrial]);
+    return { cellTrials, outcomes, scoreCount: values.length, avg, pending };
+  }, [active, trialsByCell, valuesByTrial, pendingTrialIds]);
 
   if (candidates.length === 0 || packIds.length === 0) {
     return (
@@ -149,7 +157,7 @@ export function CandidatePackMatrix({
           <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(180px,1fr))]">
             {packIds.map((packId) => {
               const key = cellKey(c.id, packId);
-              const cell = cells.get(key) ?? { done: 0, total: 0, pct: 0, accuracy: null };
+              const cell = cells.get(key) ?? { done: 0, total: 0, pct: 0, accuracy: null, pending: 0 };
               const live =
                 liveCell?.candidateId === c.id && liveCell?.packId === packId;
               const isSelected =
@@ -204,6 +212,11 @@ export function CandidatePackMatrix({
                         ? `${(cell.accuracy * 100).toFixed(1)}%`
                         : t('eval.progress.matrix.noScore')}
                     </span>
+                    {cell.pending > 0 && (
+                      <span className="ml-1 rounded-full bg-warning/15 px-1.5 py-px font-medium text-warning">
+                        {t('eval.progress.matrix.pendingFinal', { n: cell.pending })}
+                      </span>
+                    )}
                   </div>
                 </button>
               );
@@ -239,10 +252,16 @@ export function CandidatePackMatrix({
                 .map(([outcome, n]) => `${outcome} ${n}`)
                 .join(' · ')}
             </p>
+            {detail.pending > 0 && (
+              <p className="text-[11px] text-warning">
+                {t('eval.progress.matrix.pendingHint')}
+              </p>
+            )}
             <ul className="max-h-36 space-y-1 overflow-y-auto">
               {detail.cellTrials.slice(-20).map((tr) => {
                 const v = valuesByTrial.get(tr.id);
                 const avgV = v && v.length > 0 ? v.reduce((a, b) => a + b, 0) / v.length : null;
+                const pending = pendingTrialIds?.has(tr.id) ?? false;
                 return (
                   <li
                     key={tr.id}
@@ -251,7 +270,14 @@ export function CandidatePackMatrix({
                     <span className="truncate">
                       {tr.sampleId} · e{tr.epoch} · {tr.outcome}
                     </span>
-                    <span className="shrink-0 text-muted-foreground">
+                    <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+                      {pending && (
+                        <span className="rounded-full bg-warning/15 px-1.5 py-px font-medium text-warning">
+                          {avgV != null
+                            ? t('eval.progress.matrix.rowPartial')
+                            : t('eval.progress.matrix.rowPending')}
+                        </span>
+                      )}
                       {avgV != null ? `${(avgV * 100).toFixed(0)}%` : '—'}
                     </span>
                   </li>
