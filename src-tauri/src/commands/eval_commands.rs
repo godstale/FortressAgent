@@ -454,6 +454,139 @@ pub async fn eval_delete_pack<R: Runtime>(
     Ok(())
 }
 
+// ---- run progress log commands ----
+
+const MAX_RUN_LOG_APPEND_BYTES: usize = 1024 * 1024;
+const MAX_RUN_LOG_READ_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Run ids are UUIDs (`crypto.randomUUID`); allow the same shape plus `_`.
+fn validate_run_id(run_id: &str) -> Result<(), String> {
+    let bytes = run_id.as_bytes();
+    if bytes.is_empty() || bytes.len() > 128 {
+        return Err(format!("Invalid run id: '{}'", run_id));
+    }
+    let ok = bytes
+        .iter()
+        .all(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_');
+    if !ok {
+        return Err(format!("Invalid run id: '{}'", run_id));
+    }
+    Ok(())
+}
+
+/// `{workspaceRoot}/.fortress/eval-runs`. Same active-workspace check as
+/// `project_root` so logs never escape the session workspace.
+fn eval_runs_root(workspace_root: Option<String>) -> Result<PathBuf, String> {
+    let active = get_active_workspace_internal();
+    let ws = workspace_root.or(active).ok_or_else(|| {
+        "No workspace: run logs require an active workspace".to_string()
+    })?;
+    if let Some(active_ws) = get_active_workspace_internal() {
+        let a = Path::new(&active_ws)
+            .canonicalize()
+            .map_err(|e| format!("Active workspace error: {}", e))?;
+        let b = Path::new(&ws)
+            .canonicalize()
+            .map_err(|e| format!("Workspace '{}' error: {}", ws, e))?;
+        if a != b {
+            return Err(format!(
+                "workspace_root '{}' does not match active workspace '{}'",
+                ws, active_ws
+            ));
+        }
+    }
+    let root = Path::new(&ws).join(".fortress").join("eval-runs");
+    std::fs::create_dir_all(&root)
+        .map_err(|e| format!("Failed to create eval-runs dir: {}", e))?;
+    Ok(root)
+}
+
+fn run_log_path(workspace_root: Option<String>, run_id: &str) -> Result<PathBuf, String> {
+    validate_run_id(run_id)?;
+    let root = eval_runs_root(workspace_root)?;
+    let run_dir = join_and_verify(&root, run_id, false)?;
+    if !run_dir.exists() {
+        std::fs::create_dir_all(&run_dir)
+            .map_err(|e| format!("Failed to create run dir: {}", e))?;
+    }
+    let run_dir = run_dir
+        .canonicalize()
+        .map_err(|e| format!("Run dir error: {}", e))?;
+    Ok(run_dir.join("progress.jsonl"))
+}
+
+#[tauri::command]
+pub async fn eval_append_run_log(
+    workspace_root: Option<String>,
+    run_id: String,
+    lines: Vec<String>,
+) -> Result<(), String> {
+    let total: usize = lines.iter().map(|l| l.len()).sum();
+    if total > MAX_RUN_LOG_APPEND_BYTES {
+        return Err(format!(
+            "Run log batch too large ({} bytes, cap is 1MB)",
+            total
+        ));
+    }
+    let path = run_log_path(workspace_root, &run_id)?;
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("Failed to open '{}': {}", path.display(), e))?;
+    for line in &lines {
+        // One JSON object per line; strip stray newlines so the file stays parseable.
+        let flat: String = line.chars().filter(|c| *c != '\n' && *c != '\r').collect();
+        writeln!(file, "{}", flat)
+            .map_err(|e| format!("Failed to append to '{}': {}", path.display(), e))?;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunLogReadout {
+    pub text: String,
+    pub truncated: bool,
+}
+
+#[tauri::command]
+pub async fn eval_read_run_log(
+    workspace_root: Option<String>,
+    run_id: String,
+    max_bytes: Option<u64>,
+) -> Result<RunLogReadout, String> {
+    let path = run_log_path(workspace_root, &run_id)?;
+    if !path.exists() {
+        return Ok(RunLogReadout {
+            text: String::new(),
+            truncated: false,
+        });
+    }
+    let cap = max_bytes.unwrap_or(MAX_RUN_LOG_READ_BYTES).clamp(1024, MAX_RUN_LOG_READ_BYTES);
+    let bytes = std::fs::read(&path)
+        .map_err(|e| format!("Failed to read '{}': {}", path.display(), e))?;
+    if bytes.len() as u64 <= cap {
+        return Ok(RunLogReadout {
+            text: String::from_utf8_lossy(&bytes).to_string(),
+            truncated: false,
+        });
+    }
+    // Tail slice: start at a char boundary, then at the next newline so the
+    // first line stays a complete JSON object.
+    let start = bytes.len() - cap as usize;
+    let mut cut = start;
+    while cut < bytes.len() && !std::str::from_utf8(&bytes[cut..cut + 1]).is_ok() {
+        cut += 1;
+    }
+    let tail = &bytes[cut..];
+    let line_start = tail.iter().position(|b| *b == b'\n').map(|i| i + 1).unwrap_or(0);
+    Ok(RunLogReadout {
+        text: String::from_utf8_lossy(&tail[line_start..]).to_string(),
+        truncated: true,
+    })
+}
+
 // ---- sandbox commands ----
 
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<(), String> {
@@ -1102,6 +1235,27 @@ mod tests {
         assert!(validate_rel_path("..").is_err());
         assert!(validate_rel_path("a/../b").is_err());
         assert!(validate_rel_path("ok/file-name_1.jsonl").is_ok());
+    }
+
+    #[test]
+    fn run_id_validation() {
+        assert!(validate_run_id("550e8400-e29b-41d4-a716-446655440000").is_ok());
+        assert!(validate_run_id("run_1").is_ok());
+        assert!(validate_run_id("../evil").is_err());
+        assert!(validate_run_id("a/b").is_err());
+        assert!(validate_run_id("").is_err());
+        assert!(validate_run_id(&"a".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn run_log_path_stays_under_runs_root() {
+        let root = tmp_root("runs-root");
+        let run_dir = join_and_verify(&root, "550e8400-e29b-41d4-a716-446655440000", false).unwrap();
+        let joined = run_dir.join("progress.jsonl");
+        let joined_str = joined.to_string_lossy().to_string();
+        let root_str = root.to_string_lossy().to_string();
+        assert!(joined_str.starts_with(&root_str));
+        assert!(join_and_verify(&root, "../evil", false).is_err());
     }
 
     #[cfg(unix)]

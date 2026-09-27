@@ -222,6 +222,36 @@ describe('eval runner', () => {
     expect(cands[0].status).toBe('skipped');
     expect((await getRun(runId))?.status).toBe('completed');
   });
+
+  it('writes run lifecycle and trial lines to the progress log', async () => {
+    const { createMemoryProgressLogStore } = await import('./progressLog');
+    const { parseProgressLog } = await import('./progressLog');
+    const store = createMemoryProgressLogStore();
+    const runId = await createRun(await makeConfig(), hardware);
+    const runner = new EvalRunner({
+      packFs: packFs(),
+      streamChatFactory: () => cannedFactory((input) => (input.includes('q1') ? 'hello' : 'world')),
+      progressLogStore: store,
+    });
+    await runner.start(runId);
+
+    const records = parseProgressLog((await store.read(runId)).text);
+    const kinds = records.map((r) => r.kind);
+    expect(kinds[0]).toBe('run_started');
+    expect(kinds).toContain('candidate_started');
+    expect(kinds).toContain('candidate_finished');
+    expect(records.filter((r) => r.kind === 'trial_started')).toHaveLength(2);
+    expect(records.filter((r) => r.kind === 'trial_finished')).toHaveLength(2);
+    expect(kinds[kinds.length - 1]).toBe('run_finished');
+    // No streaming deltas are persisted.
+    expect(kinds).not.toContain('trial_delta');
+    const finished = records.find((r) => r.kind === 'run_finished');
+    expect(finished?.kind === 'run_finished' && finished.status).toBe('completed');
+    expect(finished?.kind === 'run_finished' && finished.results[0].trials).toBe(2);
+    expect(finished?.kind === 'run_finished' && finished.results[0].avgScore).toBe(1);
+    const started = records[0];
+    expect(started.kind === 'run_started' && started.hardware.gpuName).toBe('Test GPU');
+  });
 });
 
 describe('candidates', () => {

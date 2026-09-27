@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { FlaskConical, Pause, Play, SkipForward, XCircle } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { FlaskConical, Pause, Play, SkipForward, XCircle, FileDown } from 'lucide-react';
 import { useEval } from '@/lib/context/EvalContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { FieldInfo } from '../wizard/FieldInfo';
 import {
   getRun,
+  listAggregates,
   listCandidates,
   listScores,
   listTrials,
@@ -18,8 +19,19 @@ import type {
   EvalTrialRow,
 } from '@/lib/eval/types';
 import type { RunnerEvent } from '@/lib/eval/runner/events';
+import {
+  mergeLogEvents,
+  parseProgressLog,
+  progressLogRelPath,
+  tauriProgressLogStore,
+  toPersistedLogs,
+  toPersistedResources,
+  type ProgressRecord,
+} from '@/lib/eval/runner/progressLog';
 import { CandidatePackMatrix } from './CandidatePackMatrix';
+import { CandidateResults } from './CandidateResults';
 import { LiveSamplePreview } from './LiveSamplePreview';
+import { RunEnvironment } from './RunEnvironment';
 import { RunLog } from './RunLog';
 
 const POLL_MS = 2000;
@@ -51,6 +63,26 @@ function makeCellKey(candidateId: string, packId: string): string {
 
 const TERMINAL_STATUSES = new Set(['completed', 'cancelled', 'failed']);
 
+interface LatestResource {
+  vramUsedMb: number | null;
+  gpuUtilPct: number | null;
+  gpuTempC: number | null;
+}
+
+function latestResourceOf(live: RunnerEvent[], persisted: ProgressRecord[]): LatestResource | null {
+  for (let i = live.length - 1; i >= 0; i -= 1) {
+    const e = live[i];
+    if (e.type === 'resource') {
+      return { vramUsedMb: e.vramUsedMb, gpuUtilPct: e.gpuUtilPct, gpuTempC: e.gpuTempC };
+    }
+  }
+  const points = toPersistedResources(persisted);
+  const last = points.length > 0 ? points[points.length - 1] : null;
+  return last
+    ? { vramUsedMb: last.vramUsedMb, gpuUtilPct: last.gpuUtilPct, gpuTempC: null }
+    : null;
+}
+
 export function EvalRunProgress({ runId }: { runId: string }) {
   return <EvalRunProgressInner key={runId} runId={runId} />;
 }
@@ -72,6 +104,9 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
     input: string | null;
   } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [composites, setComposites] = useState<Record<string, number>>({});
+  const [persistedRecords, setPersistedRecords] = useState<ProgressRecord[]>([]);
+  const [logTruncated, setLogTruncated] = useState(false);
 
   const isActiveRun = activeRunner?.runId === runId;
   const liveEvents = useMemo(
@@ -83,17 +118,23 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
     let cancelled = false;
     async function poll(): Promise<void> {
       try {
-        const [nextRun, nextCandidates, nextTrials, nextScores] = await Promise.all([
+        const [nextRun, nextCandidates, nextTrials, nextScores, nextAggregates] = await Promise.all([
           getRun(runId),
           listCandidates(runId),
           listTrials(runId),
           listScores(runId),
+          listAggregates(runId).catch(() => []),
         ]);
         if (cancelled) return;
         setRun(nextRun);
         setCandidates(nextCandidates);
         setTrials(nextTrials);
         setScores(nextScores);
+        const comp: Record<string, number> = {};
+        for (const row of nextAggregates) {
+          if (row.level === 'composite' && row.normalized != null) comp[row.candidateId] = row.normalized;
+        }
+        setComposites(comp);
         setLoaded(true);
         setLoadError(nextRun == null);
       } catch {
@@ -114,6 +155,20 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
   const isTerminal = TERMINAL_STATUSES.has(status);
   const showControls = isActiveRun && !isTerminal;
   const showPausePending = showControls && pausePending && status === 'running';
+
+  // Run finished while watching: reload the file once for the final tail.
+  const reloadedTailRef = useRef(false);
+  useEffect(() => {
+    if (!isTerminal || reloadedTailRef.current) return;
+    reloadedTailRef.current = true;
+    tauriProgressLogStore
+      .read(runId)
+      .then((readout) => {
+        setPersistedRecords(parseProgressLog(readout.text));
+        setLogTruncated(readout.truncated);
+      })
+      .catch(() => undefined);
+  }, [isTerminal, runId]);
 
   useEffect(() => {
     if (!showControls) return;
@@ -265,10 +320,72 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
 
   const sampleInput = trialKey != null && cachedInput?.key === trialKey ? cachedInput.input : null;
 
+  // Persisted JSONL history: loaded once on mount (covers restarts), and
+  // reloaded when the run reaches a terminal state to pick up the tail
+  // (aggregates summary, final status). Missing file / non-Tauri env → empty.
+  useEffect(() => {
+    let cancelled = false;
+    tauriProgressLogStore
+      .read(runId)
+      .then((readout) => {
+        if (cancelled) return;
+        setPersistedRecords(parseProgressLog(readout.text));
+        setLogTruncated(readout.truncated);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
   const logEvents = useMemo<LogEvent[]>(
     () => liveEvents.filter((e): e is LogEvent => e.type === 'log'),
     [liveEvents],
   );
+
+  const persistedLogs = useMemo(() => toPersistedLogs(persistedRecords), [persistedRecords]);
+
+  const mergedLogs = useMemo<LogEvent[]>(
+    () =>
+      mergeLogEvents(persistedLogs, logEvents).map((e) => ({
+        type: 'log' as const,
+        level: e.level,
+        message: e.message,
+      })) as LogEvent[],
+    [persistedLogs, logEvents],
+  );
+
+  const latestResource = useMemo(
+    () => latestResourceOf(liveEvents, persistedRecords),
+    [liveEvents, persistedRecords],
+  );
+
+  const totalSamples = useMemo(
+    () => (run?.config.packs ?? []).reduce((a, p) => a + p.sampleIds.length * p.epochs, 0),
+    [run],
+  );
+
+  function downloadLog(): void {
+    if (!run) return;
+    const payload = {
+      runId,
+      runName: run.name,
+      status: run.status,
+      exportedAt: new Date().toISOString(),
+      hardware: run.hardware,
+      candidates: candidates.map((c) => ({ label: c.label, model: c.snapshot?.model ?? null })),
+      persistedRecords,
+      fileTruncated: logTruncated,
+      liveTail: liveEvents.filter((e) => e.type !== 'trial_delta' && e.type !== 'eta'),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `eval-log-${runId.slice(0, 8)}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   const liveCell = useMemo(() => {
     if (!currentStart || isTerminal) return null;
@@ -432,6 +549,19 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
         )}
       </header>
 
+      <section className="rounded-xl border border-border bg-card/40 p-3.5">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+          {t('eval.progress.env.title')}
+          <FieldInfo label={t('eval.progress.env.title')} help={t('eval.progress.env.help')} />
+        </h3>
+        <RunEnvironment
+          run={run}
+          judgeLabel={judgeLabel}
+          totalSamples={totalSamples}
+          latest={latestResource}
+        />
+      </section>
+
       {status === 'completed' && (
         <div className="rounded-xl border border-success/30 bg-success/5 p-3 text-xs">
           <p className="font-medium text-foreground">{t('eval.progress.completed')}</p>
@@ -486,6 +616,20 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
 
       <section className="rounded-xl border border-border bg-card/40 p-3.5">
         <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+          {t('eval.progress.results.title')}
+          <FieldInfo label={t('eval.progress.results.title')} help={t('eval.progress.results.help')} />
+        </h3>
+        <CandidateResults
+          candidates={candidates}
+          trials={trials}
+          scores={scores}
+          config={run.config}
+          composites={composites}
+        />
+      </section>
+
+      <section className="rounded-xl border border-border bg-card/40 p-3.5">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
           {t('eval.progress.preview.title')}
           <FieldInfo label={t('eval.progress.preview.title')} help={t('eval.progress.preview.help')} />
         </h3>
@@ -502,11 +646,22 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
       </section>
 
       <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
-          {t('eval.progress.log.title')}
-          <FieldInfo label={t('eval.progress.log.title')} help={t('eval.progress.log.help')} />
-        </h3>
-        <RunLog events={logEvents} />
+        <div className="mb-2 flex flex-wrap items-center gap-1.5">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+            {t('eval.progress.log.title')}
+            <FieldInfo label={t('eval.progress.log.title')} help={t('eval.progress.log.help')} />
+          </h3>
+          <span className="flex-1" />
+          <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={downloadLog}>
+            <FileDown className="h-3 w-3" />
+            {t('eval.progress.log.download')}
+          </Button>
+        </div>
+        <p className="mb-2 font-mono text-[11px] text-muted-foreground">
+          {t('eval.progress.log.fileNote', { path: progressLogRelPath(runId) })}
+          {logTruncated && ` ${t('eval.progress.log.truncated')}`}
+        </p>
+        <RunLog events={mergedLogs} />
       </section>
     </div>
   );

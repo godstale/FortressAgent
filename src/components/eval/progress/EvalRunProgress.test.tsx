@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest';
 import { useEval } from '@/lib/context/EvalContext';
 import {
   getRun,
+  listAggregates,
   listCandidates,
   listScores,
   listTrials,
@@ -24,6 +25,7 @@ vi.mock('@/lib/context/EvalContext', () => ({
 
 vi.mock('@/lib/db/repositories/evalRepo', () => ({
   getRun: vi.fn(),
+  listAggregates: vi.fn(),
   listCandidates: vi.fn(),
   listTrials: vi.fn(),
   listScores: vi.fn(),
@@ -35,6 +37,18 @@ vi.mock('@/lib/eval/packs/packLoader', () => ({
 
 vi.mock('@/lib/eval/packs/packFs', () => ({
   tauriPackFs: {},
+}));
+
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn(async (cmd: string) => {
+    if (cmd === 'eval_read_run_log') {
+      return {
+        text: '{"v":1,"ts":"2026-09-27T00:00:00.000Z","runId":"run-1","kind":"log","level":"warn","message":"persisted warning"}\n',
+        truncated: false,
+      };
+    }
+    throw new Error('no tauri in tests');
+  }),
 }));
 
 vi.mock('recharts', async (importOriginal) => {
@@ -49,6 +63,7 @@ vi.mock('recharts', async (importOriginal) => {
 
 const mockedUseEval = vi.mocked(useEval);
 const mockedGetRun = vi.mocked(getRun);
+const mockedListAggregates = vi.mocked(listAggregates);
 const mockedListCandidates = vi.mocked(listCandidates);
 const mockedListTrials = vi.mocked(listTrials);
 const mockedListScores = vi.mocked(listScores);
@@ -60,6 +75,25 @@ function makeRun(over: Record<string, unknown> = {}): EvalRunRow {
     config: {
       packs: [{ packId: 'pack-x', sampleIds: ['s1', 's2'], epochs: 1 }],
       judge: null,
+      profile: { id: 'balanced', name: { ko: '균형', en: 'Balanced' } },
+      candidates: [{ label: 'model-a', provider: 'ollama', model: 'model-a' }],
+      options: {
+        deterministicMode: true,
+        reliabilityEpochs: 3,
+        timeoutMultiplier: 1,
+        perfRepeats: 1,
+        unloadBetweenCandidates: false,
+        sampleOrderSeed: 42,
+      },
+    },
+    hardware: {
+      gpuName: 'Test GPU',
+      vramTotalMb: 12288,
+      isNvidia: true,
+      ramTotalMb: 32768,
+      os: 'test-os',
+      appVersion: '0.1.0',
+      providerVersions: { ollama: '0.9.0' },
     },
     status: 'running',
     error: null,
@@ -115,9 +149,11 @@ function setup(opts: {
   events?: RunnerEvent[];
   runOver?: Record<string, unknown>;
   pausePending?: boolean;
+  aggregates?: Array<Record<string, unknown>>;
 }) {
   const status = opts.status ?? 'running';
   mockedGetRun.mockResolvedValue(makeRun({ status, ...(opts.runOver ?? {}) }));
+  mockedListAggregates.mockResolvedValue((opts.aggregates ?? []) as never);
   mockedListCandidates.mockResolvedValue([makeCandidate()]);
   mockedListTrials.mockResolvedValue([makeTrial()]);
   mockedListScores.mockResolvedValue([makeScore()]);
@@ -207,5 +243,30 @@ describe('EvalRunProgress', () => {
     await screen.findByText('run one');
     expect(screen.getByText(/남은 시간/)).toBeInTheDocument();
     expect(screen.queryByText('계산 중…')).not.toBeInTheDocument();
+  });
+
+  it('shows environment, per-candidate results, and the persisted log file', async () => {
+    setup({});
+    render(<EvalRunProgress runId="run-1" />);
+    await screen.findByText('run one');
+    expect(screen.getByText('실행 환경')).toBeInTheDocument();
+    expect(screen.getByText('Test GPU')).toBeInTheDocument();
+    expect(screen.getByText('후보별 결과·자원')).toBeInTheDocument();
+    expect(screen.getByText(/progress\.jsonl/)).toBeInTheDocument();
+    // Persisted file log merges with live events.
+    expect(await screen.findByText('persisted warning')).toBeInTheDocument();
+    expect(screen.getByText('로그 다운로드')).toBeInTheDocument();
+  });
+
+  it('shows the composite score once aggregates exist', async () => {
+    setup({
+      status: 'completed',
+      active: false,
+      aggregates: [
+        { candidateId: 'c1', level: 'composite', key: 'composite', raw: 82.5, normalized: 82.5 },
+      ],
+    });
+    render(<EvalRunProgress runId="run-1" />);
+    expect(await screen.findByText(/종합 82\.5/)).toBeInTheDocument();
   });
 });
