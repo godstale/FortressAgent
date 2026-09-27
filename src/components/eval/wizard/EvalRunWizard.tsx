@@ -27,7 +27,7 @@ function suggestRunName(candidates: CandidateSnapshot[], profile: EvalProfile): 
 
 export function EvalRunWizard() {
   const { t } = useLanguage();
-  const { packs, profiles, refreshPacks } = useEval();
+  const { packs, packErrors, packsLoading, refreshPacks, profiles } = useEval();
   const [step, setStep] = useState(0);
   const [extraProfiles, setExtraProfiles] = useState<EvalProfile[]>([]);
   const [profileId, setProfileId] = useState(BUILTIN_PROFILES[0].id);
@@ -194,7 +194,8 @@ export function EvalRunWizard() {
       {step === 1 && (
         <StepPacks
           packs={packs}
-          errors={[]}
+          errors={packErrors}
+          loading={packsLoading}
           onRetry={() => void refreshPacks()}
           selections={draft.packSelections}
           profile={draft.profile}

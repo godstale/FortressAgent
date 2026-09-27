@@ -10,6 +10,8 @@ vi.mock('@/lib/context/EvalContext', () => ({
   useEval: () => ({
     runs: [],
     packs: mockRefs,
+    packErrors: [],
+    packsLoading: false,
     profiles: BUILTIN_PROFILES,
     integrationSettings: null,
     activeRunner: null,

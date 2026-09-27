@@ -46,7 +46,7 @@ describe('PackEditor', () => {
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
         'eval_write_pack_files',
-        expect.objectContaining({ scope: 'project', pack_id: 'my-cases' }),
+        expect.objectContaining({ scope: 'project', packId: 'my-cases' }),
       );
     });
     expect(screen.getByText(/저장됨|Saved/)).toBeInTheDocument();

@@ -11,7 +11,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 const { mockRefreshPacks } = vi.hoisted(() => ({ mockRefreshPacks: vi.fn() }));
 
 vi.mock('@/lib/context/EvalContext', () => ({
-  useEval: () => ({ packs: mockPacks(), refreshPacks: mockRefreshPacks }),
+  useEval: () => ({ packs: mockPacks(), packErrors: [], packsLoading: false, refreshPacks: mockRefreshPacks }),
 }));
 
 vi.mock('@/lib/context/WorkspaceContext', () => ({

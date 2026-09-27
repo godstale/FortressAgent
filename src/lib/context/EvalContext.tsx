@@ -4,7 +4,7 @@ import { evalLock } from '@/lib/eval/evalLock';
 import { collectHardware } from '@/lib/eval/runner/hardware';
 import { EvalRunner } from '@/lib/eval/runner/runner';
 import { tauriPackFs } from '@/lib/eval/packs/packFs';
-import { listPacks, type LoadedPackRef } from '@/lib/eval/packs/packLoader';
+import { listPacks, type LoadedPackRef, type PackListError } from '@/lib/eval/packs/packLoader';
 import type {
   EvalProfile,
   EvalRunConfig,
@@ -37,6 +37,8 @@ export interface ActiveRunnerState {
 export interface EvalContextValue {
   runs: EvalRunRow[];
   packs: LoadedPackRef[];
+  packErrors: PackListError[];
+  packsLoading: boolean;
   profiles: EvalProfile[];
   integrationSettings: IntegrationSettings | null;
   activeRunner: ActiveRunnerState | null;
@@ -57,12 +59,11 @@ export interface EvalContextValue {
 
 const EvalContext = createContext<EvalContextValue | null>(null);
 
-async function fetchPackRefs(workspaceRoot: string | undefined): Promise<LoadedPackRef[]> {
+async function fetchPackRefs(workspaceRoot: string | undefined): Promise<{ refs: LoadedPackRef[]; errors: PackListError[] }> {
   try {
-    const { refs } = await listPacks(tauriPackFs, workspaceRoot);
-    return refs;
-  } catch {
-    return [];
+    return await listPacks(tauriPackFs, workspaceRoot);
+  } catch (err) {
+    return { refs: [], errors: [{ scope: 'builtin', packId: '*', error: err instanceof Error ? err.message : 'list failed' }] };
   }
 }
 
@@ -71,6 +72,8 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
   const workspaceRoot = workspace?.workspaceRoot ?? undefined;
   const [runs, setRuns] = useState<EvalRunRow[]>([]);
   const [packs, setPacks] = useState<LoadedPackRef[]>([]);
+  const [packErrors, setPackErrors] = useState<PackListError[]>([]);
+  const [packsLoading, setPacksLoading] = useState(true);
   const [customProfiles, setCustomProfiles] = useState<EvalProfile[]>([]);
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings | null>(null);
   const [activeRunner, setActiveRunner] = useState<ActiveRunnerState | null>(null);
@@ -82,12 +85,20 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshPacks = useCallback(async () => {
-    setPacks(await fetchPackRefs(workspaceRoot));
+    setPacksLoading(true);
+    try {
+      const { refs, errors } = await fetchPackRefs(workspaceRoot);
+      setPacks(refs);
+      setPackErrors(errors);
+    } finally {
+      setPacksLoading(false);
+    }
   }, [workspaceRoot]);
 
   useEffect(() => {
     let alive = true;
     async function initialLoad(): Promise<void> {
+      setPacksLoading(true);
       await markInterruptedRuns().catch(() => undefined);
       await cleanupAllSandboxes().catch(() => undefined);
       const [nextRuns, nextPacks, nextProfiles, nextSettings] = await Promise.all([
@@ -98,7 +109,9 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
       ]);
       if (!alive) return;
       setRuns(nextRuns);
-      setPacks(nextPacks);
+      setPacks(nextPacks.refs);
+      setPackErrors(nextPacks.errors);
+      setPacksLoading(false);
       setCustomProfiles(nextProfiles);
       setIntegrationSettings(nextSettings);
     }
@@ -188,6 +201,8 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
     () => ({
       runs,
       packs,
+      packErrors,
+      packsLoading,
       profiles: [...BUILTIN_PROFILES, ...customProfiles],
       integrationSettings,
       activeRunner,
@@ -207,6 +222,8 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
     [
       runs,
       packs,
+      packErrors,
+      packsLoading,
       customProfiles,
       integrationSettings,
       activeRunner,

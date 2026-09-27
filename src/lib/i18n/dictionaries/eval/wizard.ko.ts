@@ -62,6 +62,8 @@ export const evalWizardKo: Dict = {
   'eval.wizard.packs.circular': '순환(circular)',
   'eval.wizard.packs.samples': '샘플 약 {n}개',
   'eval.wizard.packs.none': '사용 가능한 평가셋이 없습니다.',
+  'eval.wizard.packs.loading': '팩 목록을 불러오는 중...',
+  'eval.wizard.packs.retry': '다시 불러오기',
   'eval.wizard.packs.loadError': '팩 목록을 불러오지 못했습니다: {err}',
   'eval.wizard.packs.zeroWeight': '가중치 0',
   'eval.wizard.packs.requireSelect': '1개 이상의 팩을 선택하세요.',

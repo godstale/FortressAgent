@@ -62,6 +62,8 @@ export const evalWizardEn: Dict = {
   'eval.wizard.packs.circular': 'Circular',
   'eval.wizard.packs.samples': 'about {n} samples',
   'eval.wizard.packs.none': 'No packs available.',
+  'eval.wizard.packs.loading': 'Loading packs...',
+  'eval.wizard.packs.retry': 'Reload',
   'eval.wizard.packs.loadError': 'Failed to load packs: {err}',
   'eval.wizard.packs.zeroWeight': 'weight 0',
   'eval.wizard.packs.requireSelect': 'Select at least one pack.',

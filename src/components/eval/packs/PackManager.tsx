@@ -26,7 +26,7 @@ export function PackManager({ onEdit, onCreate }: PackManagerProps) {
   const { t } = useLanguage();
   const workspace = useSafeWorkspace();
   const workspaceRoot = workspace?.workspaceRoot ?? undefined;
-  const { packs, refreshPacks } = useEval();
+  const { packs, packErrors, packsLoading, refreshPacks } = useEval();
   const [query, setQuery] = useState('');
   const [errors, setErrors] = useState<PackListError[]>([]);
   const [diagnostics, setDiagnostics] = useState<Record<string, PackDiagnostic[]>>({});
@@ -148,6 +148,23 @@ export function PackManager({ onEdit, onCreate }: PackManagerProps) {
           </Button>
         )}
       </div>
+
+      {packErrors.length > 0 && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs space-y-1">
+          <div className="font-semibold">{t('eval.wizard.packs.loadError', { err: '' })}</div>
+          {packErrors.map((e) => (
+            <div key={`ctx-${e.scope}/${e.packId}`} className="font-mono text-[11px]">
+              {e.scope}/{e.packId}: {e.error}
+            </div>
+          ))}
+          <Button size="sm" variant="outline" onClick={() => void refreshPacks()}>
+            {t('eval.wizard.packs.retry')}
+          </Button>
+        </div>
+      )}
+      {packsLoading && (
+        <p className="text-xs text-muted-foreground">{t('eval.wizard.packs.loading')}</p>
+      )}
 
       {errors.length > 0 && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs space-y-1">
