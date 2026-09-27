@@ -67,17 +67,20 @@ pnpm check:ollama    # Ollama 서버/모델 상태 확인 (Phase 2 이상 로컬
 - `--no-verify`, `--force`, `git reset --hard` 등 파괴적/훅 우회 명령은 사용자 명시적 지시 없이 사용하지 않습니다.
 - `Docs/TODO.md` 상태 갱신은 관련 코드 변경과 **같은 커밋**에 포함시키는 것을 권장합니다.
 
-## 6. 멀티 에이전트 협업 규칙 (브랜치/worktree 분리)
+## 6. 멀티 에이전트 협업 규칙 (브랜치 기본 + worktree 예외)
 
 - **같은 브랜치에서 2개 이상의 에이전트/작업이 동시에 작업하지 않습니다.** 서로 다른 작업은 반드시 서로 다른 브랜치에서 진행하고, 나중에 main 경유로 합칩니다(merge 또는 PR).
-- 병렬 작업이 필요하면 `git worktree`를 사용합니다. 예: `git worktree add ../Fortress-<topic> -b feat/<topic> main`. 작업이 끝나면 worktree를 정리합니다(`git worktree remove`).
+- **기본은 현재 클론에서 브랜치를 만들어 작업합니다.** worktree를 기본 작업 방식으로 사용하지 않습니다.
+- **worktree는 코드를 분리할 필요가 있는 특별한 경우에만 사용합니다.** 다른 에이전트가 같은 클론에서 진행중인 작업이 있어 격리가 필요할 때(예: 서로의 uncommitted 변경이 충돌하거나, 장시간 실행 작업을 병렬로 유지해야 할 때)에만 사용합니다.
+  - 사용 전 `git worktree list`와 `Docs/TODO.md`의 `[~]` 항목으로 충돌 여부를 확인합니다.
+  - 예: `git worktree add ../Fortress-<topic> -b feat/<topic> main`. 작업이 끝나면 worktree를 정리합니다(`git worktree remove`).
 - 작업 시작 시 `Docs/TODO.md`에서 대상 항목을 `[ ]` → `[~]`로 변경하고 나서 코드를 작성합니다(선점 표시).
 - 자신의 작업 ID가 "소유"하지 않는 파일은 수정하지 않습니다. 여러 작업이 같은 파일을 나눠 소유하는 경우(예: `package.json`의 서로 다른 필드) 해당 Phase 문서에 명시된 "이 필드만 담당" 지침을 정확히 지킵니다.
 - 다른 작업 ID가 이미 `[~]`(진행중)이면 그 파일을 건드리지 않고, 필요하면 해당 작업이 끝난 뒤 이어서 진행합니다.
 - Phase 간 의존성(`Docs/ImplementationPlan.md`의 의존성 그래프)을 지킵니다. 선행 Phase의 완료 조건이 충족되지 않았는데 후행 Phase 작업을 시작하지 않습니다.
 - 설계 문서(`Docs/Architecture.md`)와 실제로 필요한 구현이 다르다고 판단되면, 임의로 다르게 구현하지 말고 먼저 `Docs/TODO.md` 이슈 로그에 기록한 뒤 문서 수정 여부를 결정합니다.
 - **작업 시작/중간/마지막 git 체크:**
-  - 시작: `git status -sb` + `git branch --show-current` 확인 → main 최신화 → 새 브랜치/worktree → `Docs/TODO.md` 선점 표시
+  - 시작: `git status -sb` + `git branch --show-current` 확인 → main 최신화 → 새 브랜치(원칙, worktree는 분리 필요시에만 예외) → `Docs/TODO.md` 선점 표시
   - 중간: 변경 중간에도 `git status -sb`로 범위 이탈 확인 + 논리 단위마다 수시로 커밋
   - 마지막: `git status -sb` + `git log --oneline -5`로 히스토리 확인 → `Docs/TODO.md` 갱신 포함 커밋 → `pnpm lint`·`typecheck`·`test` 결과 보고 → push는 승인 후에만
 
