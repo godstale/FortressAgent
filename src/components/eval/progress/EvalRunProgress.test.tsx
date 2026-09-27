@@ -59,6 +59,7 @@ function makeRun(over: Record<string, unknown> = {}): EvalRunRow {
     name: 'run one',
     config: {
       packs: [{ packId: 'pack-x', sampleIds: ['s1', 's2'], epochs: 1 }],
+      judge: null,
     },
     status: 'running',
     error: null,
@@ -73,7 +74,7 @@ function makeRun(over: Record<string, unknown> = {}): EvalRunRow {
 }
 
 function makeCandidate(): EvalCandidateRow {
-  return { id: 'c1', runId: 'run-1', label: 'model-a', status: 'running' } as unknown as EvalCandidateRow;
+  return { id: 'c1', runId: 'run-1', label: 'model-a', status: 'running', snapshot: { model: 'model-a' } } as unknown as EvalCandidateRow;
 }
 
 function makeTrial(): EvalTrialRow {
@@ -101,6 +102,7 @@ const baseControls = {
   packs: [],
   packErrors: [],
   packsLoading: false,
+  pausePending: false,
   pauseRun: vi.fn(),
   resumeRun: vi.fn(),
   cancelRun: vi.fn(),
@@ -112,6 +114,7 @@ function setup(opts: {
   active?: boolean;
   events?: RunnerEvent[];
   runOver?: Record<string, unknown>;
+  pausePending?: boolean;
 }) {
   const status = opts.status ?? 'running';
   mockedGetRun.mockResolvedValue(makeRun({ status, ...(opts.runOver ?? {}) }));
@@ -120,6 +123,7 @@ function setup(opts: {
   mockedListScores.mockResolvedValue([makeScore()]);
   mockedUseEval.mockReturnValue({
     ...baseControls,
+    pausePending: opts.pausePending ?? false,
     pauseRun: vi.fn(),
     resumeRun: vi.fn(),
     cancelRun: vi.fn(),
@@ -151,7 +155,7 @@ describe('EvalRunProgress', () => {
     expect(screen.getByText('hello')).toBeInTheDocument();
     expect(screen.getByText('unknown scorer: foo')).toBeInTheDocument();
     expect(screen.getByText('100.0%')).toBeInTheDocument();
-    expect(screen.getByTestId('chart-container')).toBeInTheDocument();
+    expect(screen.getByText(/테스트 대상/)).toBeInTheDocument();
     expect(screen.getByText(/남은 시간/)).toBeInTheDocument();
   });
 
@@ -176,6 +180,15 @@ describe('EvalRunProgress', () => {
     render(<EvalRunProgress runId="run-1" />);
     expect(await screen.findByText('재개')).toBeInTheDocument();
     expect(screen.queryByText('일시정지')).not.toBeInTheDocument();
+  });
+
+  it('shows pause-pending state after pause is requested', async () => {
+    setup({ pausePending: true });
+    render(<EvalRunProgress runId="run-1" />);
+    const pending = await screen.findAllByText(/일시정지 대기 중/);
+    expect(pending.length).toBeGreaterThanOrEqual(2);
+    const pauseBtn = screen.getByRole('button', { name: /일시정지 대기 중/ });
+    expect(pauseBtn).toBeDisabled();
   });
 
   it('shows completion notice with disabled report placeholder when completed', async () => {

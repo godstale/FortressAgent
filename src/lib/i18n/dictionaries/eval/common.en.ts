@@ -47,6 +47,7 @@ export const evalCommonEn: Dict = {
   'eval.common.tab.arena': 'Arena',
   'eval.common.panel.newEval': 'New evaluation',
   'eval.common.panel.managePacks': 'Manage packs',
+  'eval.common.panel.managePacksAlert': 'Packs need attention',
   'eval.common.panel.running': 'Running',
   'eval.common.panel.recent': 'Recent runs',
   'eval.common.panel.resume': 'Resume',

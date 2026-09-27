@@ -137,20 +137,27 @@ export class EvalRunner {
   }
 
   pause(): void {
+    if (this.paused) return;
     this.paused = true;
+    this.emit({ type: 'log', level: 'info', message: 'pause requested; applies after the current trial finishes' });
   }
 
   resume(): void {
+    if (!this.paused) return;
     this.paused = false;
+    this.emit({ type: 'log', level: 'info', message: 'run resumed' });
   }
 
   cancel(): void {
+    if (this.cancelled) return;
     this.cancelled = true;
+    this.emit({ type: 'log', level: 'warn', message: 'cancel requested; finishing the current trial' });
     this.aborter?.abort();
   }
 
   skipCurrentCandidate(): void {
     this.skipCandidateId = '__current__';
+    this.emit({ type: 'log', level: 'info', message: 'skip requested; applies after the current trial finishes' });
     this.aborter?.abort();
   }
 

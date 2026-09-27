@@ -34,6 +34,14 @@ vi.mock('@/lib/context/AgentsContext', () => ({
   useAgents: () => ({ agents: mockAgents, defaultAgent: mockAgents[0], loading: false }),
 }));
 
+vi.mock('@/lib/context/WorkspaceTabsContext', () => ({
+  useWorkspaceTabs: () => ({
+    openTab: vi.fn(),
+    closeTab: vi.fn(),
+    closeTabs: vi.fn(),
+  }),
+}));
+
 const mockRefs: LoadedPackRef[] = [
   {
     scope: 'builtin',

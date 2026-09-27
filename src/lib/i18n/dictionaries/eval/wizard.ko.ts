@@ -166,9 +166,10 @@ export const evalWizardKo: Dict = {
   'eval.wizard.create.run': '실행 생성',
   'eval.wizard.create.creating': '생성 중...',
   'eval.wizard.create.failed': '실행 생성 실패: {err}',
-  'eval.wizard.create.done': '실행이 생성되었습니다.',
-  'eval.wizard.create.startNow': '지금 시작',
-  'eval.wizard.create.startLater': '나중에 시작 (대기 목록)',
+  'eval.wizard.create.done': '평가가 등록되었습니다.',
+  'eval.wizard.create.doneDesc': '대기 목록에 등록되었습니다. 지금 바로 실행하거나 나중에 실행하세요.',
+  'eval.wizard.create.startNow': '즉시 실행',
+  'eval.wizard.create.startLater': '나중에 실행',
   'eval.wizard.create.locked': '다른 평가가 실행 중이라 지금 시작할 수 없습니다.',
   'eval.wizard.create.confirmFirst': '필수 확인(가중치·외부·코드)을 먼저 완료하세요.',
 };

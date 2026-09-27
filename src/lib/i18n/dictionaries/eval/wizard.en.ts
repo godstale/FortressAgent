@@ -166,9 +166,10 @@ export const evalWizardEn: Dict = {
   'eval.wizard.create.run': 'Create run',
   'eval.wizard.create.creating': 'Creating...',
   'eval.wizard.create.failed': 'Failed to create run: {err}',
-  'eval.wizard.create.done': 'Run created.',
-  'eval.wizard.create.startNow': 'Start now',
-  'eval.wizard.create.startLater': 'Start later (pending list)',
+  'eval.wizard.create.done': 'Evaluation registered.',
+  'eval.wizard.create.doneDesc': 'It is in the pending list. Run it now or later.',
+  'eval.wizard.create.startNow': 'Run now',
+  'eval.wizard.create.startLater': 'Run later',
   'eval.wizard.create.locked': 'Another evaluation is running, so it cannot start now.',
   'eval.wizard.create.confirmFirst': 'Complete the required confirmations (weights / external / code) first.',
 };

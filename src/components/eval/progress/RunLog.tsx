@@ -8,7 +8,7 @@ const RUN_LOG_CAP = 200;
 
 function isLogVisible(e: LogEvent): boolean {
   if (e.level !== 'info') return true;
-  return /skip/i.test(e.message);
+  return /skip|pause|resum|cancel/i.test(e.message);
 }
 
 export function RunLog({ events }: { events: LogEvent[] }) {

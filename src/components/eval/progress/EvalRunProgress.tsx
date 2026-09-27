@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FlaskConical, Pause, Play, SkipForward, XCircle } from 'lucide-react';
 import { useEval } from '@/lib/context/EvalContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { FieldInfo } from '../wizard/FieldInfo';
 import {
   getRun,
   listCandidates,
@@ -19,11 +20,9 @@ import type {
 import type { RunnerEvent } from '@/lib/eval/runner/events';
 import { CandidatePackMatrix } from './CandidatePackMatrix';
 import { LiveSamplePreview } from './LiveSamplePreview';
-import { ResourceMiniChart, type ResourcePoint } from './ResourceMiniChart';
 import { RunLog } from './RunLog';
 
 const POLL_MS = 2000;
-const RESOURCE_CAP = 600;
 
 type LogEvent = Extract<RunnerEvent, { type: 'log' }>;
 type TrialStartEvent = Extract<RunnerEvent, { type: 'trial_start' }>;
@@ -57,8 +56,8 @@ export function EvalRunProgress({ runId }: { runId: string }) {
 }
 
 function EvalRunProgressInner({ runId }: { runId: string }) {
-  const { t } = useLanguage();
-  const { runs, packs, activeRunner, events, pauseRun, resumeRun, cancelRun, skipCandidate } =
+  const { t, locale } = useLanguage();
+  const { runs, packs, activeRunner, events, pausePending, pauseRun, resumeRun, cancelRun, skipCandidate } =
     useEval();
 
   const [run, setRun] = useState<EvalRunRow | null>(null);
@@ -68,13 +67,11 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [resourceHistory, setResourceHistory] = useState<ResourcePoint[]>([]);
   const [cachedInput, setCachedInput] = useState<{
     key: string;
     input: string | null;
   } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const processedEventsRef = useRef(0);
 
   const isActiveRun = activeRunner?.runId === runId;
   const liveEvents = useMemo(
@@ -113,31 +110,10 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
     };
   }, [runId]);
 
-  useEffect(() => {
-    const fresh = liveEvents.slice(processedEventsRef.current);
-    processedEventsRef.current = liveEvents.length;
-    if (fresh.length === 0) return;
-    const points: ResourcePoint[] = [];
-    for (const e of fresh) {
-      if (e.type === 'resource') {
-        points.push({
-          t: Date.now(),
-          decodeTps: e.decodeTps,
-          vramUsedMb: e.vramUsedMb,
-          gpuUtilPct: e.gpuUtilPct,
-        });
-      }
-    }
-    if (points.length === 0) return;
-    const timer = setTimeout(() => {
-      setResourceHistory((prev) => [...prev, ...points].slice(-RESOURCE_CAP));
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [liveEvents]);
-
   const status = isActiveRun && activeRunner ? activeRunner.status : (run?.status ?? 'pending');
   const isTerminal = TERMINAL_STATUSES.has(status);
   const showControls = isActiveRun && !isTerminal;
+  const showPausePending = showControls && pausePending && status === 'running';
 
   useEffect(() => {
     if (!showControls) return;
@@ -304,6 +280,33 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
     return candidates.find((c) => c.id === currentStart.candidateId)?.label ?? null;
   }, [candidates, currentStart]);
 
+  const judgeLabel = useMemo(() => {
+    const judge = run?.config.judge;
+    if (!judge) return t('eval.progress.matrix.judgeNone');
+    if (judge.target.type === 'local') return judge.target.model;
+    return judge.target.integrationId;
+  }, [run, t]);
+
+  const packTitles = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const p of packs) {
+      out[p.manifest.id] = locale === 'ko' ? p.manifest.title.ko : p.manifest.title.en;
+    }
+    for (const p of (run?.config.packs ?? [])) {
+      if (!out[p.packId]) out[p.packId] = p.packId;
+    }
+    return out;
+  }, [packs, run, locale]);
+
+  const packHelps = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const p of packs) {
+      const desc = locale === 'ko' ? p.manifest.description.ko : p.manifest.description.en;
+      out[p.manifest.id] = `${desc} (${p.manifest.category} · ${p.manifest.kind})`;
+    }
+    return out;
+  }, [packs, locale]);
+
   if (!loaded) {
     return (
       <p className="p-4 text-xs text-muted-foreground">
@@ -328,6 +331,7 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
           <h2 className="min-w-0 flex-1 truncate text-sm font-bold text-foreground">
             {runName}
           </h2>
+          <FieldInfo label={t('eval.progress.title')} help={t('eval.progress.header.help')} />
           <span
             className={cn(
               'rounded-full px-2 py-0.5 text-[11px] font-semibold',
@@ -336,6 +340,11 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
           >
             {t('eval.progress.status')}: {status}
           </span>
+          {showPausePending && (
+            <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">
+              {t('eval.progress.pausePending')}
+            </span>
+          )}
         </div>
         <div className="mt-2.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -367,11 +376,12 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
         </div>
         {showControls && (
           <div className="mt-3">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <FieldInfo label={t('eval.progress.pause')} help={t('eval.progress.controls.help')} />
               {status === 'running' && (
-                <Button type="button" size="sm" variant="outline" onClick={pauseRun}>
+                <Button type="button" size="sm" variant="outline" disabled={showPausePending} onClick={pauseRun}>
                   <Pause className="h-3.5 w-3.5" />
-                  {t('eval.progress.pause')}
+                  {showPausePending ? t('eval.progress.pausePending') : t('eval.progress.pause')}
                 </Button>
               )}
               {status === 'paused' && (
@@ -440,9 +450,28 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
       )}
 
       <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 text-xs font-semibold text-foreground">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
           {t('eval.progress.matrix.title')}
+          <FieldInfo label={t('eval.progress.matrix.title')} help={t('eval.progress.matrix.help')} />
         </h3>
+        <div className="mb-3 space-y-1 rounded-md border border-border/60 bg-card/30 p-2.5 text-[11px]">
+          <div className="flex items-start gap-1.5">
+            <span className="shrink-0 font-semibold text-foreground">
+              {t('eval.progress.matrix.models')}
+            </span>
+            <FieldInfo label={t('eval.progress.matrix.models')} help={t('eval.progress.models.help')} />
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              {candidates.map((c) => `${c.label} · ${c.snapshot?.model ?? '?'}`).join(' / ') || '—'}
+            </span>
+          </div>
+          <div className="flex items-start gap-1.5">
+            <span className="shrink-0 font-semibold text-foreground">
+              {t('eval.progress.matrix.judge')}
+            </span>
+            <FieldInfo label={t('eval.progress.matrix.judge')} help={t('eval.progress.models.help')} />
+            <span className="min-w-0 flex-1 font-mono text-muted-foreground">{judgeLabel}</span>
+          </div>
+        </div>
         <CandidatePackMatrix
           candidates={candidates}
           packIds={packIds}
@@ -450,12 +479,15 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
           scores={scores}
           expectedPerCell={expectedPerCell}
           liveCell={liveCell}
+          packTitles={packTitles}
+          packHelps={packHelps}
         />
       </section>
 
       <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 text-xs font-semibold text-foreground">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
           {t('eval.progress.preview.title')}
+          <FieldInfo label={t('eval.progress.preview.title')} help={t('eval.progress.preview.help')} />
         </h3>
         <LiveSamplePreview
           packId={currentStart?.packId ?? null}
@@ -470,15 +502,9 @@ function EvalRunProgressInner({ runId }: { runId: string }) {
       </section>
 
       <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 text-xs font-semibold text-foreground">
-          {t('eval.progress.resources.title')}
-        </h3>
-        <ResourceMiniChart points={resourceHistory} now={nowMs} />
-      </section>
-
-      <section className="rounded-xl border border-border bg-card/40 p-3.5">
-        <h3 className="mb-2 text-xs font-semibold text-foreground">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-foreground">
           {t('eval.progress.log.title')}
+          <FieldInfo label={t('eval.progress.log.title')} help={t('eval.progress.log.help')} />
         </h3>
         <RunLog events={logEvents} />
       </section>
