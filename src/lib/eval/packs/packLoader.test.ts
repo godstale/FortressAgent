@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { EvalPackManifest } from '../types';
 import { createMemoryPackFs } from './packFs';
 import { listPacks, loadPack } from './packLoader';
-import { registerGenerator } from './generators/index';
+import { listGenerators, registerGenerator } from './generators/index';
 
 function manifestJson(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -87,6 +87,11 @@ describe('pack loader', () => {
     expect(pack.samples.map((s) => s.id)).toEqual(['s1', 's2']);
     expect(pack.diagnostics.length).toBeGreaterThanOrEqual(3);
     expect(pack.contentHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('has builtin generators registered without manual setup', () => {
+    expect(listGenerators()).toContain('long-context-v1');
+    expect(listGenerators()).toContain('perf-probe-v1');
   });
 
   it('loads generator packs via registry', async () => {

@@ -32,7 +32,7 @@ export const tauriPackFs: PackFs = {
       }>
     >('eval_list_packs', {
       scope,
-      workspace_root: workspaceRoot ?? null,
+      workspaceRoot: workspaceRoot ?? null,
     });
     return raw.map((r) => ({
       packId: r.packId ?? r.pack_id ?? '',
@@ -42,24 +42,24 @@ export const tauriPackFs: PackFs = {
   read(scope, packId, relPath, workspaceRoot) {
     return invoke<string>('eval_read_pack_file', {
       scope,
-      pack_id: packId,
-      rel_path: relPath,
-      workspace_root: workspaceRoot ?? null,
+      packId,
+      relPath,
+      workspaceRoot: workspaceRoot ?? null,
     });
   },
   write(scope, packId, files, workspaceRoot) {
     return invoke<void>('eval_write_pack_files', {
       scope,
-      pack_id: packId,
+      packId,
       files: files.map((f) => ({ rel_path: f.relPath, content: f.content })),
-      workspace_root: workspaceRoot ?? null,
+      workspaceRoot: workspaceRoot ?? null,
     });
   },
   remove(scope, packId, workspaceRoot) {
     return invoke<void>('eval_delete_pack', {
       scope,
-      pack_id: packId,
-      workspace_root: workspaceRoot ?? null,
+      packId,
+      workspaceRoot: workspaceRoot ?? null,
     });
   },
 };

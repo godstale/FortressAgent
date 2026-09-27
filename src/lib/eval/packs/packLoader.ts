@@ -10,6 +10,8 @@ import { canonicalJson, sha256Hex } from './hash';
 import type { PackFs } from './packFs';
 import { mulberry32, shuffleInPlace } from '../stats/random';
 import { getGenerator } from './generators/index';
+import './generators/longContext';
+import './generators/perfProbe';
 import { parseJsonl } from './sources/jsonl';
 import { convertKmmluCsv } from './sources/kmmluCsv';
 

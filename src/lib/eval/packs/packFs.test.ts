@@ -18,7 +18,7 @@ describe('tauriPackFs.list', () => {
     const items = await tauriPackFs.list('builtin');
     expect(invoke).toHaveBeenCalledWith('eval_list_packs', {
       scope: 'builtin',
-      workspace_root: null,
+      workspaceRoot: null,
     });
     expect(items).toEqual([{ packId: 'gsm8k', manifestText: '{"id":"gsm8k"}' }]);
   });
@@ -30,7 +30,7 @@ describe('tauriPackFs.list', () => {
     const items = await tauriPackFs.list('user', 'C:/ws');
     expect(invoke).toHaveBeenCalledWith('eval_list_packs', {
       scope: 'user',
-      workspace_root: 'C:/ws',
+      workspaceRoot: 'C:/ws',
     });
     expect(items).toEqual([{ packId: 'my-pack', manifestText: '{}' }]);
   });

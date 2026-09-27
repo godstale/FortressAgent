@@ -58,7 +58,7 @@ export function FixtureCapture({ sampleId, onChange }: FixtureCaptureProps) {
         try {
           const content = await invoke<string>('read_text_file', {
             path: row.path,
-            workspace_root: workspaceRoot ?? null,
+            workspaceRoot: workspaceRoot ?? null,
           });
           if (content.length > FIXTURE_MAX_BYTES) {
             next.push({ ...row, status: 'over-1mb' });
