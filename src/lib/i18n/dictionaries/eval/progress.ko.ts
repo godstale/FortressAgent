@@ -81,7 +81,7 @@ export const evalProgressKo: Dict = {
   'eval.progress.env.latest': '최근 측정',
   'eval.progress.env.latestValue': 'VRAM {v} · GPU {g} · {t}°C',
   'eval.progress.env.latestUnknown': '측정값 없음',
-  'eval.progress.results.title': '후보별 결과·자원',
+  'eval.progress.results.title': '평가 모니터링',
   'eval.progress.results.help': '후보마다 진행률·평균 점수·결과 분포와 측정된 자원·속도를 보여줍니다. 종합 점수는 실행 완료 후 집계됩니다.',
   'eval.progress.results.status': '상태',
   'eval.progress.results.composite': '종합',

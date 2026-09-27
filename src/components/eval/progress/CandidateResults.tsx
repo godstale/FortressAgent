@@ -114,8 +114,11 @@ export function CandidateResults({
 
   if (candidates.length === 0) return null;
 
+  // Per-candidate monitoring block. Inner rows mirror AgentMonitorTab:
+  // row 1 = 3 columns (offload / memory / trend), row 2 = 2 columns
+  // (tokens / architecture), so no half-empty gutter remains.
   return (
-    <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(340px,1fr))]">
+    <div className="space-y-3">
       {candidates.map((c) => {
         const cellTrials = trials.filter((tr) => tr.candidateId === c.id);
         const values: number[] = [];
@@ -212,7 +215,7 @@ export function CandidateResults({
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
               <MiniCard title={t('eval.progress.results.offload')}>
                 <div className="flex items-baseline justify-between">
                   <span className="font-mono text-sm font-bold text-foreground">
@@ -252,8 +255,7 @@ export function CandidateResults({
                 </div>
               </MiniCard>
 
-              <div className="col-span-2">
-                <MiniCard title={t('eval.progress.results.trend')}>
+              <MiniCard title={t('eval.progress.results.trend')}>
                 {hasTrend ? (
                   <div className="h-24">
                     <ResponsiveContainer width="100%" height="100%">
@@ -298,9 +300,10 @@ export function CandidateResults({
                     {t('eval.progress.results.trendEmpty')}
                   </p>
                 )}
-                </MiniCard>
-              </div>
+              </MiniCard>
+            </div>
 
+            <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
               <MiniCard title={t('eval.progress.results.tokens')}>
                 <div className="font-mono text-[11px] text-foreground">
                   {t('eval.progress.results.tokensValue', {
@@ -325,8 +328,7 @@ export function CandidateResults({
                 </div>
               </MiniCard>
 
-              <div className="col-span-2">
-                <MiniCard title={t('eval.progress.results.arch')}>
+              <MiniCard title={t('eval.progress.results.arch')}>
                   <div className="flex items-baseline justify-between gap-2 text-[11px]">
                     <span className="min-w-0 truncate font-mono font-semibold text-foreground" title={snap?.model}>
                       {snap?.model ?? t('eval.progress.results.noData')}
@@ -352,8 +354,7 @@ export function CandidateResults({
                       </span>
                     </span>
                   </div>
-                </MiniCard>
-              </div>
+              </MiniCard>
             </div>
           </div>
         );

@@ -81,7 +81,7 @@ export const evalProgressEn: Dict = {
   'eval.progress.env.latest': 'Latest sample',
   'eval.progress.env.latestValue': 'VRAM {v} · GPU {g} · {t}°C',
   'eval.progress.env.latestUnknown': 'No samples yet',
-  'eval.progress.results.title': 'Results & resources by candidate',
+  'eval.progress.results.title': 'Evaluation monitoring',
   'eval.progress.results.help': 'Progress, average score, outcome breakdown, and measured resources/speed per candidate. The composite score is aggregated after the run completes.',
   'eval.progress.results.status': 'Status',
   'eval.progress.results.composite': 'Composite',

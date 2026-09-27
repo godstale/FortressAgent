@@ -251,7 +251,7 @@ describe('EvalRunProgress', () => {
     await screen.findByText('run one');
     expect(screen.getByText('실행 환경')).toBeInTheDocument();
     expect(screen.getByText('Test GPU')).toBeInTheDocument();
-    expect(screen.getByText('후보별 결과·자원')).toBeInTheDocument();
+    expect(screen.getByText('평가 모니터링')).toBeInTheDocument();
     // Monitoring-style per-candidate cards replace the old text-only summary.
     expect(screen.getByText('CPU/GPU 오프로딩')).toBeInTheDocument();
     expect(screen.getByText('메모리 분배')).toBeInTheDocument();
