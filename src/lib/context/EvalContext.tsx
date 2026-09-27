@@ -24,6 +24,7 @@ import { getIntegrationSettings } from '@/lib/db/repositories/integrationsRepo';
 import { markInterruptedRuns } from '@/lib/db/repositories/evalRepo';
 import { cleanupAllSandboxes } from '@/lib/eval/runner/sandbox';
 import { runJudgePass } from '@/lib/eval/judge/judgePass';
+import { runCodeExecPass } from '@/lib/eval/runner/codeExecPass';
 import type { RunnerEvent } from '@/lib/eval/runner/events';
 import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 
@@ -141,6 +142,7 @@ export function EvalProvider({ children }: { children: React.ReactNode }) {
       const runner = new EvalRunner({
         workspaceRoot,
         judgePass: (id) => runJudgePass(id).then(() => undefined),
+        codeExecPass: (id) => runCodeExecPass(id).then((r) => ({ scoredTrials: r.scoredTrials, scoresWritten: r.scoresWritten })),
       });
       runnerRef.current = runner;
       setEvents([]);

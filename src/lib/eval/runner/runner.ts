@@ -70,6 +70,7 @@ export interface RunnerDeps {
   packFs?: PackFs;
   streamChatFactory?: (candidate: CandidateSnapshot) => LlmStreamChatFn;
   judgePass?: (runId: string) => Promise<void>;
+  codeExecPass?: (runId: string) => Promise<{ scoredTrials: number; scoresWritten: number }>;
   workspaceRoot?: string;
   progressLogStore?: ProgressLogStore;
 }
@@ -108,6 +109,7 @@ export class EvalRunner {
   private packFs: PackFs;
   private streamChatFactory: (candidate: CandidateSnapshot) => LlmStreamChatFn;
   private judgePass?: (runId: string) => Promise<void>;
+  private codeExecPass?: (runId: string) => Promise<{ scoredTrials: number; scoresWritten: number }>;
   private workspaceRoot?: string;
   private listeners = new Set<(e: RunnerEvent) => void>();
   private paused = false;
@@ -117,11 +119,13 @@ export class EvalRunner {
   private progressLogStore: ProgressLogStore;
   private progressLog: ProgressLogWriter | null = null;
   private progressLogRunId: string | null = null;
+  private consecutiveTimeouts = 0;
 
   constructor(deps: RunnerDeps = {}) {
     this.packFs = deps.packFs ?? tauriPackFs;
     this.streamChatFactory = deps.streamChatFactory ?? defaultStreamChatFactory;
     this.judgePass = deps.judgePass;
+    this.codeExecPass = deps.codeExecPass;
     this.workspaceRoot = deps.workspaceRoot;
     this.progressLogStore = deps.progressLogStore ?? tauriProgressLogStore;
     registerSingleTurnSolver();
@@ -224,6 +228,7 @@ export class EvalRunner {
     this.paused = false;
     this.cancelled = false;
     this.skipCandidateId = null;
+    this.consecutiveTimeouts = 0;
 
     const run = await getRun(runId);
     if (!run) {
@@ -334,7 +339,17 @@ export class EvalRunner {
           await this.waitIfPaused(runSignal);
           if (this.cancelled) break;
           if (completed.has(this.trialKey(item))) continue;
-          await this.runTrial(runId, item);
+          // A single trial's bookkeeping must never kill the whole run:
+          // record the failure in the log and keep going with the next item.
+          try {
+            await this.runTrial(runId, item);
+          } catch (err) {
+            this.emit({
+              type: 'log',
+              level: 'error',
+              message: `trial bookkeeping failed for ${item.pack.manifest.id}/${item.sampleId}; continuing with the next item (${err instanceof Error ? err.message : String(err)})`,
+            });
+          }
           done += 1;
           await updateRunProgress(runId, done, plan.length);
           const elapsedSec = (Date.now() - startedAtWall) / 1000;
@@ -372,6 +387,23 @@ export class EvalRunner {
           await this.judgePass(runId);
         } else {
           this.emit({ type: 'log', level: 'warn', message: 'judge configured but no judge pass available; skipping' });
+        }
+      }
+
+      if (this.codeExecPass) {
+        try {
+          const r = await this.codeExecPass(runId);
+          this.emit({
+            type: 'log',
+            level: 'info',
+            message: `code-execution scoring: ${r.scoredTrials} trial(s), ${r.scoresWritten} score(s) written`,
+          });
+        } catch (err) {
+          this.emit({
+            type: 'log',
+            level: 'warn',
+            message: `code-execution scoring failed; sync scores are kept (${err instanceof Error ? err.message : String(err)})`,
+          });
         }
       }
 
@@ -660,6 +692,24 @@ export class EvalRunner {
         err instanceof Error && err.message.includes('eval trial timeout');
       const outcome = this.skipCandidateId !== null || this.cancelled ? 'cancelled' : classifyOutcome(err, timedOut);
       await this.storeFailed(runId, candidate, pack, sampleId, item, startedAt, outcome);
+      if (outcome === 'timeout') {
+        this.consecutiveTimeouts += 1;
+        const budgetSec = Math.round(item.timeoutMs / 1000);
+        this.emit({
+          type: 'log',
+          level: 'info',
+          message: `timeout on ${pack.manifest.id}/${sampleId} (budget ${budgetSec}s) — trial recorded, continuing with the next item`,
+        });
+        if (this.consecutiveTimeouts === 3 || this.consecutiveTimeouts % 5 === 0) {
+          this.emit({
+            type: 'log',
+            level: 'warn',
+            message: `${this.consecutiveTimeouts} consecutive timeouts — the model may be overloaded or too slow; consider a smaller pack tier, a larger timeout multiplier, or "후보 건너뛰기"`,
+          });
+        }
+      } else {
+        this.consecutiveTimeouts = 0;
+      }
       return;
     } finally {
       sampler.stop();
@@ -768,6 +818,7 @@ export class EvalRunner {
     }
 
     const combined = scored.length > 0 ? combineSampleScore(scored).value : null;
+    this.consecutiveTimeouts = 0;
     this.emit({
       type: 'trial_end',
       candidateId: candidate.id,
