@@ -250,12 +250,17 @@ describe('EvalRunProgress', () => {
     render(<EvalRunProgress runId="run-1" />);
     await screen.findByText('run one');
     expect(screen.getByText('실행 환경')).toBeInTheDocument();
-    expect(screen.getByText('Test GPU')).toBeInTheDocument();
+    // Shown both in the environment card and the offload card header.
+    expect(screen.getAllByText('Test GPU').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('평가 모니터링')).toBeInTheDocument();
     // Monitoring-style per-candidate cards replace the old text-only summary.
     expect(screen.getByText('CPU/GPU 오프로딩')).toBeInTheDocument();
     expect(screen.getByText('메모리 분배')).toBeInTheDocument();
-    expect(screen.getByText('GPU·VRAM 추이')).toBeInTheDocument();
+    expect(screen.getByText(/GPU .* VRAM 추이/)).toBeInTheDocument();
+    expect(screen.getByText('GPU 오프로딩 비율')).toBeInTheDocument();
+    expect(screen.getByText('GPU VRAM')).toBeInTheDocument();
+    expect(screen.getByText('시스템 RAM')).toBeInTheDocument();
+    expect(screen.getByText('단위: GB')).toBeInTheDocument();
     expect(screen.getByText('토큰 정보')).toBeInTheDocument();
     expect(screen.getByText('모델 아키텍처')).toBeInTheDocument();
     // Architecture detail tiles mirror the monitor screen.

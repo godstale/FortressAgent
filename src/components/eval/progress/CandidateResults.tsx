@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Legend,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
+import { Activity, Coins, Cpu, Server, Zap } from 'lucide-react';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { cn } from '@/lib/utils';
 import { getModelArchitectureInfo } from '@/lib/llm/ollamaClient';
@@ -58,25 +62,36 @@ function fmtTps(v: number | null): string {
   return v == null ? '—' : `${v.toFixed(1)} t/s`;
 }
 
-function fmtGb(mb: number | null): string {
-  return mb == null ? '—' : `${(mb / 1024).toFixed(1)} GB`;
+function formatTimeOfDay(value: string, locale: string): string {
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return value;
+  return d.toLocaleTimeString(locale === 'ko' ? 'ko-KR' : 'en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 }
 
 function MiniCard({
+  icon,
   title,
   aside,
   children,
   className,
 }: {
+  icon?: React.ReactNode;
   title: string;
   aside?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={cn('space-y-1.5 rounded-md border border-border/60 bg-card/20 p-2', className)}>
+    <div className={cn('min-w-0 space-y-3 rounded-xl border border-border/60 bg-card/20 p-4', className)}>
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[11px] font-semibold text-foreground">{title}</div>
+        <div className="flex min-w-0 items-center gap-2">
+          {icon}
+          <h3 className="truncate text-xs font-semibold text-foreground">{title}</h3>
+        </div>
         {aside}
       </div>
       {children}
@@ -156,7 +171,7 @@ export function CandidateResults({
   hardware: HardwareFingerprint;
   pendingTrialIds: ReadonlySet<string>;
 }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
 
   const valuesByTrial = useMemo(() => {
     const m = new Map<string, number[]>();
@@ -204,17 +219,35 @@ export function CandidateResults({
         const offloadPct = offload != null ? Math.round(offload * 100) : null;
         const vramPeak = max(cellTrials.map((tr) => tr.vramPeakMb));
         const vramTotal = hardware.vramTotalMb > 0 ? hardware.vramTotalMb : null;
-        const vramPct =
-          vramPeak != null && vramTotal != null ? Math.min(100, (vramPeak / vramTotal) * 100) : null;
+        const vramFreeMb =
+          vramPeak != null && vramTotal != null ? Math.max(0, vramTotal - vramPeak) : null;
 
-        const trend = [...cellTrials]
+        const usedKey = t('eval.progress.results.memUsed');
+        const freeKey = t('monitor.freeSpace');
+        const totalKey = t('eval.progress.results.memTotal');
+        const memoryBreakdownData: Array<Record<string, string | number>> = [];
+        if (vramTotal != null) {
+          memoryBreakdownData.push({
+            name: t('monitor.vramDistShort'),
+            [usedKey]: vramPeak != null ? Number((vramPeak / 1024).toFixed(2)) : 0,
+            [freeKey]: vramFreeMb != null ? Number((vramFreeMb / 1024).toFixed(2)) : 0,
+          });
+        }
+        if (hardware.ramTotalMb > 0) {
+          memoryBreakdownData.push({
+            name: t('monitor.ramDistShort'),
+            [totalKey]: Number((hardware.ramTotalMb / 1024).toFixed(2)),
+          });
+        }
+
+        const trendPoints = [...cellTrials]
           .sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1))
-          .map((tr, i) => ({
-            i: i + 1,
-            vram: tr.vramPeakMb ?? null,
-            gpu: tr.gpuUtilAvg != null ? Math.round(tr.gpuUtilAvg) : null,
+          .map((tr) => ({
+            time: formatTimeOfDay(tr.startedAt, locale),
+            vramUsedGb: tr.vramPeakMb != null ? Number((tr.vramPeakMb / 1024).toFixed(2)) : null,
+            gpuUtilization: tr.gpuUtilAvg != null ? Math.round(tr.gpuUtilAvg) : null,
           }));
-        const hasTrend = trend.some((p) => p.vram != null || p.gpu != null);
+        const hasTrend = trendPoints.some((p) => p.vramUsedGb != null || p.gpuUtilization != null);
 
         const inSum = sum(cellTrials.map((tr) => tr.inputTokens));
         const outSum = sum(cellTrials.map((tr) => tr.outputTokens));
@@ -284,54 +317,148 @@ export function CandidateResults({
               )}
             </div>
 
-            <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
-              <MiniCard title={t('eval.progress.results.offload')}>
-                <div className="flex items-baseline justify-between">
-                  <span className="font-mono text-sm font-bold text-foreground">
-                    {offloadPct != null ? `${offloadPct}%` : t('eval.progress.results.noData')}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <MiniCard
+                icon={<Zap className="h-4 w-4 shrink-0 text-warning" />}
+                title={t('monitor.sysResources')}
+                aside={
+                  <span
+                    className="max-w-[160px] truncate text-right font-mono text-[11px] text-muted-foreground"
+                    title={hardware.gpuName}
+                  >
+                    {hardware.gpuName}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {t('eval.progress.results.load')}: {c.loadMs != null ? fmtMs(c.loadMs) : t('eval.progress.results.noData')}
+                }
+              >
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-muted-foreground">{t('monitor.offloadRatio')}</span>
+                    <span className="font-mono font-bold text-warning">
+                      {offloadPct != null ? `${offloadPct}%` : '0%'}
+                    </span>
+                  </div>
+                  <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full bg-warning"
+                      style={{ width: `${offloadPct ?? 0}%` }}
+                      title={t('monitor.gpuOffload')}
+                    />
+                    <div
+                      className="h-full bg-primary"
+                      style={{ width: `${100 - (offloadPct ?? 0)}%` }}
+                      title={t('monitor.cpuCompute')}
+                    />
+                  </div>
+                  <div className="flex justify-between pt-0.5 text-[10px] text-muted-foreground">
+                    <span>{t('monitor.gpuAccel', { v: offloadPct ?? 0 })}</span>
+                    <span>{t('monitor.cpuShare', { v: 100 - (offloadPct ?? 0) })}</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/40 p-2.5 font-mono">
+                  <span className="shrink-0 font-sans text-[11px] text-muted-foreground">
+                    {t('monitor.vramState')}
+                  </span>
+                  <span className="whitespace-nowrap text-right text-[11px] font-semibold text-foreground">
+                    {vramTotal != null
+                      ? t('monitor.gbFree', {
+                        total: (vramTotal / 1024).toFixed(1),
+                        free: vramFreeMb != null ? (vramFreeMb / 1024).toFixed(1) : '—',
+                      })
+                      : 'N/A'}
                   </span>
                 </div>
-                <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full bg-warning" style={{ width: `${offloadPct ?? 0}%` }} />
-                  <div className="h-full bg-primary" style={{ width: `${100 - (offloadPct ?? 0)}%` }} />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>{t('eval.progress.results.offloadGpu')}</span>
-                  <span>{t('eval.progress.results.offloadCpu')}</span>
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/40 p-2.5 font-mono">
+                  <span className="shrink-0 font-sans text-[11px] text-muted-foreground">
+                    {t('monitor.hostRam')}
+                  </span>
+                  <span className="whitespace-nowrap text-right text-[11px] font-semibold text-foreground">
+                    {hardware.ramTotalMb > 0 ? `${(hardware.ramTotalMb / 1024).toFixed(1)} GB` : 'N/A'}
+                  </span>
                 </div>
               </MiniCard>
 
-              <MiniCard title={t('eval.progress.results.memDist')}>
-                <div className="flex items-baseline justify-between text-[11px]">
-                  <span className="text-muted-foreground">{t('eval.progress.results.memVram')}</span>
-                  <span className="font-mono font-semibold text-foreground">
-                    {fmtGb(vramPeak)}
-                    <span className="font-normal text-muted-foreground"> / {fmtGb(vramTotal)}</span>
-                  </span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full"
-                    style={{ width: `${vramPct ?? 0}%`, backgroundColor: 'hsl(var(--chart-2))' }}
-                  />
-                </div>
-                <div className="flex items-baseline justify-between text-[11px]">
-                  <span className="text-muted-foreground">{t('eval.progress.results.memRam')}</span>
-                  <span className="font-mono font-semibold text-foreground">{fmtGb(hardware.ramTotalMb > 0 ? hardware.ramTotalMb : null)}</span>
-                </div>
-              </MiniCard>
-
-              <MiniCard title={t('eval.progress.results.trend')}>
-                {hasTrend ? (
-                  <div className="h-24">
+              <MiniCard
+                icon={<Cpu className="h-4 w-4 shrink-0 text-tertiary" />}
+                title={t('monitor.memDist')}
+                aside={
+                  <span className="font-mono text-[10px] text-muted-foreground">{t('monitor.unitGb')}</span>
+                }
+              >
+                <div className="h-48 w-full">
+                  {memoryBreakdownData.length === 0 ? (
+                    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                      {t('monitor.aggregating')}
+                    </div>
+                  ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={trend} margin={{ top: 4, right: 4, left: -22, bottom: 0 }}>
+                      <BarChart data={memoryBreakdownData} margin={{ top: 20, right: 10, left: -10, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                        <XAxis dataKey="i" tick={{ fontSize: 9 }} />
-                        <YAxis tick={{ fontSize: 9 }} />
+                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} unit=" GB" />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: 'hsl(var(--popover))',
+                            color: 'hsl(var(--popover-foreground))',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '8px',
+                            fontSize: '11px',
+                          }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: '10px' }} />
+                        <Bar dataKey={usedKey} stackId="a" fill="hsl(var(--chart-2))" unit=" GB" isAnimationActive={false} />
+                        <Bar dataKey={freeKey} stackId="a" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} unit=" GB" isAnimationActive={false} />
+                        <Bar dataKey={totalKey} stackId="b" fill="hsl(var(--chart-5))" radius={[4, 4, 0, 0]} unit=" GB" isAnimationActive={false} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </MiniCard>
+
+              <MiniCard
+                icon={<Activity className="h-4 w-4 shrink-0 text-success" />}
+                title={t('monitor.realtimeGpu', { n: trendPoints.length })}
+                aside={
+                  <div className="flex items-center gap-4 font-mono text-[11px]">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full shadow-sm"
+                        style={{ backgroundColor: 'hsl(var(--chart-3))' }}
+                      />
+                      <span className="font-medium text-success">{t('monitor.gpuShareUnit')}</span>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full shadow-sm"
+                        style={{ backgroundColor: 'hsl(var(--chart-2))' }}
+                      />
+                      <span className="font-medium text-tertiary">{t('monitor.vramUsage')}</span>
+                    </span>
+                  </div>
+                }
+              >
+                <div className="h-48 w-full">
+                  {hasTrend ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={trendPoints} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                        <XAxis dataKey="time" tick={{ fontSize: 10 }} />
+                        <YAxis
+                          yAxisId="left"
+                          orientation="left"
+                          domain={[0, 100]}
+                          stroke="hsl(var(--chart-3))"
+                          tick={{ fontSize: 10 }}
+                          unit="%"
+                          width={38}
+                        />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          stroke="hsl(var(--chart-2))"
+                          tick={{ fontSize: 10 }}
+                          unit=" GB"
+                          width={44}
+                        />
                         <Tooltip
                           contentStyle={{
                             backgroundColor: 'hsl(var(--popover))',
@@ -342,38 +469,42 @@ export function CandidateResults({
                           }}
                         />
                         <Area
+                          yAxisId="left"
                           type="monotone"
-                          dataKey="vram"
-                          name="VRAM MB"
-                          stroke="hsl(var(--chart-2))"
-                          fill="hsl(var(--chart-2))"
-                          fillOpacity={0.2}
-                          connectNulls
-                          isAnimationActive={false}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="gpu"
-                          name="GPU %"
+                          dataKey="gpuUtilization"
+                          name={t('monitor.gpuShare')}
                           stroke="hsl(var(--chart-3))"
                           fill="hsl(var(--chart-3))"
                           fillOpacity={0.2}
                           connectNulls
                           isAnimationActive={false}
                         />
+                        <Area
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="vramUsedGb"
+                          name={t('monitor.vramUsageShort')}
+                          stroke="hsl(var(--chart-2))"
+                          fill="hsl(var(--chart-2))"
+                          fillOpacity={0.18}
+                          unit=" GB"
+                          connectNulls
+                          isAnimationActive={false}
+                        />
                       </AreaChart>
                     </ResponsiveContainer>
-                  </div>
-                ) : (
-                  <p className="py-4 text-center text-[11px] text-muted-foreground">
-                    {t('eval.progress.results.trendEmpty')}
-                  </p>
-                )}
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                      {t('eval.progress.results.trendEmpty')}
+                    </div>
+                  )}
+                </div>
               </MiniCard>
             </div>
 
-            <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <MiniCard
+                icon={<Coins className="h-4 w-4 shrink-0 text-warning" />}
                 title={t('monitor.tokenInfo')}
                 aside={
                   <span className="font-mono text-[11px] text-muted-foreground">
@@ -446,6 +577,7 @@ export function CandidateResults({
               </MiniCard>
 
               <MiniCard
+                icon={<Server className="h-4 w-4 shrink-0 text-info" />}
                 title={t('monitor.archDetail')}
                 aside={
                   <span className="truncate font-mono text-[11px] text-muted-foreground" title={snap?.model}>
