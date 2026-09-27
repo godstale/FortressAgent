@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -10,6 +10,8 @@ import {
 } from 'recharts';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { cn } from '@/lib/utils';
+import { getModelArchitectureInfo } from '@/lib/llm/ollamaClient';
+import type { OllamaModelArchitectureInfo } from '@/lib/types/monitoring';
 import type {
   EvalCandidateRow,
   EvalRunConfig,
@@ -62,19 +64,79 @@ function fmtGb(mb: number | null): string {
 
 function MiniCard({
   title,
+  aside,
   children,
   className,
 }: {
   title: string;
+  aside?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }) {
   return (
     <div className={cn('space-y-1.5 rounded-md border border-border/60 bg-card/20 p-2', className)}>
-      <div className="text-[11px] font-semibold text-foreground">{title}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold text-foreground">{title}</div>
+        {aside}
+      </div>
       {children}
     </div>
   );
+}
+
+/** Fetched /api/show details, shared across mounts so re-polls don't refetch. */
+const archCache = new Map<string, OllamaModelArchitectureInfo | null>();
+
+interface ArchTarget {
+  baseUrl: string;
+  model: string;
+  ids: string[];
+}
+
+/** Best-effort architecture lookup for ollama candidates (others stay '—'). */
+function useArchInfo(candidates: EvalCandidateRow[]): Record<string, OllamaModelArchitectureInfo | null> {
+  const [info, setInfo] = useState<Record<string, OllamaModelArchitectureInfo | null>>({});
+  const targetSig = useMemo(() => {
+    const grouped = new Map<string, ArchTarget>();
+    for (const c of candidates) {
+      const snap = c.snapshot;
+      if (!snap || snap.provider !== 'ollama' || !snap.model) continue;
+      const key = `${snap.baseUrl}\n${snap.model}`;
+      const g = grouped.get(key) ?? { baseUrl: snap.baseUrl, model: snap.model, ids: [] };
+      g.ids.push(c.id);
+      grouped.set(key, g);
+    }
+    return JSON.stringify([...grouped.entries()]);
+  }, [candidates]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const entries = JSON.parse(targetSig) as Array<[string, ArchTarget]>;
+      await Promise.all(
+        entries.map(async ([key, g]) => {
+          if (!archCache.has(key)) {
+            try {
+              archCache.set(key, await getModelArchitectureInfo(g.baseUrl, g.model));
+            } catch {
+              archCache.set(key, null);
+            }
+          }
+        }),
+      );
+      if (!alive) return;
+      const out: Record<string, OllamaModelArchitectureInfo | null> = {};
+      for (const [key, g] of entries) {
+        for (const id of g.ids) out[id] = archCache.get(key) ?? null;
+      }
+      setInfo(out);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [targetSig]);
+
+  return info;
 }
 
 export function CandidateResults({
@@ -111,6 +173,8 @@ export function CandidateResults({
     for (const p of config.packs) per += p.sampleIds.length * p.epochs;
     return per;
   }, [config]);
+
+  const archInfo = useArchInfo(candidates);
 
   if (candidates.length === 0) return null;
 
@@ -163,8 +227,13 @@ export function CandidateResults({
         }
         const turnSum = sum(cellTrials.map((tr) => tr.turns));
         const toolSum = sum(cellTrials.map((tr) => tr.toolCalls));
+        const totalSum = inSum + outSum + thinkSum;
+        const recentTrials = [...cellTrials]
+          .sort((a, b) => (a.startedAt > b.startedAt ? -1 : 1))
+          .slice(0, 5);
 
         const snap = c.snapshot;
+        const arch = archInfo[c.id] ?? null;
         return (
           <div
             key={c.id}
@@ -304,13 +373,31 @@ export function CandidateResults({
             </div>
 
             <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
-              <MiniCard title={t('eval.progress.results.tokens')}>
-                <div className="font-mono text-[11px] text-foreground">
-                  {t('eval.progress.results.tokensValue', {
-                    i: fmtInt(inSum),
-                    o: fmtInt(outSum),
-                    t: fmtInt(thinkSum),
-                  })}
+              <MiniCard
+                title={t('monitor.tokenInfo')}
+                aside={
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {t('eval.progress.matrix.detailTrials', { n: cellTrials.length })}
+                  </span>
+                }
+              >
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.inputTok')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-warning">{fmtInt(inSum)}</div>
+                  </div>
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.outputTok')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-primary">{fmtInt(outSum)}</div>
+                  </div>
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.thinkTok')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-chart-1">{fmtInt(thinkSum)}</div>
+                  </div>
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.totalTok')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-foreground">{fmtInt(totalSum)}</div>
+                  </div>
                 </div>
                 <div className="text-[11px] text-muted-foreground">
                   {t('eval.progress.results.timingValue', {
@@ -318,6 +405,36 @@ export function CandidateResults({
                     d: fmtTps(decode),
                   })}
                 </div>
+                {recentTrials.length === 0 ? (
+                  <p className="py-2 text-center text-[11px] text-muted-foreground">
+                    {t('eval.progress.matrix.noTrials')}
+                  </p>
+                ) : (
+                  <div className="max-h-28 space-y-1 overflow-y-auto">
+                    {recentTrials.map((tr) => (
+                      <div
+                        key={tr.id}
+                        className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/40 px-1.5 py-1 font-mono text-[10px]"
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate" title={tr.sampleId}>{tr.sampleId}</span>
+                          <span className="shrink-0 text-muted-foreground">· {tr.outcome}</span>
+                          <span className="shrink-0 text-muted-foreground">· {tr.turns ?? 0} turns</span>
+                        </span>
+                        <span
+                          className="shrink-0"
+                          title={`${t('monitor.inputTok')}: ${fmtInt(tr.inputTokens)}, ${t('monitor.outputTok')}: ${fmtInt(tr.outputTokens)}, ${t('monitor.thinkTok')}: ${fmtInt(tr.thinkingTokens)}`}
+                        >
+                          <span className="text-warning">{fmtInt(tr.inputTokens)}</span>
+                          <span className="text-muted-foreground"> / </span>
+                          <span className="text-primary">{fmtInt(tr.outputTokens)}</span>
+                          <span className="text-muted-foreground"> / </span>
+                          <span className="text-chart-1">+{fmtInt(tr.thinkingTokens)}</span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="text-[10px] text-muted-foreground">
                   {sources.size > 0
                     ? t('eval.progress.results.timingSource', {
@@ -328,32 +445,73 @@ export function CandidateResults({
                 </div>
               </MiniCard>
 
-              <MiniCard title={t('eval.progress.results.arch')}>
-                  <div className="flex items-baseline justify-between gap-2 text-[11px]">
-                    <span className="min-w-0 truncate font-mono font-semibold text-foreground" title={snap?.model}>
-                      {snap?.model ?? t('eval.progress.results.noData')}
-                    </span>
-                    <span className="shrink-0 font-mono text-muted-foreground">
-                      {snap?.provider ?? ''}
-                    </span>
+              <MiniCard
+                title={t('monitor.archDetail')}
+                aside={
+                  <span className="truncate font-mono text-[11px] text-muted-foreground" title={snap?.model}>
+                    {snap?.model ?? t('eval.progress.results.noData')}
+                  </span>
+                }
+              >
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.archKindShort')}</div>
+                    <div className="mt-0.5 truncate font-mono text-[11px] font-bold uppercase text-foreground">
+                      {arch?.architecture || '—'}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
-                    <span>
-                      {t('eval.progress.results.archCtx')}{' '}
-                      <span className="font-mono text-foreground">
-                        {(snap?.contextSize ?? 0) > 0 ? (snap?.contextSize ?? 0).toLocaleString() : t('eval.progress.results.noData')}
-                      </span>
-                    </span>
-                    <span>
-                      T <span className="font-mono text-foreground">{snap?.temperature ?? '—'}</span>
-                    </span>
-                    <span>
-                      {t('eval.progress.results.archReasoning')}{' '}
-                      <span className="font-mono text-foreground">
-                        {snap?.reasoning === 'on' ? `on:${snap?.reasoningEffort ?? 'medium'}` : (snap?.reasoning ?? 'default')}
-                      </span>
-                    </span>
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.blockCount')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-foreground">
+                      {arch?.blockCount ? t('monitor.blockUnit', { n: String(arch.blockCount) }) : '—'}
+                    </div>
                   </div>
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.embedDim')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-foreground">
+                      {arch?.embeddingLength ? `${arch.embeddingLength}` : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.heads')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-foreground">
+                      {arch?.headCount ? `${arch.headCount} Heads` : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.kvHeads')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-foreground">
+                      {arch?.headCountKv ? `${arch.headCountKv} KV Heads` : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border/50 bg-muted/40 p-1.5">
+                    <div className="font-sans text-[10px] text-muted-foreground">{t('monitor.ffnDim')}</div>
+                    <div className="mt-0.5 font-mono text-[11px] font-bold text-foreground">
+                      {arch?.feedForwardLength ? `${arch.feedForwardLength}` : '—'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[10px] text-muted-foreground">
+                  <span>{snap?.provider ?? ''}</span>
+                  {arch?.parameterSize && (
+                    <span className="text-foreground">
+                      {arch.parameterSize}
+                      {arch.quantizationLevel ? ` (${arch.quantizationLevel})` : ''}
+                    </span>
+                  )}
+                  <span>
+                    {t('eval.progress.results.archCtx')}{' '}
+                    {(snap?.contextSize ?? 0) > 0 ? (snap?.contextSize ?? 0).toLocaleString() : t('eval.progress.results.noData')}
+                  </span>
+                  <span>T {snap?.temperature ?? '—'}</span>
+                  <span>
+                    {t('eval.progress.results.archReasoning')}{' '}
+                    {snap?.reasoning === 'on' ? `on:${snap?.reasoningEffort ?? 'medium'}` : (snap?.reasoning ?? 'default')}
+                  </span>
+                  <span>
+                    {t('eval.progress.results.load')} {c.loadMs != null ? fmtMs(c.loadMs) : t('eval.progress.results.noData')}
+                  </span>
+                </div>
               </MiniCard>
             </div>
           </div>

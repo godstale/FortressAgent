@@ -258,6 +258,18 @@ describe('EvalRunProgress', () => {
     expect(screen.getByText('GPU·VRAM 추이')).toBeInTheDocument();
     expect(screen.getByText('토큰 정보')).toBeInTheDocument();
     expect(screen.getByText('모델 아키텍처')).toBeInTheDocument();
+    // Architecture detail tiles mirror the monitor screen.
+    expect(screen.getByText('아키텍처')).toBeInTheDocument();
+    expect(screen.getByText('레이어 수')).toBeInTheDocument();
+    expect(screen.getByText('임베딩 차원')).toBeInTheDocument();
+    expect(screen.getByText('어텐션 헤드')).toBeInTheDocument();
+    expect(screen.getByText('KV 헤드')).toBeInTheDocument();
+    expect(screen.getByText('FFN 차원')).toBeInTheDocument();
+    // Token tiles mirror the monitor screen.
+    expect(screen.getByText('입력')).toBeInTheDocument();
+    expect(screen.getByText('출력')).toBeInTheDocument();
+    expect(screen.getByText('사고')).toBeInTheDocument();
+    expect(screen.getByText('전체')).toBeInTheDocument();
     expect(screen.getByText(/progress\.jsonl/)).toBeInTheDocument();
     // Persisted file log merges with live events.
     expect(await screen.findByText('persisted warning')).toBeInTheDocument();
