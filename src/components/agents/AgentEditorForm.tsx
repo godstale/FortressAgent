@@ -12,7 +12,6 @@ import {
   Server,
   RefreshCw,
   PlugZap,
-  Info,
   SlidersHorizontal,
   ChevronDown,
   ChevronRight,
@@ -20,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { Agent, ApprovalMode, BuiltinToolId, LlmProviderKind, ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
 import { Button } from '@/components/ui/button';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
 import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 import { BUNDLED_SKILLS, installBundledSkills } from '@/lib/skills/bundledSkills';
@@ -47,16 +47,9 @@ import {
   type GenerationParamKey,
 } from '@/lib/llm/generationParams';
 
-/** 라벨 옆 [i] 아이콘. title 툴팁으로 상세 설명을 제공한다. */
+/** ?쇰꺼 ??[?] ?꾩씠肄??????꾩뿭 ?꾩?留??앹뾽怨??숈씪???뺥깭瑜??ъ슜?쒕떎. */
 const ParamInfo: React.FC<{ help: string; label: string }> = ({ help, label }) => (
-  <span
-    className="inline-flex items-center text-muted-foreground/70 hover:text-primary transition-colors cursor-help"
-    title={help}
-    aria-label={`${label} 도움말: ${help}`}
-    role="img"
-  >
-    <Info className="h-3 w-3" />
-  </span>
+  <HelpTooltip title={label} description={help} />
 );
 
 interface GenSliderProps {

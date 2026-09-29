@@ -1,16 +1,12 @@
-import { Info } from 'lucide-react';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
 
 interface FieldInfoProps {
   label: string;
   help: string;
 }
 
-// 라벨 옆 [i] 아이콘. title 툴팁으로 상세 설명을 제공한다.
-// (AgentEditorForm의 ParamInfo와 같은 패턴 — 새 의존성 없음)
+// 라벨 옆 [?] 아이콘 — 앱 전역 도움말 팝업과 동일한 형태를 사용한다.
+// 카드 <button> 안에 들어가는 경우가 있어 span 트리거를 사용한다.
 export function FieldInfo({ label, help }: FieldInfoProps) {
-  return (
-    <span className="inline-flex items-center" role="img" aria-label={label} title={help}>
-      <Info className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-    </span>
-  );
+  return <HelpTooltip title={label} description={help} trigger="span" />;
 }
