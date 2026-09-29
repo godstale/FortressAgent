@@ -775,6 +775,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           onEffortOverrideChange={setEffortOverride}
           customHeight={customInputHeight ? Math.max(60, customInputHeight - 24) : null}
           isAgentDeleted={isAgentDeleted}
+          sessionId={sessionId}
         />
       </div>
 

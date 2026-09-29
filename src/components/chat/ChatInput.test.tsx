@@ -370,5 +370,44 @@ describe('ChatInput component', () => {
     expect(textarea).toHaveValue('line1\nline2');
     window.localStorage.removeItem('fortress:prompt-history');
   });
+
+  it('keeps prompt history scoped per chat session', () => {
+    window.localStorage.removeItem('fortress:prompt-history:session-a');
+    window.localStorage.removeItem('fortress:prompt-history:session-b');
+    const onSend = vi.fn();
+    const { unmount } = render(
+      <ChatInput
+        onSend={onSend}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+        sessionId="session-a"
+      />,
+    );
+
+    const textareaA = screen.getByRole('textbox');
+    fireEvent.change(textareaA, { target: { value: 'prompt in chat A' } });
+    fireEvent.keyDown(textareaA, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('prompt in chat A');
+    unmount();
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+        sessionId="session-b"
+      />,
+    );
+
+    // 다른 채팅창에서는 A의 히스토리가 조회되지 않아야 한다.
+    const textareaB = screen.getByRole('textbox');
+    fireEvent.keyDown(textareaB, { key: 'ArrowUp' });
+    expect(textareaB).toHaveValue('');
+
+    window.localStorage.removeItem('fortress:prompt-history:session-a');
+    window.localStorage.removeItem('fortress:prompt-history:session-b');
+  });
 });
 

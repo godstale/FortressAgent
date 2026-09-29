@@ -91,6 +91,12 @@ export interface ChatInputProps {
   onLoadLog?: () => void;
   canSaveLog?: boolean;
   hasSavedLog?: boolean;
+  /**
+   * 프롬프트 히스토리(↑/↓)의 스코프. 채팅 세션 ID를 넘기면 해당 채팅창만의
+   * 히스토리(`fortress:prompt-history:<sessionId>`)를 사용한다. 미지정 시
+   * 전역 키를 사용한다(테스트/레거시 호환).
+   */
+  sessionId?: string;
 }
 
 export function ChatInput({
@@ -121,6 +127,7 @@ export function ChatInput({
   onLoadLog,
   canSaveLog = false,
   hasSavedLog = false,
+  sessionId,
 }: ChatInputProps) {
   const { t } = useLanguage();
   const evalLocked = useEvalLock() !== null;
@@ -137,27 +144,41 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Prompt history (↑/↓): global recent-sent list, capped. Draft is preserved
+  // Prompt history (↑/↓): per-chat recent-sent list, capped. Draft is preserved
   // while browsing so ArrowDown past the end restores what was typed.
-  const HISTORY_KEY = 'fortress:prompt-history';
+  // 각 채팅창은 자기 세션의 히스토리만 조회한다.
+  const historyKey = useMemo(
+    () => (sessionId ? `fortress:prompt-history:${sessionId}` : 'fortress:prompt-history'),
+    [sessionId],
+  );
   const HISTORY_LIMIT = 100;
-  const [history, setHistory] = useState<string[]>(() => {
+  const loadHistory = (key: string): string[] => {
     try {
-      const raw = window.localStorage.getItem(HISTORY_KEY);
+      const raw = window.localStorage.getItem(key);
       const parsed: unknown = raw ? JSON.parse(raw) : [];
       return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string').slice(-HISTORY_LIMIT) : [];
     } catch {
       return [];
     }
-  });
+  };
+  const [history, setHistory] = useState<string[]>(() => loadHistory(historyKey));
   const [histIndex, setHistIndex] = useState<number | null>(null);
   const draftRef = useRef('');
 
+  // 동일 컴포넌트 인스턴스가 다른 세션을 가리키게 되면 해당 채팅의 히스토리로 교체한다.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 세션 전환 시 해당 채팅의 히스토리로 교체
+    setHistory(loadHistory(historyKey));
+    setHistIndex(null);
+    draftRef.current = '';
+  }, [historyKey]);
+
   const pushHistory = (sent: string) => {
+    const key = historyKey;
     setHistory((prev) => {
       const next = prev[prev.length - 1] === sent ? prev : [...prev, sent].slice(-HISTORY_LIMIT);
       try {
-        window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+        window.localStorage.setItem(key, JSON.stringify(next));
       } catch {
         // ignore quota errors
       }
