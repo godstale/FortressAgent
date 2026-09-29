@@ -531,6 +531,85 @@ export function ChatTab({ tab }: ChatTabProps) {
     [resumeQueue, dequeueItem, handleSlashCommand, handleSendMessage, isAgentDeleted],
   );
 
+  // Conversation log save/load: persisted user prompts for this session.
+  // Load enqueues everything paused so the user reviews/runs via the queue dock.
+  const chatLogKey = `fortress:chat-log:${sessionId}`;
+  const userPromptCount = messages.filter((m) => m.role === 'user').length;
+  const [hasSavedLog, setHasSavedLog] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(chatLogKey);
+      if (!raw) {
+        setHasSavedLog(false);
+        return;
+      }
+      const parsed = JSON.parse(raw) as { items?: unknown };
+      setHasSavedLog(Array.isArray(parsed.items) && parsed.items.length > 0);
+    } catch {
+      setHasSavedLog(false);
+    }
+  }, [chatLogKey, sessionId]);
+
+  const handleSaveLog = useCallback(() => {
+    if (isAgentDeleted) return;
+    const items = messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content.trim())
+      .filter((s) => s.length > 0);
+    if (items.length === 0) return;
+    try {
+      window.localStorage.setItem(
+        chatLogKey,
+        JSON.stringify({ savedAt: new Date().toISOString(), agentId: effectiveAgentId, items }),
+      );
+      setHasSavedLog(true);
+      injectInfoMessage(t('chatInput.logSaved', { n: items.length }));
+    } catch (err) {
+      console.error('Failed to save conversation log:', err);
+    }
+  }, [messages, chatLogKey, effectiveAgentId, injectInfoMessage, t, isAgentDeleted]);
+
+  const handleLoadLog = useCallback(() => {
+    if (isAgentDeleted || evalLock.get()) return;
+    let items: string[] = [];
+    try {
+      const raw = window.localStorage.getItem(chatLogKey);
+      if (!raw) {
+        injectInfoMessage(t('chatInput.noSavedLog'));
+        return;
+      }
+      const parsed = JSON.parse(raw) as { items?: unknown };
+      if (!Array.isArray(parsed.items)) {
+        injectInfoMessage(t('chatInput.noSavedLog'));
+        return;
+      }
+      items = parsed.items.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+    } catch (err) {
+      console.error('Failed to load conversation log:', err);
+      return;
+    }
+    if (items.length === 0) {
+      injectInfoMessage(t('chatInput.noSavedLog'));
+      return;
+    }
+    for (const itemText of items) {
+      const slashMatch = itemText.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
+      if (slashMatch) {
+        enqueue({
+          text: itemText,
+          type: 'slash_command',
+          commandName: slashMatch[1].toLowerCase(),
+          commandArgs: slashMatch[2]?.trim(),
+        });
+      } else {
+        enqueue({ text: itemText, type: 'message' });
+      }
+    }
+    pauseQueue();
+    injectInfoMessage(t('chatInput.logLoaded', { n: items.length }));
+  }, [chatLogKey, enqueue, pauseQueue, injectInfoMessage, t, isAgentDeleted]);
+
   useEffect(() => {
     return () => {
       chatQueueManager.setSessionRunning(sessionId, false);
@@ -683,6 +762,10 @@ export function ChatTab({ tab }: ChatTabProps) {
           onOpenCompactDialog={() => setCompactDialogOpen(true)}
           onSlashCommand={handleSlashCommand}
           onQueue={enqueue}
+          onSaveLog={handleSaveLog}
+          onLoadLog={handleLoadLog}
+          canSaveLog={userPromptCount > 0 && !isAgentDeleted}
+          hasSavedLog={hasSavedLog}
           isStreaming={isStreaming}
           isLockedByOtherSession={isLockedByOtherSession}
           isThisSessionBusy={isThisSessionBusy || isStreaming || queuedItems.length > 0}

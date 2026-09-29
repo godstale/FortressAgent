@@ -260,6 +260,13 @@ const ko: Dict = {
   'chatInput.agentDeletedBanner': '삭제된 에이전트의 대화입니다. 대화를 계속할 수 없습니다.',
   'chatInput.agentDeletedPlaceholder': '삭제된 에이전트의 대화이므로 입력할 수 없습니다',
   'chatInput.settingsLocked': '에이전트 동작 중에는 설정을 변경할 수 없습니다',
+  'chatInput.saveLog': '대화 기록 저장',
+  'chatInput.loadLog': '대화 기록 불러오기',
+  'chatInput.saveLogTitle': '현재 대화의 사용자 프롬프트를 저장합니다',
+  'chatInput.loadLogTitle': '저장된 대화 기록을 대기 큐에 불러옵니다 (일시정지 상태로 대기)',
+  'chatInput.logSaved': '대화 기록 {n}건을 저장했습니다.',
+  'chatInput.logLoaded': '저장된 대화 {n}건을 대기 큐에 불러왔습니다. 큐에서 실행하세요.',
+  'chatInput.noSavedLog': '저장된 대화 기록이 없습니다.',
 
   'toolCard.failed': '실패',
   'toolCard.done': '완료',

@@ -12,10 +12,12 @@ import {
   BarChart2,
   Settings,
   Folder,
+  FolderOpen,
   Layers,
   Info,
   Lock,
   Brain,
+  Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { SkillManifest } from '@/lib/types/skill';
@@ -84,6 +86,11 @@ export interface ChatInputProps {
   maxHeight?: number;
   /** 삭제된 에이전트 설정을 쓰는 채팅이면 true. 입력 전체를 비활성화한다. */
   isAgentDeleted?: boolean;
+  /** 대화 로그(사용자 프롬프트 목록) 저장/불러오기 */
+  onSaveLog?: () => void;
+  onLoadLog?: () => void;
+  canSaveLog?: boolean;
+  hasSavedLog?: boolean;
 }
 
 export function ChatInput({
@@ -110,6 +117,10 @@ export function ChatInput({
   customHeight,
   maxHeight = 180,
   isAgentDeleted = false,
+  onSaveLog,
+  onLoadLog,
+  canSaveLog = false,
+  hasSavedLog = false,
 }: ChatInputProps) {
   const { t } = useLanguage();
   const evalLocked = useEvalLock() !== null;
@@ -125,6 +136,68 @@ export function ChatInput({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Prompt history (↑/↓): global recent-sent list, capped. Draft is preserved
+  // while browsing so ArrowDown past the end restores what was typed.
+  const HISTORY_KEY = 'fortress:prompt-history';
+  const HISTORY_LIMIT = 100;
+  const [history, setHistory] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem(HISTORY_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string').slice(-HISTORY_LIMIT) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [histIndex, setHistIndex] = useState<number | null>(null);
+  const draftRef = useRef('');
+
+  const pushHistory = (sent: string) => {
+    setHistory((prev) => {
+      const next = prev[prev.length - 1] === sent ? prev : [...prev, sent].slice(-HISTORY_LIMIT);
+      try {
+        window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        // ignore quota errors
+      }
+      return next;
+    });
+    setHistIndex(null);
+    draftRef.current = '';
+  };
+
+  const browseHistory = (dir: -1 | 1) => {
+    if (history.length === 0) return;
+    let next: number | null;
+    if (histIndex === null) {
+      if (dir === 1) return;
+      draftRef.current = text;
+      next = history.length - 1;
+    } else {
+      next = histIndex + dir;
+      if (next < 0) next = 0;
+      if (next >= history.length) {
+        setHistIndex(null);
+        setText(draftRef.current);
+        setAutocompleteDismissed(false);
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus();
+          const len = draftRef.current.length;
+          textareaRef.current?.setSelectionRange(len, len);
+        });
+        return;
+      }
+    }
+    setHistIndex(next);
+    setText(history[next]);
+    setAutocompleteDismissed(true);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      const len = history[next].length;
+      textareaRef.current?.setSelectionRange(len, len);
+    });
+  };
 
   // Detect `/` slash command or `/skill:<filter>` pattern before any whitespace
   const autocompleteQuery = useMemo(() => {
@@ -206,6 +279,15 @@ export function ChatInput({
 
     setErrorMessage(null);
 
+    const resetAfterSend = () => {
+      pushHistory(trimmed);
+      setText('');
+      setAutocompleteDismissed(false);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    };
+
     // If this session is busy (running LLM or has pending queue items) and onQueue is available,
     // enqueue the request instead of executing immediately or overwriting
     if ((isThisSessionBusy || isStreaming) && onQueue) {
@@ -220,11 +302,7 @@ export function ChatInput({
           commandName,
           commandArgs: args,
         });
-        setText('');
-        setAutocompleteDismissed(false);
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
-        }
+        resetAfterSend();
         return;
       }
 
@@ -234,11 +312,7 @@ export function ChatInput({
           text: trimmed,
           type: 'skill',
         });
-        setText('');
-        setAutocompleteDismissed(false);
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
-        }
+        resetAfterSend();
         return;
       }
 
@@ -247,11 +321,7 @@ export function ChatInput({
         text: trimmed,
         type: 'message',
       });
-      setText('');
-      setAutocompleteDismissed(false);
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-      }
+      resetAfterSend();
       return;
     }
 
@@ -265,11 +335,7 @@ export function ChatInput({
         if (onCompact) {
           try {
             await onCompact(args);
-            setText('');
-            setAutocompleteDismissed(false);
-            if (textareaRef.current) {
-              textareaRef.current.style.height = 'auto';
-            }
+            resetAfterSend();
             return;
           } catch (err) {
             setErrorMessage(
@@ -283,11 +349,7 @@ export function ChatInput({
       if (onSlashCommand) {
         const handled = await onSlashCommand(commandName, args);
         if (handled) {
-          setText('');
-          setAutocompleteDismissed(false);
-          if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-          }
+          resetAfterSend();
           return;
         }
       }
@@ -315,11 +377,7 @@ export function ChatInput({
       onSend(messageToSend);
     }
 
-    setText('');
-    setAutocompleteDismissed(false);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
+    resetAfterSend();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -361,12 +419,22 @@ export function ChatInput({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       void handleSubmit();
+      return;
+    }
+
+    // Prompt history: ↑/↓ recalls previous/next sent prompt when the input is
+    // single-line and autocomplete is closed. Multiline inputs keep native
+    // caret navigation.
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !text.includes('\n')) {
+      e.preventDefault();
+      browseHistory(e.key === 'ArrowUp' ? -1 : 1);
     }
   };
 
   const handleTextChange = (val: string) => {
     setText(val);
     setAutocompleteDismissed(false);
+    if (histIndex !== null) setHistIndex(null);
     if (errorMessage) {
       setErrorMessage(null);
     }
@@ -558,7 +626,31 @@ export function ChatInput({
         </div>
 
         {contextUsage && (
-          <div className="shrink-0 pl-2">
+          <div className="shrink-0 pl-2 flex items-center gap-1">
+            {onSaveLog && (
+              <button
+                type="button"
+                onClick={onSaveLog}
+                disabled={!canSaveLog}
+                title={t('chatInput.saveLogTitle')}
+                aria-label={t('chatInput.saveLog')}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <Save className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {onLoadLog && (
+              <button
+                type="button"
+                onClick={onLoadLog}
+                disabled={!hasSavedLog}
+                title={t('chatInput.loadLogTitle')}
+                aria-label={t('chatInput.loadLog')}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+              </button>
+            )}
             <ContextGauge
               tokens={contextUsage.tokens}
               limit={contextUsage.limit}

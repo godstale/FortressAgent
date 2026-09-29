@@ -248,6 +248,13 @@ const en: Dict = {
   'chatInput.agentDeletedBanner': "This chat used a deleted agent. You can't continue it.",
   'chatInput.agentDeletedPlaceholder': "Can't type — this chat's agent was deleted",
   'chatInput.settingsLocked': 'Cannot change settings while the agent is running',
+  'chatInput.saveLog': 'Save conversation log',
+  'chatInput.loadLog': 'Load conversation log',
+  'chatInput.saveLogTitle': 'Save this conversation\u2019s user prompts',
+  'chatInput.loadLogTitle': 'Load the saved conversation into the wait queue (paused)',
+  'chatInput.logSaved': 'Saved {n} prompts to the conversation log.',
+  'chatInput.logLoaded': 'Loaded {n} saved prompts into the wait queue. Run them from the queue.',
+  'chatInput.noSavedLog': 'No saved conversation log.',
 
   'toolCard.failed': 'Failed',
   'toolCard.done': 'Done',
