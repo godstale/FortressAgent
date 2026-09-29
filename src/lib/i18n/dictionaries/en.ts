@@ -944,7 +944,7 @@ const en: Dict = {
   'monitor.convSeq': 'Conv #{n}',
   'monitor.inProgress': 'In progress',
   'monitor.kvMaxActual': 'KV cache (actual·GQA)',
-  'monitor.kvActualKind': 'KV cache (actual·{v})',
+  'monitor.kvActualKind': 'KV cache ({v})',
   'monitor.attnKind': 'Attention type',
   'monitor.attnHybrid': 'Hybrid',
   'monitor.attnUnknown': 'Unknown',

@@ -960,7 +960,7 @@ const ko: Dict = {
   'monitor.convSeq': '대화 #{n}',
   'monitor.inProgress': '진행 중',
   'monitor.kvMaxActual': 'KV 캐시 (실제·GQA)',
-  'monitor.kvActualKind': 'KV 쪐시 (실제·{v})',
+  'monitor.kvActualKind': 'KV 캐시 ({v})',
   'monitor.attnKind': '어텐션 방식',
   'monitor.attnHybrid': '하이브리드',
   'monitor.attnUnknown': '미확인',

@@ -1634,7 +1634,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
           style={{ order: row1OrderOf('realtime'), opacity: row1DragId === 'realtime' ? 0.5 : 1 }}
           {...row1DropZoneProps('realtime')}
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center">
             <div className="flex items-center gap-2">
               <span
                 className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground shrink-0"
@@ -1647,22 +1647,6 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <h3 className="text-xs font-semibold text-foreground">
                 {t('monitor.realtimeGpu', { n: timeSeriesData.length })}
               </h3>
-            </div>
-            <div className="flex items-center gap-4 text-[11px] font-mono">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.gpu }}
-                />
-                <span className="text-success font-medium">{t('monitor.gpuShareUnit')}</span>
-              </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.vram }}
-                />
-                <span className="text-tertiary font-medium">{t('monitor.vramUsage')}</span>
-              </span>
             </div>
           </div>
 
@@ -1726,6 +1710,22 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 </AreaChart>
               </ResponsiveContainer>
             )}
+          </div>
+          <div className="flex items-center gap-4 text-[11px] font-mono flex-wrap">
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                style={{ backgroundColor: CHART_COLORS.gpu }}
+              />
+              <span className="text-success font-medium">{t('monitor.gpuShareUnit')}</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                style={{ backgroundColor: CHART_COLORS.vram }}
+              />
+              <span className="text-tertiary font-medium">{t('monitor.vramUsage')}</span>
+            </span>
           </div>
         </div>
       </div>
@@ -1985,42 +1985,12 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Unified Token / Inference Status (speed + latency merged) */}
         <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center">
             <div className="flex items-center gap-2">
               <Gauge className="h-4 w-4 text-warning" />
               <h3 className="text-xs font-semibold text-foreground">
                 {t('monitor.tokenInferenceUnified')}
               </h3>
-            </div>
-            <div className="flex items-center gap-3 text-[10px] font-mono flex-wrap justify-end">
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.prefill }}
-                />
-                <span className="text-warning font-medium">{t('monitor.prefillSpeed')}</span>
-              </span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.decoding }}
-                />
-                <span className="text-primary font-medium">{t('monitor.decodeSpeed')}</span>
-              </span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <span
-                  className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
-                  style={{ borderColor: CHART_COLORS.prefill, backgroundColor: 'transparent' }}
-                />
-                <span className="text-warning/80 font-medium">{t('monitor.prefillTime')}</span>
-              </span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <span
-                  className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
-                  style={{ borderColor: CHART_COLORS.decoding, backgroundColor: 'transparent' }}
-                />
-                <span className="text-primary/80 font-medium">{t('monitor.decodeTime')}</span>
-              </span>
             </div>
           </div>
 
@@ -2124,6 +2094,36 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 </AreaChart>
               </ResponsiveContainer>
             )}
+          </div>
+          <div className="flex items-center gap-3 text-[10px] font-mono flex-wrap">
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                style={{ backgroundColor: CHART_COLORS.prefill }}
+              />
+              <span className="text-warning font-medium">{t('monitor.prefillSpeed')}</span>
+            </span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                style={{ backgroundColor: CHART_COLORS.decoding }}
+              />
+              <span className="text-primary font-medium">{t('monitor.decodeSpeed')}</span>
+            </span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span
+                className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
+                style={{ borderColor: CHART_COLORS.prefill, backgroundColor: 'transparent' }}
+              />
+              <span className="text-warning/80 font-medium">{t('monitor.prefillTime')}</span>
+            </span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span
+                className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
+                style={{ borderColor: CHART_COLORS.decoding, backgroundColor: 'transparent' }}
+              />
+              <span className="text-primary/80 font-medium">{t('monitor.decodeTime')}</span>
+            </span>
           </div>
         </div>
 
