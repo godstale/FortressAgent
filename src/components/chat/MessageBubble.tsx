@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain, Clock, AlertCircle, Info, Settings2, BookmarkPlus } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentMessage } from '@/lib/agent/types';
+import { SYSTEM_AUTO_GUIDE_PREFIX } from '@/lib/agent/types';
 import { dispatchSaveEvalCase } from '@/lib/eval/personal/caseBuilder';
 import type { ChatConfigSnapshot } from '@/lib/types/agent';
 import { DEFAULT_TEMPERATURE } from '@/lib/types/agent';
@@ -88,6 +89,19 @@ export const MessageBubble = memo(function MessageBubble({ message, isStreaming,
                 <span>{message.content || t('chat.configChanged')}</span>
               </div>
               <ConfigSnapshotRows snapshot={message.config} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // LLM 턴 중간의 자동 복구 안내는 파란 유저 말풍선이 아닌 별색 시스템 말풍선으로 표시한다.
+    if (message.content.startsWith(SYSTEM_AUTO_GUIDE_PREFIX)) {
+      return (
+        <div className="py-2 flex justify-center w-full">
+          <div className="max-w-3xl w-full px-4">
+            <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-foreground">
+              <Info className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="whitespace-pre-wrap leading-relaxed select-text">{message.content}</p>
             </div>
           </div>
         </div>

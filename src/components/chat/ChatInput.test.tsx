@@ -315,7 +315,7 @@ describe('ChatInput component', () => {
     window.localStorage.removeItem('fortress:prompt-history');
   });
 
-  it('renders save/load log buttons before the context gauge', () => {
+  it('renders save/load macro buttons before the context gauge', () => {
     render(
       <ChatInput
         onSend={vi.fn()}
@@ -330,8 +330,45 @@ describe('ChatInput component', () => {
       />,
     );
 
-    expect(screen.getByLabelText('대화 기록 저장')).toBeEnabled();
-    expect(screen.getByLabelText('대화 기록 불러오기')).toBeDisabled();
+    expect(screen.getByLabelText('매크로 저장')).toBeEnabled();
+    expect(screen.getByLabelText('매크로 불러오기')).toBeDisabled();
+  });
+
+  it('navigates history from the first line of a multiline input, keeps native caret motion inside', () => {
+    window.localStorage.removeItem('fortress:prompt-history');
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'first prompt' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    fireEvent.change(textarea, { target: { value: 'second prompt' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledTimes(2);
+
+    // Multiline draft: caret on the second line keeps native behavior.
+    fireEvent.change(textarea, { target: { value: 'line1\nline2' } });
+    textarea.selectionStart = textarea.selectionEnd = 'line1\nline2'.length;
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    expect(textarea).toHaveValue('line1\nline2');
+
+    // Caret on the first line recalls the latest sent prompt, keeping the draft.
+    textarea.selectionStart = textarea.selectionEnd = 2;
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    expect(textarea).toHaveValue('second prompt');
+
+    // ArrowDown past the end restores the multiline draft.
+    textarea.selectionStart = textarea.selectionEnd = 'second prompt'.length;
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(textarea).toHaveValue('line1\nline2');
+    window.localStorage.removeItem('fortress:prompt-history');
   });
 });
 

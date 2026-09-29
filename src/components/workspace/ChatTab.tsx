@@ -14,6 +14,14 @@ import { useChatQueue, chatQueueManager } from '@/lib/agent/chatQueueManager';
 import { ChatQueueFloatingDock } from '@/components/chat/ChatQueueFloatingDock';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput } from '@/components/chat/ChatInput';
+import { ChatMacroDialog } from '@/components/chat/ChatMacroDialog';
+import {
+  deleteChatMacro,
+  loadChatMacros,
+  migrateLegacySessionLog,
+  saveChatMacro,
+  type ChatMacro,
+} from '@/lib/chat/chatMacros';
 import { ChatExecutionLog } from '@/components/chat/ChatExecutionLog';
 import { ErrorBanner } from '@/components/chat/ErrorBanner';
 import { EvalLockBanner } from '@/components/eval/EvalLockBanner';
@@ -536,26 +544,17 @@ export function ChatTab({ tab }: ChatTabProps) {
     [resumeQueue, dequeueItem, handleSlashCommand, handleSendMessage, isAgentDeleted],
   );
 
-  // Conversation log save/load: persisted user prompts for this session.
+  // Conversation macros: user prompts bundled into one auto-input unit.
   // Load enqueues everything paused so the user reviews/runs via the queue dock.
-  const chatLogKey = `fortress:chat-log:${sessionId}`;
   const userPromptCount = messages.filter((m) => m.role === 'user').length;
-  const [hasSavedLog, setHasSavedLog] = useState(false);
+  const [macros, setMacros] = useState<ChatMacro[]>([]);
+  const [macroDialogOpen, setMacroDialogOpen] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(chatLogKey);
-      if (!raw) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- sync saved-log flag from localStorage on session switch
-        setHasSavedLog(false);
-        return;
-      }
-      const parsed = JSON.parse(raw) as { items?: unknown };
-      setHasSavedLog(Array.isArray(parsed.items) && parsed.items.length > 0);
-    } catch {
-      setHasSavedLog(false);
-    }
-  }, [chatLogKey, sessionId]);
+    migrateLegacySessionLog(sessionId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate macro list on session switch
+    setMacros(loadChatMacros());
+  }, [sessionId]);
 
   const handleSaveLog = useCallback(() => {
     if (isAgentDeleted) return;
@@ -564,37 +563,23 @@ export function ChatTab({ tab }: ChatTabProps) {
       .map((m) => m.content.trim())
       .filter((s) => s.length > 0);
     if (items.length === 0) return;
-    try {
-      window.localStorage.setItem(
-        chatLogKey,
-        JSON.stringify({ savedAt: new Date().toISOString(), agentId: effectiveAgentId, items }),
-      );
-      setHasSavedLog(true);
-      injectInfoMessage(t('chatInput.logSaved', { n: items.length }));
-    } catch (err) {
-      console.error('Failed to save conversation log:', err);
-    }
-  }, [messages, chatLogKey, effectiveAgentId, injectInfoMessage, t, isAgentDeleted]);
+    // 시스템 자동 안내 등은 role이 system이라 위 필터에서 이미 제외된다.
+    // 저장된 매크로는 프롬프트 히스토리(↑/↓)의 대상이 아니다.
+    const macro = saveChatMacro(items, { agentId: effectiveAgentId });
+    if (!macro) return;
+    setMacros(loadChatMacros());
+    injectInfoMessage(t('chatInput.macroSaved', { name: macro.name, n: items.length }));
+  }, [messages, effectiveAgentId, injectInfoMessage, t, isAgentDeleted]);
 
   const handleLoadLog = useCallback(() => {
     if (isAgentDeleted || evalLock.get()) return;
-    let items: string[];
-    try {
-      const raw = window.localStorage.getItem(chatLogKey);
-      if (!raw) {
-        injectInfoMessage(t('chatInput.noSavedLog'));
-        return;
-      }
-      const parsed = JSON.parse(raw) as { items?: unknown };
-      if (!Array.isArray(parsed.items)) {
-        injectInfoMessage(t('chatInput.noSavedLog'));
-        return;
-      }
-      items = parsed.items.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
-    } catch (err) {
-      console.error('Failed to load conversation log:', err);
-      return;
-    }
+    setMacros(loadChatMacros());
+    setMacroDialogOpen(true);
+  }, [isAgentDeleted]);
+
+  const handleSelectMacro = useCallback((macro: ChatMacro) => {
+    if (isAgentDeleted || evalLock.get()) return;
+    const items = macro.items.filter((s) => s.trim().length > 0);
     if (items.length === 0) {
       injectInfoMessage(t('chatInput.noSavedLog'));
       return;
@@ -613,8 +598,13 @@ export function ChatTab({ tab }: ChatTabProps) {
       }
     }
     pauseQueue();
+    setMacroDialogOpen(false);
     injectInfoMessage(t('chatInput.logLoaded', { n: items.length }));
-  }, [chatLogKey, enqueue, pauseQueue, injectInfoMessage, t, isAgentDeleted]);
+  }, [enqueue, pauseQueue, injectInfoMessage, t, isAgentDeleted]);
+
+  const handleDeleteMacro = useCallback((id: string) => {
+    setMacros(deleteChatMacro(id));
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -771,7 +761,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           onSaveLog={handleSaveLog}
           onLoadLog={handleLoadLog}
           canSaveLog={userPromptCount > 0 && !isAgentDeleted}
-          hasSavedLog={hasSavedLog}
+          hasSavedLog={macros.length > 0}
           isStreaming={isStreaming}
           isLockedByOtherSession={isLockedByOtherSession}
           isThisSessionBusy={isThisSessionBusy || isStreaming || queuedItems.length > 0}
@@ -858,6 +848,15 @@ export function ChatTab({ tab }: ChatTabProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Saved macro list: selecting one queues all of its prompts, deletion allowed */}
+      <ChatMacroDialog
+        open={macroDialogOpen}
+        onOpenChange={setMacroDialogOpen}
+        macros={macros}
+        onSelect={handleSelectMacro}
+        onDelete={handleDeleteMacro}
+      />
     </div>
   );
 }

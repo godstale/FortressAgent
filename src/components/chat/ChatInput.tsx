@@ -422,12 +422,24 @@ export function ChatInput({
       return;
     }
 
-    // Prompt history: ↑/↓ recalls previous/next sent prompt when the input is
-    // single-line and autocomplete is closed. Multiline inputs keep native
-    // caret navigation.
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !text.includes('\n')) {
-      e.preventDefault();
-      browseHistory(e.key === 'ArrowUp' ? -1 : 1);
+    // Prompt history: ↑/↓ recalls previous/next sent prompt when the caret is
+    // on the first/last visual line. shift+enter로 만든 멀티라인 입력에서는
+    // 첫 라인(↑)·마지막 라인(↓)에 닿았을 때만 히스토리를 넘나든다.
+    // 새로 전송한 메시지는 pushHistory로 히스토리의 가장 마지막이 된다.
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      if (e.shiftKey) return;
+      const el = textareaRef.current;
+      const posStart = el?.selectionStart ?? text.length;
+      const posEnd = el?.selectionEnd ?? text.length;
+      if (e.key === 'ArrowUp') {
+        if (text.slice(0, posStart).includes('\n')) return;
+        e.preventDefault();
+        browseHistory(-1);
+      } else {
+        if (text.slice(posEnd).includes('\n')) return;
+        e.preventDefault();
+        browseHistory(1);
+      }
     }
   };
 

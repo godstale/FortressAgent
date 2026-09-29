@@ -52,4 +52,16 @@ describe('MessageBubble run-config info (P9-06)', () => {
     expect(screen.getByText('⚙️ 실행 설정이 변경되었습니다')).toBeInTheDocument();
     expect(screen.getByText('off')).toBeInTheDocument();
   });
+
+  it('renders the auto-recovery guide as a distinct system balloon, not a user bubble', () => {
+    const { container } = render(
+      <MessageBubble
+        message={{ role: 'system', content: '[시스템 자동 안내]: 도구 호출을 이어가세요.' }}
+      />,
+    );
+
+    expect(screen.getByText(/\[시스템 자동 안내\]/)).toBeInTheDocument();
+    // 파란 유저 말풍선(bg-primary text-primary-foreground 조합)이 아니어야 한다.
+    expect(container.querySelector('.bg-primary.text-primary-foreground')).toBeNull();
+  });
 });

@@ -3,6 +3,9 @@ import type { ChatConfigSnapshot } from '@/lib/types/agent';
 
 export type RiskLevel = 'low' | 'high' | 'critical';
 
+/** LLM 턴 중간에 주입되는 자동 복구 안내의 접두사. 시스템 메시지로 취급한다. */
+export const SYSTEM_AUTO_GUIDE_PREFIX = '[시스템 자동 안내]';
+
 export interface TokenUsage {
   input: number;
   output: number;

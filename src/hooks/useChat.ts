@@ -3,6 +3,7 @@ import type { Agent, ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
 import { captureChatConfigSnapshot, resolveThinkValue } from '@/lib/types/agent';
 import type { ChatConfigSnapshot } from '@/lib/types/agent';
 import type { AgentEvent, AgentMessage } from '@/lib/agent/types';
+import { SYSTEM_AUTO_GUIDE_PREFIX } from '@/lib/agent/types';
 import type { SkillManifest } from '@/lib/types/skill';
 import type { ContextFileItem } from '@/lib/skills/contextFiles';
 import { FortressAgent } from '@/lib/agent/agent';
@@ -294,11 +295,15 @@ export function useChat(
       case 'agent_end': {
         setIsStreaming(false);
         stopAutoMonitoring();
-        const nonSystem = event.messages.filter((m) => m.role !== 'system');
-        setMessages(nonSystem);
-        if (nonSystem.length > persistedCountRef.current) {
-          const unpersisted = nonSystem.slice(persistedCountRef.current);
-          persistedCountRef.current = nonSystem.length;
+        // 시스템 프롬프트 등 내부 system 메시지는 UI에서 숨기되, 자동 복구
+        // 안내(system 역할)는 별색 시스템 말풍선으로 보여주고 영속화한다.
+        const visibleMessages = event.messages.filter(
+          (m) => m.role !== 'system' || m.content.startsWith(SYSTEM_AUTO_GUIDE_PREFIX),
+        );
+        setMessages(visibleMessages);
+        if (visibleMessages.length > persistedCountRef.current) {
+          const unpersisted = visibleMessages.slice(persistedCountRef.current);
+          persistedCountRef.current = visibleMessages.length;
           void persistence.saveTurn?.(sessionId, unpersisted);
         }
         break;
