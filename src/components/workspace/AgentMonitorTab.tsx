@@ -654,14 +654,33 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     const kvVramBytes = typeof details.kvVramBytes === 'number'
       ? details.kvVramBytes
       : Math.round(currentSnapshot.kvCacheBytes * (currentSnapshot.gpuOffloadPct / 100));
-    const kvVramGb = Number((kvVramBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const modelVramGb = Number((currentSnapshot.vramAllocatedBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const weightOnlyVramGb = Number(Math.max(0, modelVramGb - kvVramGb).toFixed(2));
-    const freeVramGb = Number((Math.max(0, currentSnapshot.gpuVramFreeMb) / 1024).toFixed(2));
+    // NOTE: size_vram은 VRAM 상주 가중치 실측, KV 추정치는 최대 컨텍스트 기준
+    // 이론값이다. 추정치에서 가중치를 빼던 기존 방식(weightOnly)은 KV 과대추정 시
+    // 가중치를 0으로 지우고 스택 합이 물리 용량(예: 12GB)을 초과했다. 실측인
+    // 가중치·free를 우선 보존하고 KV를 실제 상주분(used - 가중치)으로 제한한다.
+    const toGb = (bytes: number) => bytes / (1024 * 1024 * 1024);
+    const round2 = (n: number) => Number(n.toFixed(2));
+    const totalVramGb = currentSnapshot.gpuVramTotalMb / 1024;
     const usedVramGb = currentSnapshot.gpuVramTotalMb > 0
-      ? Number((currentSnapshot.gpuVramUsedMb / 1024).toFixed(2))
-      : modelVramGb;
-    const otherVramGb = Number(Math.max(0, usedVramGb - modelVramGb).toFixed(2));
+      ? currentSnapshot.gpuVramUsedMb / 1024
+      : toGb(currentSnapshot.vramAllocatedBytes);
+    const freeVramGb = currentSnapshot.gpuVramTotalMb > 0
+      ? Math.max(0, currentSnapshot.gpuVramFreeMb) / 1024
+      : 0;
+    const weightsVramRawGb = toGb(currentSnapshot.vramAllocatedBytes);
+    const kvVramEstGb = toGb(kvVramBytes);
+    let weightsVramGb: number;
+    let kvShownVramGb: number;
+    let otherVramGb: number;
+    if (totalVramGb > 0) {
+      weightsVramGb = Math.min(weightsVramRawGb, Math.max(0, usedVramGb));
+      kvShownVramGb = Math.min(kvVramEstGb, Math.max(0, usedVramGb - weightsVramGb));
+      otherVramGb = Math.max(0, usedVramGb - weightsVramGb - kvShownVramGb);
+    } else {
+      weightsVramGb = weightsVramRawGb;
+      kvShownVramGb = kvVramEstGb;
+      otherVramGb = Math.max(0, usedVramGb - weightsVramGb);
+    }
 
     const kvRamBytes = typeof details.kvRamBytes === 'number'
       ? details.kvRamBytes
@@ -669,27 +688,50 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     const modelRamBytes = typeof details.modelRamBytes === 'number'
       ? details.modelRamBytes
       : Math.max(0, currentSnapshot.modelWeightBytes - currentSnapshot.vramAllocatedBytes);
-    const kvRamGb = Number((kvRamBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const modelRamGb = Number((modelRamBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const totalRamGb = Number((currentSnapshot.systemMemoryTotalMb / 1024).toFixed(2));
-    const freeRamGb = Number((Math.max(0, currentSnapshot.systemMemoryFreeMb) / 1024).toFixed(2));
-    const usedRamGb = Number(Math.max(0, totalRamGb - freeRamGb).toFixed(2));
-    const otherRamGb = Number(Math.max(0, usedRamGb - modelRamGb - kvRamGb).toFixed(2));
+    const totalRamGb = currentSnapshot.systemMemoryTotalMb / 1024;
+    const usedRamGb = Math.max(
+      0,
+      totalRamGb - Math.max(0, currentSnapshot.systemMemoryFreeMb) / 1024,
+    );
+    const freeRamGb = Math.max(0, currentSnapshot.systemMemoryFreeMb) / 1024;
+    const weightsRamRawGb = toGb(modelRamBytes);
+    const kvRamEstGb = toGb(kvRamBytes);
+    let modelRamGb: number;
+    let kvShownRamGb: number;
+    let otherRamGb: number;
+    if (totalRamGb > 0) {
+      modelRamGb = Math.min(weightsRamRawGb, Math.max(0, usedRamGb));
+      kvShownRamGb = Math.min(kvRamEstGb, Math.max(0, usedRamGb - modelRamGb));
+      otherRamGb = Math.max(0, usedRamGb - modelRamGb - kvShownRamGb);
+    } else {
+      modelRamGb = weightsRamRawGb;
+      kvShownRamGb = kvRamEstGb;
+      otherRamGb = Math.max(0, usedRamGb - modelRamGb - kvShownRamGb);
+    }
+
+    const weightsVramOut = round2(weightsVramGb);
+    const kvVramOut = round2(kvShownVramGb);
+    const otherVramOut = round2(otherVramGb);
+    const freeVramOut = round2(freeVramGb);
+    const modelRamOut = round2(modelRamGb);
+    const kvRamOut = round2(kvShownRamGb);
+    const otherRamOut = round2(otherRamGb);
+    const freeRamOut = round2(freeRamGb);
 
     return [
       {
         name: t('monitor.vramDistShort'),
-        [weightsKey]: weightOnlyVramGb,
-        [kvKey]: kvVramGb,
-        [otherKey]: otherVramGb,
-        [freeKey]: freeVramGb,
+        [weightsKey]: weightsVramOut,
+        [kvKey]: kvVramOut,
+        [otherKey]: otherVramOut,
+        [freeKey]: freeVramOut,
       },
       {
         name: t('monitor.ramDistShort'),
-        [weightsKey]: modelRamGb,
-        [kvKey]: kvRamGb,
-        [otherKey]: otherRamGb,
-        [freeKey]: freeRamGb,
+        [weightsKey]: modelRamOut,
+        [kvKey]: kvRamOut,
+        [otherKey]: otherRamOut,
+        [freeKey]: freeRamOut,
       },
     ];
   }, [currentSnapshot, t]);
