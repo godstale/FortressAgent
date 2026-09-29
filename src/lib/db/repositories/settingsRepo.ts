@@ -16,6 +16,9 @@ interface SettingsRow {
   language: string;
   ollama_base_url: string;
   default_context_size: number;
+  default_temperature?: number | null;
+  default_reserve_tokens?: number | null;
+  default_keep_recent_tokens?: number | null;
   default_approval_mode: ApprovalMode;
   trusted_workspaces: string;
   last_workspace_root: string | null;
@@ -32,6 +35,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   language: 'ko',
   ollamaBaseUrl: 'http://127.0.0.1:11434',
   defaultContextSize: 8192,
+  defaultTemperature: 0.2,
+  defaultReserveTokens: 0,
+  defaultKeepRecentTokens: 0,
   defaultApprovalMode: 'dangerous-only',
   trustedWorkspaces: [],
   lastWorkspaceRoot: null,
@@ -47,6 +53,18 @@ function parseSettingsRow(row: SettingsRow): AppSettings {
     language: row.language,
     ollamaBaseUrl: row.ollama_base_url,
     defaultContextSize: row.default_context_size,
+    defaultTemperature:
+      typeof row.default_temperature === 'number' && row.default_temperature >= 0
+        ? row.default_temperature
+        : DEFAULT_APP_SETTINGS.defaultTemperature,
+    defaultReserveTokens:
+      typeof row.default_reserve_tokens === 'number' && row.default_reserve_tokens >= 0
+        ? row.default_reserve_tokens
+        : 0,
+    defaultKeepRecentTokens:
+      typeof row.default_keep_recent_tokens === 'number' && row.default_keep_recent_tokens >= 0
+        ? row.default_keep_recent_tokens
+        : 0,
     defaultApprovalMode: row.default_approval_mode,
     trustedWorkspaces: JSON.parse(row.trusted_workspaces || '[]') as string[],
     lastWorkspaceRoot: row.last_workspace_root,
@@ -67,8 +85,24 @@ async function ensureMonitoringIntervalColumn(db: SqlDatabase): Promise<void> {
   }
 }
 
+async function ensureModelDefaultColumns(db: SqlDatabase): Promise<void> {
+  const alters = [
+    'ALTER TABLE app_settings ADD COLUMN default_temperature REAL NOT NULL DEFAULT 0.2',
+    'ALTER TABLE app_settings ADD COLUMN default_reserve_tokens INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE app_settings ADD COLUMN default_keep_recent_tokens INTEGER NOT NULL DEFAULT 0',
+  ];
+  for (const alter of alters) {
+    try {
+      await db.execute(alter);
+    } catch {
+      // Column already exists on fresh DBs; safe to ignore.
+    }
+  }
+}
+
 async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
   await ensureMonitoringIntervalColumn(db);
+  await ensureModelDefaultColumns(db);
   const rows = await db.select<SettingsRow[]>(
     "SELECT * FROM app_settings WHERE id = 'singleton'",
   );
@@ -79,9 +113,11 @@ async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
   await db.execute(
     `INSERT INTO app_settings (
       id, open_tabs, active_tab_id, theme, language,
-      ollama_base_url, default_context_size, default_approval_mode,
+      ollama_base_url, default_context_size, default_temperature,
+      default_reserve_tokens, default_keep_recent_tokens,
+      default_approval_mode,
       trusted_workspaces, last_workspace_root, monitoring_interval_ms
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       DEFAULT_APP_SETTINGS.id,
       JSON.stringify(DEFAULT_APP_SETTINGS.openTabs),
@@ -90,6 +126,9 @@ async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
       DEFAULT_APP_SETTINGS.language,
       DEFAULT_APP_SETTINGS.ollamaBaseUrl,
       DEFAULT_APP_SETTINGS.defaultContextSize,
+      DEFAULT_APP_SETTINGS.defaultTemperature,
+      DEFAULT_APP_SETTINGS.defaultReserveTokens,
+      DEFAULT_APP_SETTINGS.defaultKeepRecentTokens,
       DEFAULT_APP_SETTINGS.defaultApprovalMode,
       JSON.stringify(DEFAULT_APP_SETTINGS.trustedWorkspaces),
       DEFAULT_APP_SETTINGS.lastWorkspaceRoot,
@@ -105,6 +144,9 @@ async function fetchOrInitRow(db: SqlDatabase): Promise<SettingsRow> {
     language: DEFAULT_APP_SETTINGS.language,
     ollama_base_url: DEFAULT_APP_SETTINGS.ollamaBaseUrl,
     default_context_size: DEFAULT_APP_SETTINGS.defaultContextSize,
+    default_temperature: DEFAULT_APP_SETTINGS.defaultTemperature,
+    default_reserve_tokens: DEFAULT_APP_SETTINGS.defaultReserveTokens,
+    default_keep_recent_tokens: DEFAULT_APP_SETTINGS.defaultKeepRecentTokens,
     default_approval_mode: DEFAULT_APP_SETTINGS.defaultApprovalMode,
     trusted_workspaces: JSON.stringify(DEFAULT_APP_SETTINGS.trustedWorkspaces),
     last_workspace_root: DEFAULT_APP_SETTINGS.lastWorkspaceRoot,
@@ -150,10 +192,13 @@ export async function updateSettings(  updates: Partial<Omit<AppSettings, 'id'>>
     const current = await getSettings(dbOverride);
     const merged: AppSettings = { ...current, ...updates };
     await ensureMonitoringIntervalColumn(dbOverride);
+    await ensureModelDefaultColumns(dbOverride);
     await dbOverride.execute(
       `UPDATE app_settings SET
         open_tabs = ?, active_tab_id = ?, theme = ?, language = ?,
-        ollama_base_url = ?, default_context_size = ?, default_approval_mode = ?,
+        ollama_base_url = ?, default_context_size = ?, default_temperature = ?,
+        default_reserve_tokens = ?, default_keep_recent_tokens = ?,
+        default_approval_mode = ?,
         trusted_workspaces = ?, last_workspace_root = ?, monitoring_interval_ms = ?
       WHERE id = 'singleton'`,
       [
@@ -163,6 +208,9 @@ export async function updateSettings(  updates: Partial<Omit<AppSettings, 'id'>>
         merged.language,
         merged.ollamaBaseUrl,
         merged.defaultContextSize,
+        merged.defaultTemperature,
+        merged.defaultReserveTokens,
+        merged.defaultKeepRecentTokens,
         merged.defaultApprovalMode,
         JSON.stringify(merged.trustedWorkspaces),
         merged.lastWorkspaceRoot,
@@ -196,7 +244,9 @@ export async function updateSettings(  updates: Partial<Omit<AppSettings, 'id'>>
   await globalDb.execute(
     `UPDATE app_settings SET
       open_tabs = ?, active_tab_id = ?, theme = ?, language = ?,
-      ollama_base_url = ?, default_context_size = ?, default_approval_mode = ?,
+      ollama_base_url = ?, default_context_size = ?, default_temperature = ?,
+      default_reserve_tokens = ?, default_keep_recent_tokens = ?,
+      default_approval_mode = ?,
       trusted_workspaces = ?, last_workspace_root = ?, monitoring_interval_ms = ?
     WHERE id = 'singleton'`,
     [
@@ -206,6 +256,9 @@ export async function updateSettings(  updates: Partial<Omit<AppSettings, 'id'>>
       merged.language,
       merged.ollamaBaseUrl,
       merged.defaultContextSize,
+      merged.defaultTemperature,
+      merged.defaultReserveTokens,
+      merged.defaultKeepRecentTokens,
       merged.defaultApprovalMode,
       JSON.stringify(merged.trustedWorkspaces),
       merged.lastWorkspaceRoot,

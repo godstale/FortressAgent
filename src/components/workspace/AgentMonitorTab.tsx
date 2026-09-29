@@ -33,8 +33,8 @@ import {
   Copy,
   Check,
   Gauge,
+  GripVertical,
   Timer,
-  HelpCircle,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -48,12 +48,7 @@ import { useAgents } from '@/lib/context/AgentsContext';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { Button } from '@/components/ui/button';
-import {
-  Tooltip as UiTooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from '@/components/ui/tooltip';
+import { HelpTooltip as KpiCardHelp } from '@/components/ui/help-tooltip';
 import {
   Dialog,
   DialogContent,
@@ -249,55 +244,6 @@ function formatAxisNumber(val: number): string {
   return Number.isInteger(val) ? `${val}` : `${val.toFixed(1)}`;
 }
 
-interface KpiCardHelpProps {
-  title?: string;
-  description?: string;
-  guide?: string;
-  /** i18n key prefix: resolves monitorHelp.{prefix}.title/.desc/.guide */
-  i18n?: string;
-  side?: 'top' | 'right' | 'bottom' | 'left';
-}
-
-function KpiCardHelp({ title, description, guide, i18n, side = 'top' }: KpiCardHelpProps) {
-  const { t } = useLanguage();
-  const titleText = i18n ? t(`monitorHelp.${i18n}.title`) : (title ?? '');
-  const descText = i18n ? t(`monitorHelp.${i18n}.desc`) : (description ?? '');
-  const guideText = i18n ? t(`monitorHelp.${i18n}.guide`) : guide;
-  return (
-    <TooltipProvider delayDuration={150}>
-      <UiTooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors focus:outline-none focus:ring-1 focus:ring-primary inline-flex items-center justify-center cursor-help"
-            aria-label={t('monitor.helpAria', { title: titleText })}
-          >
-            <HelpCircle className="h-3.5 w-3.5 opacity-60 hover:opacity-100 transition-opacity" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent
-          side={side}
-          className="max-w-xs p-3 bg-popover text-popover-foreground border border-border shadow-2xl rounded-lg space-y-2 z-50 text-left"
-        >
-          <div className="font-semibold text-xs text-foreground flex items-center gap-1.5 border-b border-border/60 pb-1.5">
-            <span className="text-primary font-bold">ℹ️</span>
-            <span>{titleText}</span>
-          </div>
-          <p className="text-[11px] leading-relaxed text-muted-foreground whitespace-normal">
-            {descText}
-          </p>
-          {guideText && (
-            <div className="text-[10px] bg-accent/40 rounded p-2 font-sans text-accent-foreground border border-border/40 space-y-1">
-              <span className="font-semibold text-foreground block">{t('monitor.guideHeader')}</span>
-              <span className="leading-normal block whitespace-normal text-muted-foreground">{guideText}</span>
-            </div>
-          )}
-        </TooltipContent>
-      </UiTooltip>
-    </TooltipProvider>
-  );
-}
-
 export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const agentId = tab.meta?.agentId as string | undefined;
   const { getAgent } = useAgents();
@@ -318,6 +264,79 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [timelineOffset, setTimelineOffset] = useState(0);
   const [hideIdleSnapshots, setHideIdleSnapshots] = useState(true);
+  // Row 1 카드 순서 (드래그 재배열, localStorage 영속). CSS order로만 재배치한다.
+  const ROW1_CARD_IDS = ['sysres', 'memdist', 'realtime'] as const;
+  const [row1Order, setRow1Order] = useState<string[]>(() => {
+    try {
+      const saved = window.localStorage.getItem('fortress.monitorRow1Order');
+      if (saved) {
+        const parsed = JSON.parse(saved) as string[];
+        if (
+          Array.isArray(parsed) &&
+          parsed.length === ROW1_CARD_IDS.length &&
+          ROW1_CARD_IDS.every((id) => parsed.includes(id))
+        ) {
+          return parsed;
+        }
+      }
+    } catch {
+      // 저장값이 없거나 깨졌으면 기본 순서
+    }
+    return [...ROW1_CARD_IDS];
+  });
+  const [row1DragId, setRow1DragId] = useState<string | null>(null);
+  const [row1OverId, setRow1OverId] = useState<string | null>(null);
+  const row1OrderOf = (id: string) => {
+    const idx = row1Order.indexOf(id);
+    return idx >= 0 ? idx : 0;
+  };
+  const handleRow1Drop = (targetId: string) => {
+    if (!row1DragId || row1DragId === targetId) return;
+    setRow1Order((prev) => {
+      const next = prev.filter((id) => id !== row1DragId);
+      const at = next.indexOf(targetId);
+      next.splice(at >= 0 ? at : next.length, 0, row1DragId);
+      try {
+        window.localStorage.setItem('fortress.monitorRow1Order', JSON.stringify(next));
+      } catch {
+        // 영속 실패는 무시 (인메모리 순서는 유지)
+      }
+      return next;
+    });
+  };
+  const row1DragHandleProps = (id: string) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      setRow1DragId(id);
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('text/plain', id);
+      } catch {
+        // 일부 브라우저 dataTransfer 제한 무시
+      }
+    },
+    onDragEnd: () => {
+      setRow1DragId(null);
+      setRow1OverId(null);
+    },
+  });
+  const row1DropZoneProps = (id: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (row1DragId) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (row1OverId !== id) setRow1OverId(id);
+      }
+    },
+    onDragLeave: () => {
+      if (row1OverId === id) setRow1OverId(null);
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      setRow1OverId(null);
+      handleRow1Drop(id);
+    },
+  });
   const [nowMs, setNowMs] = useState(() => Date.now());
   // 대화 단위 토큰: 원장(영속 DB) + 실시간(live) + 진행 중(active). 모두 state로 보관해
   // 렌더 중에는 외부 저장소를 직접 읽지 않는다(React Compiler purity).
@@ -654,14 +673,33 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     const kvVramBytes = typeof details.kvVramBytes === 'number'
       ? details.kvVramBytes
       : Math.round(currentSnapshot.kvCacheBytes * (currentSnapshot.gpuOffloadPct / 100));
-    const kvVramGb = Number((kvVramBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const modelVramGb = Number((currentSnapshot.vramAllocatedBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const weightOnlyVramGb = Number(Math.max(0, modelVramGb - kvVramGb).toFixed(2));
-    const freeVramGb = Number((Math.max(0, currentSnapshot.gpuVramFreeMb) / 1024).toFixed(2));
+    // NOTE: size_vram은 VRAM 상주 가중치 실측, KV 추정치는 최대 컨텍스트 기준
+    // 이론값이다. 추정치에서 가중치를 빼던 기존 방식(weightOnly)은 KV 과대추정 시
+    // 가중치를 0으로 지우고 스택 합이 물리 용량(예: 12GB)을 초과했다. 실측인
+    // 가중치·free를 우선 보존하고 KV를 실제 상주분(used - 가중치)으로 제한한다.
+    const toGb = (bytes: number) => bytes / (1024 * 1024 * 1024);
+    const round2 = (n: number) => Number(n.toFixed(2));
+    const totalVramGb = currentSnapshot.gpuVramTotalMb / 1024;
     const usedVramGb = currentSnapshot.gpuVramTotalMb > 0
-      ? Number((currentSnapshot.gpuVramUsedMb / 1024).toFixed(2))
-      : modelVramGb;
-    const otherVramGb = Number(Math.max(0, usedVramGb - modelVramGb).toFixed(2));
+      ? currentSnapshot.gpuVramUsedMb / 1024
+      : toGb(currentSnapshot.vramAllocatedBytes);
+    const freeVramGb = currentSnapshot.gpuVramTotalMb > 0
+      ? Math.max(0, currentSnapshot.gpuVramFreeMb) / 1024
+      : 0;
+    const weightsVramRawGb = toGb(currentSnapshot.vramAllocatedBytes);
+    const kvVramEstGb = toGb(kvVramBytes);
+    let weightsVramGb: number;
+    let kvShownVramGb: number;
+    let otherVramGb: number;
+    if (totalVramGb > 0) {
+      weightsVramGb = Math.min(weightsVramRawGb, Math.max(0, usedVramGb));
+      kvShownVramGb = Math.min(kvVramEstGb, Math.max(0, usedVramGb - weightsVramGb));
+      otherVramGb = Math.max(0, usedVramGb - weightsVramGb - kvShownVramGb);
+    } else {
+      weightsVramGb = weightsVramRawGb;
+      kvShownVramGb = kvVramEstGb;
+      otherVramGb = Math.max(0, usedVramGb - weightsVramGb);
+    }
 
     const kvRamBytes = typeof details.kvRamBytes === 'number'
       ? details.kvRamBytes
@@ -669,27 +707,50 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
     const modelRamBytes = typeof details.modelRamBytes === 'number'
       ? details.modelRamBytes
       : Math.max(0, currentSnapshot.modelWeightBytes - currentSnapshot.vramAllocatedBytes);
-    const kvRamGb = Number((kvRamBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const modelRamGb = Number((modelRamBytes / (1024 * 1024 * 1024)).toFixed(2));
-    const totalRamGb = Number((currentSnapshot.systemMemoryTotalMb / 1024).toFixed(2));
-    const freeRamGb = Number((Math.max(0, currentSnapshot.systemMemoryFreeMb) / 1024).toFixed(2));
-    const usedRamGb = Number(Math.max(0, totalRamGb - freeRamGb).toFixed(2));
-    const otherRamGb = Number(Math.max(0, usedRamGb - modelRamGb - kvRamGb).toFixed(2));
+    const totalRamGb = currentSnapshot.systemMemoryTotalMb / 1024;
+    const usedRamGb = Math.max(
+      0,
+      totalRamGb - Math.max(0, currentSnapshot.systemMemoryFreeMb) / 1024,
+    );
+    const freeRamGb = Math.max(0, currentSnapshot.systemMemoryFreeMb) / 1024;
+    const weightsRamRawGb = toGb(modelRamBytes);
+    const kvRamEstGb = toGb(kvRamBytes);
+    let modelRamGb: number;
+    let kvShownRamGb: number;
+    let otherRamGb: number;
+    if (totalRamGb > 0) {
+      modelRamGb = Math.min(weightsRamRawGb, Math.max(0, usedRamGb));
+      kvShownRamGb = Math.min(kvRamEstGb, Math.max(0, usedRamGb - modelRamGb));
+      otherRamGb = Math.max(0, usedRamGb - modelRamGb - kvShownRamGb);
+    } else {
+      modelRamGb = weightsRamRawGb;
+      kvShownRamGb = kvRamEstGb;
+      otherRamGb = Math.max(0, usedRamGb - modelRamGb - kvShownRamGb);
+    }
+
+    const weightsVramOut = round2(weightsVramGb);
+    const kvVramOut = round2(kvShownVramGb);
+    const otherVramOut = round2(otherVramGb);
+    const freeVramOut = round2(freeVramGb);
+    const modelRamOut = round2(modelRamGb);
+    const kvRamOut = round2(kvShownRamGb);
+    const otherRamOut = round2(otherRamGb);
+    const freeRamOut = round2(freeRamGb);
 
     return [
       {
         name: t('monitor.vramDistShort'),
-        [weightsKey]: weightOnlyVramGb,
-        [kvKey]: kvVramGb,
-        [otherKey]: otherVramGb,
-        [freeKey]: freeVramGb,
+        [weightsKey]: weightsVramOut,
+        [kvKey]: kvVramOut,
+        [otherKey]: otherVramOut,
+        [freeKey]: freeVramOut,
       },
       {
         name: t('monitor.ramDistShort'),
-        [weightsKey]: modelRamGb,
-        [kvKey]: kvRamGb,
-        [otherKey]: otherRamGb,
-        [freeKey]: freeRamGb,
+        [weightsKey]: modelRamOut,
+        [kvKey]: kvRamOut,
+        [otherKey]: otherRamOut,
+        [freeKey]: freeRamOut,
       },
     ];
   }, [currentSnapshot, t]);
@@ -789,6 +850,32 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       : 0;
 
   const rawDetails = (currentSnapshot?.details || {}) as Record<string, unknown>;
+
+  // 어텐션 알고리즘 표시명: 스냅샷의 판정값을 우선하고, 구 스냅샷(값 없음)은
+  // 헤드 수로 재판정한다. Q==KV → MHA (GQA 하드코딩 금지).
+  const attentionKindLabel = (() => {
+    const stored = rawDetails.attentionKind as string | undefined;
+    const q = Number(rawDetails.headCount ?? 0);
+    const kv = Number(rawDetails.headCountKv ?? 0);
+    const resolved =
+      stored && stored !== 'unknown'
+        ? stored
+        : kv <= 0 || q <= 0
+          ? 'unknown'
+          : kv === 1
+            ? 'MQA'
+            : kv === q
+              ? 'MHA'
+              : 'GQA';
+    if (resolved === 'hybrid') return t('monitor.attnHybrid');
+    if (resolved === 'unknown') return t('monitor.attnUnknown');
+    return resolved;
+  })();
+  // 통합 메모리(Apple Silicon 등) 여부 — VRAM 표시가 RAM과 중복되므로 숨긴다.
+  const isUnifiedMemory =
+    (rawDetails.isUnifiedMemory as boolean | undefined) === true ||
+    (/apple/i.test(currentSnapshot?.gpuName || '') &&
+      (currentSnapshot?.gpuVramTotalMb || 0) > 0);
   const lastCompleted = rawDetails.lastCompletedInference as
     | {
         prefillSpeed?: number;
@@ -854,7 +941,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
   const statusBadge = getStatusBadge(currentSnapshot?.agentStatus || 'idle');
 
   return (
-    <div className="flex-1 h-full overflow-y-auto p-5 bg-background text-foreground space-y-5 select-none">
+    <div className="flex-1 h-full overflow-y-auto p-5 bg-background text-foreground space-y-5 select-text">
       {/* Top Header & Real-time Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-border gap-4">
         <div>
@@ -1176,11 +1263,17 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             <span className="text-muted-foreground text-[10px]">{t('monitor.params')}</span>
             <span className="font-mono text-[10px] font-semibold text-info truncate">
               {currentSnapshot?.llmParameterSize || '—'} (
-              {rawDetails.quantizationLevel ? String(rawDetails.quantizationLevel) : 'Q4_K'})
+              {rawDetails.quantizationLevel ? String(rawDetails.quantizationLevel) : '—'})
             </span>
           </div>
           <div className="text-[10px] text-muted-foreground truncate">
             {t('monitor.layers')} {rawDetails.blockCount ? `${rawDetails.blockCount} Layers` : '—'}
+          </div>
+          <div className="flex items-center justify-between text-xs pt-0.5">
+            <span className="text-muted-foreground text-[10px]">{t('monitor.attnKind')}</span>
+            <span className="font-mono text-[10px] font-semibold text-foreground">
+              {attentionKindLabel}
+            </span>
           </div>
         </div>
 
@@ -1216,7 +1309,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               <>
                 <div className="flex items-center justify-between text-xs pt-1 gap-2">
                   <span className="text-muted-foreground text-[10px]" title={t('monitor.kvMaxTitle')}>
-                    {t('monitor.kvMaxActual')}
+                    {t('monitor.kvActualKind', { v: attentionKindLabel })}
                   </span>
                   <span className="font-mono text-[11px] text-info font-bold px-1.5 py-0.5 rounded bg-info/10 border border-info/20" title={t('monitor.kvMaxTitle2')}>
                     {kvGqa > 0 ? formatMemoryBytes(kvGqa) : t('monitor.calculating')}
@@ -1366,9 +1459,20 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
             {/* Row 1: CPU/GPU 오프로딩 상태 + 메모리 분배(VRAM+RAM 병합) + GPU·VRAM 추이 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-<div className="p-4 rounded-xl border border-border bg-card space-y-3 min-w-0">
+<div
+  className={`p-4 rounded-xl border border-border bg-card space-y-3 min-w-0 ${row1OverId === 'sysres' ? 'ring-2 ring-primary/50' : ''}`}
+  style={{ order: row1OrderOf('sysres'), opacity: row1DragId === 'sysres' ? 0.5 : 1 }}
+  {...row1DropZoneProps('sysres')}
+>
           <div className="flex items-center justify-between gap-2 min-w-0">
             <div className="flex items-center gap-2 min-w-0 shrink-0">
+              <span
+                className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground shrink-0"
+                title={t('monitor.dragHandle')}
+                {...row1DragHandleProps('sysres')}
+              >
+                <GripVertical className="h-3.5 w-3.5" />
+              </span>
               <Zap className="h-4 w-4 text-warning shrink-0" />
               <h3 className="text-xs font-semibold text-foreground whitespace-nowrap">
                 {t('monitor.sysResources')}
@@ -1384,6 +1488,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               title={currentSnapshot?.gpuName}
             >
               {currentSnapshot?.gpuName}
+              {isUnifiedMemory ? ` (${t('monitor.unified')})` : ''}
             </span>
           </div>
 
@@ -1421,7 +1526,8 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               </div>
             </div>
 
-            {/* GPU VRAM Status (corresponding to GPU offload acceleration) */}
+            {/* GPU VRAM Status — 통합 메모리에서는 RAM과 중복이므로 숨긴다 */}
+            {!isUnifiedMemory && (
             <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between gap-2 font-mono">
               <span className="text-[11px] text-muted-foreground font-sans flex items-center gap-1 whitespace-nowrap shrink-0">
                 <span>{t('monitor.vramState')}</span>
@@ -1440,6 +1546,12 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   : 'N/A'}
               </span>
             </div>
+            )}
+            {isUnifiedMemory && (
+              <div className="px-2.5 py-1.5 rounded-lg bg-muted/40 border border-border/50 text-[10px] text-muted-foreground font-mono">
+                {t('monitor.unifiedMemNote')}
+              </div>
+            )}
 
             {/* Host System RAM (corresponding to CPU offload distribution) */}
             <div className="p-2.5 rounded-lg bg-muted/40 border border-border/50 flex items-center justify-between gap-2 font-mono">
@@ -1462,9 +1574,20 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             </div>
           </div>
         </div>
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3 min-w-0">
+        <div
+          className={`p-4 rounded-xl border border-border bg-card space-y-3 min-w-0 ${row1OverId === 'memdist' ? 'ring-2 ring-primary/50' : ''}`}
+          style={{ order: row1OrderOf('memdist'), opacity: row1DragId === 'memdist' ? 0.5 : 1 }}
+          {...row1DropZoneProps('memdist')}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
+              <span
+                className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground shrink-0"
+                title={t('monitor.dragHandle')}
+                {...row1DragHandleProps('memdist')}
+              >
+                <GripVertical className="h-3.5 w-3.5" />
+              </span>
               <Cpu className="h-4 w-4 text-tertiary" />
               <h3 className="text-xs font-semibold text-foreground">{t('monitor.memDist')}</h3>
               <KpiCardHelp
@@ -1506,29 +1629,24 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             )}
           </div>
         </div>
-        <div className="p-4 rounded-xl border border-border bg-card space-y-3 min-w-0">
-          <div className="flex items-center justify-between">
+        <div
+          className={`p-4 rounded-xl border border-border bg-card space-y-3 min-w-0 ${row1OverId === 'realtime' ? 'ring-2 ring-primary/50' : ''}`}
+          style={{ order: row1OrderOf('realtime'), opacity: row1DragId === 'realtime' ? 0.5 : 1 }}
+          {...row1DropZoneProps('realtime')}
+        >
+          <div className="flex items-center">
             <div className="flex items-center gap-2">
+              <span
+                className="cursor-grab active:cursor-grabbing text-muted-foreground/60 hover:text-foreground shrink-0"
+                title={t('monitor.dragHandle')}
+                {...row1DragHandleProps('realtime')}
+              >
+                <GripVertical className="h-3.5 w-3.5" />
+              </span>
               <Activity className="h-4 w-4 text-success" />
               <h3 className="text-xs font-semibold text-foreground">
                 {t('monitor.realtimeGpu', { n: timeSeriesData.length })}
               </h3>
-            </div>
-            <div className="flex items-center gap-4 text-[11px] font-mono">
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.gpu }}
-                />
-                <span className="text-success font-medium">{t('monitor.gpuShareUnit')}</span>
-              </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.vram }}
-                />
-                <span className="text-tertiary font-medium">{t('monitor.vramUsage')}</span>
-              </span>
             </div>
           </div>
 
@@ -1592,6 +1710,22 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 </AreaChart>
               </ResponsiveContainer>
             )}
+          </div>
+          <div className="flex items-center gap-4 text-[11px] font-mono flex-wrap">
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                style={{ backgroundColor: CHART_COLORS.gpu }}
+              />
+              <span className="text-success font-medium">{t('monitor.gpuShareUnit')}</span>
+            </span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                style={{ backgroundColor: CHART_COLORS.vram }}
+              />
+              <span className="text-tertiary font-medium">{t('monitor.vramUsage')}</span>
+            </span>
           </div>
         </div>
       </div>
@@ -1696,7 +1830,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
 
               <div className="space-y-1">
                 <div className="text-[10px] text-muted-foreground font-medium">{t('monitor.recentConvs')}</div>
-                <div className="space-y-1 max-h-44 overflow-y-auto">
+                <div className="space-y-1 max-h-[88px] overflow-y-auto">
                   {mergedConversations.slice(0, 5).map((c) => (
                     <div
                       key={c.id}
@@ -1797,7 +1931,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   guide={undefined}
                 />
               </div>
-              <div className="font-bold text-foreground mt-0.5">
+              <div className="font-bold text-foreground mt-0.5" title={t('monitor.headsTitle', { q: String(rawDetails.headCount ?? 0), kv: String(rawDetails.headCountKv ?? 0), kind: attentionKindLabel })}>
                 {rawDetails.headCount ? `${rawDetails.headCount} Heads` : '—'}
               </div>
             </div>
@@ -1811,8 +1945,22 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                   guide={undefined}
                 />
               </div>
-              <div className="font-bold text-foreground mt-0.5">
+              <div className="font-bold text-foreground mt-0.5" title={t('monitor.headsTitle', { q: String(rawDetails.headCount ?? 0), kv: String(rawDetails.headCountKv ?? 0), kind: attentionKindLabel })}>
                 {rawDetails.headCountKv ? `${rawDetails.headCountKv} KV Heads` : '—'}
+              </div>
+            </div>
+
+            <div className="p-2 rounded-lg bg-muted/40 border border-border/50">
+              <div className="text-[10px] text-muted-foreground font-sans flex items-center justify-between">
+                <span>{t('monitor.attnKind')}</span>
+                <KpiCardHelp
+                  i18n="archKind"
+                  description={undefined}
+                  guide={undefined}
+                />
+              </div>
+              <div className="font-bold text-foreground mt-0.5">
+                {attentionKindLabel}
               </div>
             </div>
 
@@ -1837,42 +1985,12 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Unified Token / Inference Status (speed + latency merged) */}
         <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center">
             <div className="flex items-center gap-2">
               <Gauge className="h-4 w-4 text-warning" />
               <h3 className="text-xs font-semibold text-foreground">
                 {t('monitor.tokenInferenceUnified')}
               </h3>
-            </div>
-            <div className="flex items-center gap-3 text-[10px] font-mono flex-wrap justify-end">
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.prefill }}
-                />
-                <span className="text-warning font-medium">{t('monitor.prefillSpeed')}</span>
-              </span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shadow-sm"
-                  style={{ backgroundColor: CHART_COLORS.decoding }}
-                />
-                <span className="text-primary font-medium">{t('monitor.decodeSpeed')}</span>
-              </span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <span
-                  className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
-                  style={{ borderColor: CHART_COLORS.prefill, backgroundColor: 'transparent' }}
-                />
-                <span className="text-warning/80 font-medium">{t('monitor.prefillTime')}</span>
-              </span>
-              <span className="flex items-center gap-1 text-muted-foreground">
-                <span
-                  className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
-                  style={{ borderColor: CHART_COLORS.decoding, backgroundColor: 'transparent' }}
-                />
-                <span className="text-primary/80 font-medium">{t('monitor.decodeTime')}</span>
-              </span>
             </div>
           </div>
 
@@ -1976,6 +2094,36 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
                 </AreaChart>
               </ResponsiveContainer>
             )}
+          </div>
+          <div className="flex items-center gap-3 text-[10px] font-mono flex-wrap">
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                style={{ backgroundColor: CHART_COLORS.prefill }}
+              />
+              <span className="text-warning font-medium">{t('monitor.prefillSpeed')}</span>
+            </span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span
+                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                style={{ backgroundColor: CHART_COLORS.decoding }}
+              />
+              <span className="text-primary font-medium">{t('monitor.decodeSpeed')}</span>
+            </span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span
+                className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
+                style={{ borderColor: CHART_COLORS.prefill, backgroundColor: 'transparent' }}
+              />
+              <span className="text-warning/80 font-medium">{t('monitor.prefillTime')}</span>
+            </span>
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <span
+                className="w-2.5 h-1 rounded-sm shadow-sm border border-dashed"
+                style={{ borderColor: CHART_COLORS.decoding, backgroundColor: 'transparent' }}
+              />
+              <span className="text-primary/80 font-medium">{t('monitor.decodeTime')}</span>
+            </span>
           </div>
         </div>
 
@@ -2112,7 +2260,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               return (
                 <>
                   {sourceList.length > TIMELINE_WINDOW_SIZE && (
-                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-2 select-none">
+                    <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-2 select-text">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-foreground">{t('monitor.slider')}</span>

@@ -18,6 +18,9 @@ export type ThinkValue = boolean | string | undefined;
 export const DEFAULT_REASONING_MODE: ReasoningMode = 'default';
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'medium';
 
+/** 새 에이전트·전역 기본값의 temperature. 문서 작성 정확도 우선으로 0.2를 쓴다. */
+export const DEFAULT_TEMPERATURE = 0.2;
+
 /** 대화 시작 시 모니터링 자동 시작 여부. 미지정(구 DB 행) 시 켜짐으로 해석한다. */
 export const DEFAULT_AUTO_MONITOR = true;
 
@@ -206,7 +209,7 @@ export interface Agent {
   description?: string;
   systemPrompt: string;
   model: string; // Ollama model tag, e.g. "qwen3.5:9b" (OpenAI 호환 Provider에서는 /v1/models의 ID)
-  temperature: number; // 0.0 ~ 2.0, default 0.7
+  temperature: number; // 0.0 ~ 2.0, 기본 0.2
   contextSize: number; // token count. 0 inherits global
   reserveTokens: number; // compaction trigger margin
   keepRecentTokens: number; // tokens to keep after compaction

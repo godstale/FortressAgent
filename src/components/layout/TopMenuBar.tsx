@@ -30,7 +30,6 @@ import {
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { useSidePanel } from '@/lib/context/SidePanelContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
-import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { useGlobalLlmBusy } from '@/lib/agent/chatQueueManager';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -42,7 +41,6 @@ export function TopMenuBar() {
   const { workspaceRoot, setWorkspaceRoot, recentWorkspaces = [] } = useWorkspace();
   const { setActiveView } = useSidePanel();
   const { openTab } = useWorkspaceTabs();
-  const { createSession } = useChatSessions();
   const navigate = useNavigate();
   const hasWorkspace = Boolean(workspaceRoot);
   // LLM 동작 중에는 폴더(프로젝트) 변경을 금지한다.
@@ -75,24 +73,15 @@ export function TopMenuBar() {
     setWorkspaceRoot(path);
   };
 
-  const handleNewChat = async () => {
+  const handleNewChat = () => {
     if (!hasWorkspace) return;
-    let sessionId = `chat_${Date.now()}`;
-    let title = t('topMenu.newChatDefault');
-    let agentId: string | undefined;
-    try {
-      const session = await createSession({ title: t('topMenu.newChatDefault') });
-      sessionId = session.id;
-      title = session.title;
-      agentId = session.agentId;
-    } catch (err) {
-      console.error('Failed to create new chat session in DB, opening tab with fallback:', err);
-    }
+    // Lazy: open an empty tab only. DB session is created on first send.
+    const sessionId = crypto.randomUUID();
     openTab({
       id: `chat:${sessionId}`,
       type: 'chat',
-      title,
-      meta: { sessionId, agentId },
+      title: t('topMenu.newChatDefault'),
+      meta: { sessionId },
     });
   };
 

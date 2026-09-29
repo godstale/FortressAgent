@@ -3,8 +3,6 @@ import { Bot, Plus, Sparkles, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
-import { useChatSessions } from '@/lib/context/ChatSessionsContext';
-import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { AgentCard } from './AgentCard';
@@ -14,8 +12,6 @@ import { checkAllAgentsConnection, checkAgentConnection } from '@/lib/llm/agentS
 export function AgentListPanel() {
   const { agents, loading, createAgent, setDefaultAgent, deleteAgent } = useAgents();
   const { openTab } = useWorkspaceTabs();
-  const { createSession } = useChatSessions();
-  const { workspaceRoot } = useWorkspace();
   const { settings } = useSettings();
   const { t } = useLanguage();
 
@@ -84,22 +80,15 @@ export function AgentListPanel() {
     });
   };
 
-  const handleStartChat = async (agent: Agent) => {
-    try {
-      const session = await createSession({
-        title: t('agentList.chatWith', { name: agent.name }),
-        agentId: agent.id,
-        workspaceRoot: workspaceRoot ?? undefined,
-      });
-      openTab({
-        id: `chat:${session.id}`,
-        type: 'chat',
-        title: session.title,
-        meta: { sessionId: session.id, agentId: agent.id },
-      });
-    } catch (err) {
-      console.error('Failed to start chat with agent:', err);
-    }
+  const handleStartChat = (agent: Agent) => {
+    // Lazy session: DB row is created on first send, so empty tabs never pollute history.
+    const sessionId = crypto.randomUUID();
+    openTab({
+      id: `chat:${sessionId}`,
+      type: 'chat',
+      title: t('agentList.chatWith', { name: agent.name }),
+      meta: { sessionId, agentId: agent.id },
+    });
   };
 
   const handleOpenMonitor = (agent: Agent) => {

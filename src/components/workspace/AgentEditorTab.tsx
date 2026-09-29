@@ -5,7 +5,6 @@ import type { Agent } from '@/lib/types/agent';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
 import { useChatSessions } from '@/lib/context/ChatSessionsContext';
-import { useWorkspace } from '@/lib/context/WorkspaceContext';
 import { useGlobalLlmBusy } from '@/lib/agent/chatQueueManager';
 import { Button } from '@/components/ui/button';
 import { AgentEditorForm } from '@/components/agents/AgentEditorForm';
@@ -18,8 +17,7 @@ export interface AgentEditorTabProps {
 export function AgentEditorTab({ tab }: AgentEditorTabProps) {
   const { getAgent } = useAgents();
   const { updateTab, closeTab, openTab } = useWorkspaceTabs();
-  const { createSession, sessions } = useChatSessions();
-  const { workspaceRoot } = useWorkspace();
+  const { sessions } = useChatSessions();
   const busySessionId = useGlobalLlmBusy();
 
   const rawId = (tab.meta?.agentId as string | undefined) ||
@@ -30,7 +28,7 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
 
   // 채팅 중(해당 에이전트를 쓰는 세션이 LLM 동작/대기 큐 상태)에는 저장을 제한한다.
   // 바쁜 세션이 목록에 없으면(다른 워크스페이스 등) 보수적으로 잠근다.
-  const busySession = busySessionId ? sessions.find((s) => s.id === busySessionId) : undefined;
+  const busySession = busySessionId ? sessions.find((s: { id: string }) => s.id === busySessionId) : undefined;
   const saveLocked =
     mode === 'edit' &&
     !!existingAgent &&
@@ -53,23 +51,15 @@ export function AgentEditorTab({ tab }: AgentEditorTabProps) {
     closeTab(tab.id);
   };
 
-  const handleStartChat = async () => {
+  const handleStartChat = () => {
     if (!existingAgent) return;
-    try {
-      const session = await createSession({
-        title: t('agentList.chatWith', { name: existingAgent.name }),
-        agentId: existingAgent.id,
-        workspaceRoot: workspaceRoot ?? undefined,
-      });
-      openTab({
-        id: `chat:${session.id}`,
-        type: 'chat',
-        title: session.title,
-        meta: { sessionId: session.id, agentId: existingAgent.id },
-      });
-    } catch (err) {
-      console.error('Failed to start chat from agent editor:', err);
-    }
+    const sessionId = crypto.randomUUID();
+    openTab({
+      id: `chat:${sessionId}`,
+      type: 'chat',
+      title: t('agentList.chatWith', { name: existingAgent.name }),
+      meta: { sessionId, agentId: existingAgent.id },
+    });
   };
 
   return (

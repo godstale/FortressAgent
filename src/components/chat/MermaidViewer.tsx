@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import mermaid from 'mermaid';
 import { AlertCircle, Check, Copy } from 'lucide-react';
 import { useTheme } from '../../lib/context/ThemeContext';
@@ -42,70 +42,91 @@ const MERMAID_LIGHT = {
 
 interface MermaidViewerProps {
   code: string;
+  /** 스트리밍 중에는 매 토큰마다 렌더하지 않고 코드로 표시한다 (깜빡임/무한 draw 방지). */
+  isStreaming?: boolean;
 }
 
-const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
+let mermaidInitializedTheme: string | null = null;
+
+const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code, isStreaming = false }) => {
   const { theme } = useTheme();
   const rawId = useId();
-  const elementId = 'mermaid-' + rawId.replace(/[^a-zA-Z0-9_-]/g, '');
+  // useId is stable per mount; memo keeps the mermaid render target id constant
+  // across re-renders so scroll/parent updates never re-trigger a draw.
+  const elementId = useMemo(
+    () => 'mermaid-' + rawId.replace(/[^a-zA-Z0-9_-]/g, ''),
+    [rawId],
+  );
 
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    // 스트리밍 중에는 렌더하지 않는다. 부모(MessageBubble)가 코드 블록으로
+    // 폴백 표시하고, 완료 후 한 번만 렌더한다.
+    if (isStreaming) return;
     let active = true;
+    const timer = setTimeout(() => {
+      const renderDiagram = async () => {
+        try {
+          if (!active) return;
+          setError(null);
+          setSvg(null);
 
-    const renderDiagram = async () => {
-      try {
-        setError(null);
-        setSvg(null);
+          const isDark =
+            theme === 'dark' ||
+            (theme === 'system' &&
+              typeof window !== 'undefined' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-        const isDark =
-          theme === 'dark' ||
-          (theme === 'system' &&
-            typeof window !== 'undefined' &&
-            window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-        mermaid.initialize({
-          startOnLoad: false,
-          suppressErrorRendering: true,
-          theme: 'base',
-          themeVariables: isDark ? MERMAID_DARK : MERMAID_LIGHT,
-          securityLevel: 'loose',
-          fontFamily: 'inherit',
-        });
-
-        const trimmedCode = code.trim();
-        if (!trimmedCode) {
-          if (active) setSvg('');
-          return;
-        }
-
-        const renderResult = await mermaid.render(elementId, trimmedCode);
-        if (active) {
-          setSvg(renderResult.svg);
-        }
-      } catch (err) {
-        // Clean up any stray error elements injected by mermaid into document.body
-        const stray = document.querySelectorAll(`[id^="d${elementId}"], #${elementId}, .error-icon`);
-        stray.forEach((el) => {
-          if (el.parentElement === document.body) {
-            el.remove();
+          // 테마가 바뀔 때만 재초기화한다. 다이어그램마다 initialize를 호출하면
+          // 마지막 마운트가 전역 테마를 덮어쓰는 레이스가 발생한다.
+          const themeKey = isDark ? 'dark' : 'light';
+          if (mermaidInitializedTheme !== themeKey) {
+            mermaid.initialize({
+              startOnLoad: false,
+              suppressErrorRendering: true,
+              theme: 'base',
+              themeVariables: isDark ? MERMAID_DARK : MERMAID_LIGHT,
+              securityLevel: 'strict',
+              fontFamily: 'inherit',
+            });
+            mermaidInitializedTheme = themeKey;
           }
-        });
 
-        if (active) {
-          const message = err instanceof Error ? err.message : String(err);
-          setError(message);
+          const trimmedCode = code.trim();
+          if (!trimmedCode) {
+            if (active) setSvg('');
+            return;
+          }
+
+          const renderResult = await mermaid.render(elementId, trimmedCode);
+          if (active) {
+            setSvg(renderResult.svg);
+          }
+        } catch (err) {
+          // Clean up any stray error elements injected by mermaid into document.body
+          const stray = document.querySelectorAll(`[id^="d${elementId}"], #${elementId}, .error-icon`);
+          stray.forEach((el) => {
+            if (el.parentElement === document.body) {
+              el.remove();
+            }
+          });
+
+          if (active) {
+            const message = err instanceof Error ? err.message : String(err);
+            setError(message);
+          }
         }
-      }
-    };
+      };
 
-    void renderDiagram();
+      void renderDiagram();
+    }, 250);
 
     return () => {
       active = false;
+      clearTimeout(timer);
       const stray = document.querySelectorAll(`[id^="d${elementId}"], #${elementId}`);
       stray.forEach((el) => {
         if (el.parentElement === document.body) {
@@ -113,7 +134,7 @@ const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
         }
       });
     };
-  }, [code, theme, elementId]);
+  }, [code, theme, elementId, isStreaming]);
 
   const handleCopy = async () => {
     try {
@@ -150,6 +171,19 @@ const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
     );
   }
 
+  if (isStreaming) {
+    return (
+      <div className="relative my-3 rounded-lg border border-border bg-card/60 p-3">
+        <pre className="overflow-x-auto rounded bg-background/50 p-2 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap">
+          <code>{code}</code>
+        </pre>
+        <div className="mt-1.5 text-center text-[11px] text-muted-foreground animate-pulse">
+          Rendering diagram after streaming completes...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative my-3 rounded-lg border border-border bg-card p-4 overflow-x-auto shadow-sm">
       <div className="absolute top-2 right-2 z-10">
@@ -177,9 +211,9 @@ const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code }) => {
   );
 };
 
-export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
+export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code, isStreaming = false }) => {
   if (isChartDsl(code)) {
     return <RechartsViewer code={code} />;
   }
-  return <MermaidDiagramViewer code={code} />;
+  return <MermaidDiagramViewer code={code} isStreaming={isStreaming} />;
 };

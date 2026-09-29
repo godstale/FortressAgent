@@ -12,6 +12,8 @@ import {
   getModelArchitectureInfo,
   getSystemGpuInfo,
   calculateEstimatedKvCacheBytes,
+  calculateHybridKvCacheBytes,
+  kvBytesPerElementForQuant,
 } from '@/lib/llm/ollamaClient';
 import { saveMonitoringSnapshot, saveConversationSummary } from '@/lib/db/repositories/monitoringRepo';
 import { appLogger } from '@/lib/logger/logger';
@@ -441,37 +443,93 @@ class MonitoringCollectorService {
         runningModels = cachedRunning.models;
       }
 
-      // Match current agent model
+      // Match current agent model: exact first, then tag-insensitive exact.
+      // Prefix startsWith caused qwen3.5:35b-mlx to match a wrong qwen3.5:*
+      // resident when several tags share a base name.
       const agentModelName = agent.model.trim();
-      const matchedRunning = runningModels.find(
-        (m) =>
-          m.name === agentModelName ||
-          m.model === agentModelName ||
-          m.name.startsWith(agentModelName.split(':')[0]) ||
-          agentModelName.startsWith(m.name.split(':')[0]),
+      const stripTag = (s: string) => s.split(':')[0].toLowerCase();
+      const exact = runningModels.find(
+        (m) => m.name === agentModelName || m.model === agentModelName,
       );
+      const baseExact = runningModels.find(
+        (m) =>
+          stripTag(m.name) === stripTag(agentModelName) &&
+          stripTag(m.model || '') !== '' &&
+          (m.name.toLowerCase() === agentModelName.toLowerCase() ||
+            stripTag(m.name) === stripTag(agentModelName)),
+      );
+      const matchedRunning =
+        exact ??
+        runningModels.find(
+          (m) =>
+            m.name.toLowerCase() === agentModelName.toLowerCase() ||
+            (m.model || '').toLowerCase() === agentModelName.toLowerCase(),
+        ) ??
+        baseExact ??
+        (runningModels.length === 1 ? runningModels[0] : undefined);
 
       // 4. Query or use cached architecture
       const arch = await this.getArchitectureCached(baseUrl, agent.model);
 
+      // Apple unified memory (Rust mirrors the whole pool as VRAM): every
+      // resident byte counts as VRAM. size_vram==0 on some Metal builds, so
+      // attribute the full weight + KV estimate to VRAM in that case.
+      const isUnifiedMemory =
+        /apple/i.test(gpuInfo.gpuName || '') ||
+        (!gpuInfo.isNvidia &&
+          gpuInfo.vramTotalMb > 0 &&
+          gpuInfo.vramTotalMb === gpuInfo.systemMemoryTotalMb);
+
       // 5. Memory breakdown & CPU/GPU Offloading
       const modelWeightBytes = matchedRunning ? matchedRunning.size : 0;
-      const vramAllocatedBytes = matchedRunning ? matchedRunning.size_vram : 0;
+      const reportedVramBytes = matchedRunning ? matchedRunning.size_vram : 0;
+      const vramAllocatedBytes = isUnifiedMemory
+        ? modelWeightBytes
+        : reportedVramBytes;
       const gpuOffloadPct =
         modelWeightBytes > 0
-          ? Math.min(100, Number(((vramAllocatedBytes / modelWeightBytes) * 100).toFixed(1)))
+          ? isUnifiedMemory
+            ? 100
+            : Math.min(100, Number(((vramAllocatedBytes / modelWeightBytes) * 100).toFixed(1)))
           : 0;
 
       // 5. Calculate KV cache size (GQA-aware actual + MHA reference for comparison)
-      const targetContextSize = agent.contextSize > 0 ? agent.contextSize : 8192;
+      // 5. Calculate KV cache size (GQA-aware actual + MHA reference for comparison)
+      // Clamp to the model's own context limit so an 8K agent default never
+      // inflates a 4K model's estimate; quant-aware element size.
+      // Hybrid (SSM+attention, e.g. qwen3.5:9b) models use attention on a
+      // subset of layers only, so estimate from summed per-layer KV heads
+      // (about 2.1GB at 64k) instead of the full-layer formula.
+      const agentCtx = agent.contextSize > 0 ? agent.contextSize : 8192;
+      const targetContextSize = arch?.contextLimit
+        ? Math.min(agentCtx, arch.contextLimit)
+        : agentCtx;
+      const kvBytesPerElement = kvBytesPerElementForQuant(
+        arch?.quantizationLevel || '',
+      );
+      const explicitHeadDim = arch?.headDim ?? 0;
+      const derivedHeadDim =
+        arch && arch.headCount > 0 && arch.embeddingLength > 0
+          ? Math.round(arch.embeddingLength / arch.headCount)
+          : 0;
+      const headDim = explicitHeadDim > 0 ? explicitHeadDim : derivedHeadDim;
       const kvCacheGqaBytes = arch
-        ? calculateEstimatedKvCacheBytes(
-            arch.blockCount,
-            arch.headCountKv,
-            arch.embeddingLength,
-            arch.headCount,
-            targetContextSize,
-          )
+        ? arch.attentionLayers > 0 && arch.kvHeadsTotal > 0 && headDim > 0
+          ? calculateHybridKvCacheBytes(
+              arch.kvHeadsTotal,
+              headDim,
+              targetContextSize,
+              kvBytesPerElement,
+            )
+          : calculateEstimatedKvCacheBytes(
+              arch.blockCount,
+              arch.headCountKv,
+              arch.embeddingLength,
+              arch.headCount,
+              targetContextSize,
+              kvBytesPerElement,
+              headDim,
+            )
         : 0;
       const kvCacheMhaBytes = arch
         ? calculateEstimatedKvCacheBytes(
@@ -480,11 +538,15 @@ class MonitoringCollectorService {
             arch.embeddingLength,
             arch.headCount,
             targetContextSize,
+            kvBytesPerElement,
+            headDim,
           )
         : 0;
       const kvCacheBytes = kvCacheGqaBytes;
       const offloadRatio = gpuOffloadPct / 100;
-      const kvVramBytes = Math.round(kvCacheGqaBytes * offloadRatio);
+      const kvVramBytes = isUnifiedMemory
+        ? kvCacheGqaBytes
+        : Math.round(kvCacheGqaBytes * offloadRatio);
       const kvRamBytes = kvCacheGqaBytes - kvVramBytes;
       const modelVramBytes = vramAllocatedBytes;
       const modelRamBytes = Math.max(0, modelWeightBytes - vramAllocatedBytes);
@@ -523,7 +585,7 @@ class MonitoringCollectorService {
         llmModel: agent.model,
         llmArchitecture: arch?.architecture || 'unknown',
         llmParameterSize: arch?.parameterSize || '',
-        contextSize: targetContextSize,
+        contextSize: agentCtx,
         contextLimit: arch?.contextLimit || 8192,
         modelWeightBytes,
         vramAllocatedBytes,
@@ -550,6 +612,13 @@ class MonitoringCollectorService {
           headCountKv: arch?.headCountKv ?? 0,
           embeddingLength: arch?.embeddingLength ?? 0,
           feedForwardLength: arch?.feedForwardLength ?? 0,
+          attentionKind: arch?.attentionKind ?? 'unknown',
+          attentionLayers: arch?.attentionLayers ?? 0,
+          kvHeadsTotal: arch?.kvHeadsTotal ?? 0,
+          headDim: arch?.headDim ?? 0,
+          kvContextTokens: targetContextSize,
+          kvBytesPerElement,
+          isUnifiedMemory,
           quantizationLevel: arch?.quantizationLevel ?? '',
           format: arch?.format ?? 'gguf',
           parameterCount: arch?.parameterCount ?? 0,

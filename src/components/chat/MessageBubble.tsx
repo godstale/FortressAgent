@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain, Clock, AlertCircle, Info, Settings2, BookmarkPlus } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import type { AgentMessage } from '@/lib/agent/types';
+import { SYSTEM_AUTO_GUIDE_PREFIX } from '@/lib/agent/types';
 import { dispatchSaveEvalCase } from '@/lib/eval/personal/caseBuilder';
 import type { ChatConfigSnapshot } from '@/lib/types/agent';
+import { DEFAULT_TEMPERATURE } from '@/lib/types/agent';
 import { getProviderPreset } from '@/lib/llm/providers';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { ToolCallCard } from './ToolCallCard';
@@ -32,7 +34,7 @@ function ConfigSnapshotRows({ snapshot }: { snapshot: ChatConfigSnapshot }) {
   const rows: Array<[string, string]> = [
     [t('chat.configModel'), `${snapshot.agentName} • ${snapshot.model}`],
     [t('chat.configProvider'), providerLabel],
-    [t('chat.configTemperature'), String(snapshot.temperature ?? 0.7)],
+    [t('chat.configTemperature'), String(snapshot.temperature ?? DEFAULT_TEMPERATURE)],
     [t('chat.configContextSize'), `${(snapshot.contextSize || 8192).toLocaleString()} tokens`],
     [t('chat.configReasoning'), snapshot.reasoning],
     [t('chat.configEffort'), snapshot.reasoningEffort],
@@ -55,7 +57,7 @@ function ConfigSnapshotRows({ snapshot }: { snapshot: ChatConfigSnapshot }) {
   );
 }
 
-export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, isStreaming, fallbackConfig }: MessageBubbleProps) {
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
@@ -87,6 +89,19 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
                 <span>{message.content || t('chat.configChanged')}</span>
               </div>
               <ConfigSnapshotRows snapshot={message.config} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    // LLM 턴 중간의 자동 복구 안내는 파란 유저 말풍선이 아닌 별색 시스템 말풍선으로 표시한다.
+    if (message.content.startsWith(SYSTEM_AUTO_GUIDE_PREFIX)) {
+      return (
+        <div className="py-2 flex justify-center w-full">
+          <div className="max-w-3xl w-full px-4">
+            <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-foreground">
+              <Info className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <p className="whitespace-pre-wrap leading-relaxed select-text">{message.content}</p>
             </div>
           </div>
         </div>
@@ -267,12 +282,12 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
 
               {/* Final Markdown content */}
               {message.content ? (
-                <div className="relative text-sm text-foreground leading-relaxed prose prose-sm dark:prose-invert max-w-none break-words">
+                <div className="chat-markdown relative text-sm text-foreground leading-relaxed max-w-none break-words">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       code({ className, children, ...props }) {
-                        const match = /language-(\w+)/.exec(className || '');
+                        const match = /language-([\w+#-]+)/.exec(className || '');
                         const language = match ? match[1].toLowerCase() : '';
                         const codeString = String(children).replace(/\n$/, '');
                         const isInline = !match && !codeString.includes('\n');
@@ -286,7 +301,7 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
                         }
 
                         if (language === 'mermaid') {
-                          return <MermaidViewer code={codeString} />;
+                          return <MermaidViewer code={codeString} isStreaming={isStreaming} />;
                         }
 
                         if (isInline) {
@@ -305,6 +320,14 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
                             code={codeString}
                             language={language || 'text'}
                           />
+                        );
+                      },
+                      // GFM tables need explicit styling (no typography plugin).
+                      table({ children, ...props }) {
+                        return (
+                          <div className="overflow-x-auto">
+                            <table {...props}>{children}</table>
+                          </div>
                         );
                       },
                       a({ href, children, ...props }) {
@@ -390,4 +413,4 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
       )}
     </div>
   );
-}
+});

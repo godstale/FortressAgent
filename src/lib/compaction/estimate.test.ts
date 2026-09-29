@@ -18,11 +18,32 @@ describe('compaction settings & token estimation (P4-06)', () => {
       expect(clamp(5000.4, 1024, 16384)).toBe(5000);
     });
 
-    it('derives 25% reserve and 35% keepRecent for default 8192 context', () => {
+    it('derives stepwise reserve/keep for default 8192 context (8K→2K/1K)', () => {
       const res = resolveCompactionSettings();
       expect(res.contextSize).toBe(8192);
-      expect(res.reserveTokens).toBe(2048); // 8192 * 0.25 = 2048
-      expect(res.keepRecentTokens).toBe(2867); // 8192 * 0.35 = 2867.2 -> 2867
+      expect(res.reserveTokens).toBe(2048);
+      expect(res.keepRecentTokens).toBe(1024);
+    });
+
+    it('derives stepwise budgets across context tiers', () => {
+      expect(
+        resolveCompactionSettings({ contextSize: 16384 }),
+      ).toMatchObject({ reserveTokens: 4096, keepRecentTokens: 2048 });
+      expect(
+        resolveCompactionSettings({ contextSize: 24576 }),
+      ).toMatchObject({ reserveTokens: 6144, keepRecentTokens: 4096 });
+      expect(
+        resolveCompactionSettings({ contextSize: 32768 }),
+      ).toMatchObject({ reserveTokens: 8192, keepRecentTokens: 8192 });
+    });
+
+    it('prefers global defaults over the step table when set', () => {
+      const res = resolveCompactionSettings(
+        { contextSize: 8192 },
+        { defaultReserveTokens: 3000, defaultKeepRecentTokens: 1500 },
+      );
+      expect(res.reserveTokens).toBe(3000);
+      expect(res.keepRecentTokens).toBe(1500);
     });
 
     it('preserves user-specified non-zero values', () => {
@@ -36,14 +57,12 @@ describe('compaction settings & token estimation (P4-06)', () => {
       expect(res.keepRecentTokens).toBe(6000);
     });
 
-    it('clamps upper bounds for very large context models', () => {
+    it('caps budgets at 8K/8K for very large context models', () => {
       const res = resolveCompactionSettings({
         contextSize: 131072, // 128k
       });
-      // 128k * 0.25 = 32768, clamped to 16384
-      expect(res.reserveTokens).toBe(16384);
-      // 128k * 0.35 = 45875, clamped to 20000
-      expect(res.keepRecentTokens).toBe(20000);
+      expect(res.reserveTokens).toBe(8192);
+      expect(res.keepRecentTokens).toBe(8192);
     });
   });
 

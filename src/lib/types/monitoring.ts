@@ -34,10 +34,21 @@ export interface OllamaModelArchitectureInfo {
   headCount: number;
   headCountKv: number;
   feedForwardLength: number;
+  /** Q/KV 헤드 구성에서 판정한 어텐션 알고리즘. */
+  attentionKind: AttentionKind;
+  /** 하이브리드 모델의 실제 어텐션 레이어 수 (KV 헤드>0인 레이어). */
+  attentionLayers: number;
+  /** 하이브리드 모델의 전 레이어 KV 헤드 합 (KV 캐시 추정에 사용). */
+  kvHeadsTotal: number;
+  /** Per-head dimension when /api/show exposes it (else derived). */
+  headDim?: number;
   quantizationLevel: string;
   format: string;
   rawModelInfo?: Record<string, unknown>;
 }
+
+/** Q/KV 헤드 구성에서 판정한 어텐션 알고리즘. */
+export type AttentionKind = 'MHA' | 'GQA' | 'MQA' | 'hybrid' | 'unknown';
 
 export type AgentOperationalStatus =
   | 'idle'

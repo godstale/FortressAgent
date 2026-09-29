@@ -284,5 +284,130 @@ describe('ChatInput component', () => {
       evalLock.release('run-1');
     }
   });
+
+  it('recalls the previous prompt with ArrowUp and restores draft with ArrowDown', () => {
+    window.localStorage.removeItem('fortress:prompt-history');
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox');
+    fireEvent.change(textarea, { target: { value: 'first prompt' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    fireEvent.change(textarea, { target: { value: 'second prompt' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledTimes(2);
+
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    expect(textarea).toHaveValue('second prompt');
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    expect(textarea).toHaveValue('first prompt');
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(textarea).toHaveValue('second prompt');
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(textarea).toHaveValue('');
+    window.localStorage.removeItem('fortress:prompt-history');
+  });
+
+  it('renders save/load macro buttons before the context gauge', () => {
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+        contextUsage={{ tokens: 10, limit: 8192 }}
+        onSaveLog={vi.fn()}
+        onLoadLog={vi.fn()}
+        canSaveLog
+        hasSavedLog={false}
+      />,
+    );
+
+    expect(screen.getByLabelText('매크로 저장')).toBeEnabled();
+    expect(screen.getByLabelText('매크로 불러오기')).toBeDisabled();
+  });
+
+  it('navigates history from the first line of a multiline input, keeps native caret motion inside', () => {
+    window.localStorage.removeItem('fortress:prompt-history');
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'first prompt' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    fireEvent.change(textarea, { target: { value: 'second prompt' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledTimes(2);
+
+    // Multiline draft: caret on the second line keeps native behavior.
+    fireEvent.change(textarea, { target: { value: 'line1\nline2' } });
+    textarea.selectionStart = textarea.selectionEnd = 'line1\nline2'.length;
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    expect(textarea).toHaveValue('line1\nline2');
+
+    // Caret on the first line recalls the latest sent prompt, keeping the draft.
+    textarea.selectionStart = textarea.selectionEnd = 2;
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    expect(textarea).toHaveValue('second prompt');
+
+    // ArrowDown past the end restores the multiline draft.
+    textarea.selectionStart = textarea.selectionEnd = 'second prompt'.length;
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(textarea).toHaveValue('line1\nline2');
+    window.localStorage.removeItem('fortress:prompt-history');
+  });
+
+  it('keeps prompt history scoped per chat session', () => {
+    window.localStorage.removeItem('fortress:prompt-history:session-a');
+    window.localStorage.removeItem('fortress:prompt-history:session-b');
+    const onSend = vi.fn();
+    const { unmount } = render(
+      <ChatInput
+        onSend={onSend}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+        sessionId="session-a"
+      />,
+    );
+
+    const textareaA = screen.getByRole('textbox');
+    fireEvent.change(textareaA, { target: { value: 'prompt in chat A' } });
+    fireEvent.keyDown(textareaA, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('prompt in chat A');
+    unmount();
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+        sessionId="session-b"
+      />,
+    );
+
+    // 다른 채팅창에서는 A의 히스토리가 조회되지 않아야 한다.
+    const textareaB = screen.getByRole('textbox');
+    fireEvent.keyDown(textareaB, { key: 'ArrowUp' });
+    expect(textareaB).toHaveValue('');
+
+    window.localStorage.removeItem('fortress:prompt-history:session-a');
+    window.localStorage.removeItem('fortress:prompt-history:session-b');
+  });
 });
 

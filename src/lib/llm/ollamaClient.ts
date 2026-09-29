@@ -1,5 +1,5 @@
 import type { TokenUsage } from '@/lib/agent/types';
-import type { LlmPerformanceMetrics } from '@/lib/types/monitoring';
+import type { AttentionKind, LlmPerformanceMetrics } from '@/lib/types/monitoring';
 import {
   TauriHttpStatusError,
   decodeFetchBodyStream,
@@ -521,32 +521,131 @@ export async function getModelArchitectureInfo(
     const data = await fetchShowPayload(host, model);
 
     const info = data.model_info || {};
-    const arch = (info['general.architecture'] as string) || data.details?.family || 'unknown';
-    let paramSize = (data.details?.parameter_size as string) || (info['general.size_label'] as string) || '';
+    // Never confuse vision-tower (qwen*.vision.*) keys with text-tower keys.
+    // The old last-wins loop picked vision.block_count/embedding_length, and
+    // scalar-only reads of the head_count_kv array fabricated Q heads (fake MHA).
+    // Keys are lowercased and MLX/custom-build aliases are covered.
+    const lowerEntries: Array<[string, unknown]> = Object.entries(info)
+      .filter(([k]) => !k.toLowerCase().includes('.vision.'))
+      .map(([k, v]) => [k.toLowerCase(), v]);
+    const findNumber = (aliases: string[]): number => {
+      for (const alias of aliases) {
+        for (const [key, val] of lowerEntries) {
+          if (typeof val === 'number' && Number.isFinite(val) && key.endsWith(alias)) {
+            return val;
+          }
+          // Some Ollama/MLX builds stringify numerics.
+          if (typeof val === 'string' && key.endsWith(alias)) {
+            const n = Number(val);
+            if (Number.isFinite(n) && n > 0) return n;
+          }
+        }
+      }
+      return 0;
+    };
+    // Hybrid (SSM+attention) models report head_count_kv as a per-layer
+    // array (e.g. qwen3.5:9b = [0,0,0,4]x8 - 8 of 32 layers use attention).
+    const findNumberArray = (aliases: string[]): number[] | null => {
+      for (const alias of aliases) {
+        for (const [key, val] of lowerEntries) {
+          if (Array.isArray(val) && key.endsWith(alias)) {
+            const nums = val.filter(
+              (v): v is number => typeof v === 'number' && Number.isFinite(v),
+            );
+            if (nums.length > 0) return nums;
+          }
+        }
+      }
+      return null;
+    };
+    const archRaw =
+      (info['general.architecture'] as string) ||
+      (info['general.arch'] as string) ||
+      data.details?.family ||
+      'unknown';
+    const arch = typeof archRaw === 'string' ? archRaw : 'unknown';
+    let paramSize =
+      (data.details?.parameter_size as string) ||
+      (info['general.size_label'] as string) ||
+      '';
     const paramCount = (info['general.parameter_count'] as number) || 0;
-    let contextLimit = 4096;
-    let blockCount = 0;
-    let embeddingLength = 0;
-    let headCount = 0;
-    let headCountKv = 0;
-    let feedForwardLength = 0;
+    // GGUF uses *.context_length / *.block_count / *.embedding_length ...;
+    // MLX-converted and custom builds may use hidden_size / num_layers /
+    // num_attention_heads / num_key_value_heads aliases instead.
+    const contextLimit =
+      findNumber(['.context_length', '.max_position_embeddings', '.max_sequence_length']) ||
+      4096;
+    const blockCount = findNumber([
+      '.block_count',
+      '.num_layers',
+      '.n_layer',
+      '.num_hidden_layers',
+      '.layer_count',
+    ]);
+    const embeddingLength = findNumber([
+      '.embedding_length',
+      '.hidden_size',
+      '.n_embd',
+      '.model_dim',
+    ]);
+    const headCount = findNumber([
+      '.attention.head_count',
+      '.num_attention_heads',
+      '.n_head',
+      '.attention_heads',
+    ]);
+    const headCountKvScalar = findNumber([
+      '.attention.head_count_kv',
+      '.num_key_value_heads',
+      '.n_head_kv',
+      '.kv_heads',
+      '.attention.kv_heads',
+    ]);
+    const feedForwardLength = findNumber([
+      '.feed_forward_length',
+      '.feedforward_length',
+      '.intermediate_size',
+      '.ffn_hidden_size',
+      '.n_inner',
+    ]);
+    const headDim = findNumber([
+      '.attention.head_dim',
+      '.attention.key_length',
+      '.head_dim',
+      '.key_length',
+    ]);
     const quantLevel = (data.details?.quantization_level as string) || '';
     const format = (data.details?.format as string) || 'gguf';
 
-    for (const [key, val] of Object.entries(info)) {
-      if (typeof val === 'number') {
-        if (key.endsWith('.context_length')) contextLimit = val;
-        else if (key.endsWith('.block_count')) blockCount = val;
-        else if (key.endsWith('.embedding_length')) embeddingLength = val;
-        else if (key.endsWith('.feed_forward_length')) feedForwardLength = val;
-        else if (key.endsWith('.attention.head_count_kv')) headCountKv = val;
-        else if (key.endsWith('.attention.head_count')) headCount = val;
-      }
-    }
+    const kvHeadsPerLayer =
+      headCountKvScalar > 0
+        ? null
+        : findNumberArray(['.attention.head_count_kv', '.num_key_value_heads']);
+    const attentionLayers = kvHeadsPerLayer
+      ? kvHeadsPerLayer.filter((v) => v > 0).length
+      : 0;
+    const kvHeadsTotal = kvHeadsPerLayer
+      ? kvHeadsPerLayer.reduce((sum, v) => sum + Math.max(0, v), 0)
+      : 0;
+    const isHybridAttention =
+      kvHeadsPerLayer !== null &&
+      attentionLayers > 0 &&
+      attentionLayers < kvHeadsPerLayer.length;
+    // Display KV heads = per-attention-layer KV heads (max). Scalar models as-is.
+    // Unknown KV info stays 0 ('unknown') - never fabricate from Q heads.
+    const headCountKv = isHybridAttention
+      ? Math.max(...(kvHeadsPerLayer as number[]).filter((v) => v > 0))
+      : headCountKvScalar;
 
-    if (!headCountKv && headCount) {
-      headCountKv = headCount;
-    }
+    const attentionKind: AttentionKind = isHybridAttention
+      ? 'hybrid'
+      : headCountKv <= 0 || headCount <= 0
+        ? 'unknown'
+        : headCountKv === 1
+          ? 'MQA'
+          : headCountKv === headCount
+            ? 'MHA'
+            : 'GQA';
 
     if (!paramSize && paramCount > 0) {
       paramSize = `${(paramCount / 1e9).toFixed(1)}B`;
@@ -562,6 +661,10 @@ export async function getModelArchitectureInfo(
       headCount,
       headCountKv,
       feedForwardLength,
+      attentionKind,
+      attentionLayers,
+      kvHeadsTotal,
+      headDim: headDim || undefined,
       quantizationLevel: quantLevel,
       format,
       rawModelInfo: info,
@@ -584,13 +687,52 @@ export function calculateEstimatedKvCacheBytes(
   headCount: number,
   contextTokens: number,
   bytesPerElement = 2,
+  headDimOverride = 0,
 ): number {
   if (!layers || !contextTokens) return 0;
+  if (!layers || !contextTokens) return 0;
+  // With unknown KV heads (0) do not fabricate MHA - return 0 ('calculating').
+  // Without hidden size / head counts the GQA formula degenerates into
+  // 32-head/128-dim defaults that render bogus GB values, so return 0 too.
+  if (!headCountKv) return 0;
+  if (!embeddingLength && !headDimOverride) return 0;
   const hCount = headCount || 32;
-  const kvHeads = headCountKv || hCount;
-  const headDim = embeddingLength > 0 ? Math.round(embeddingLength / hCount) : 128;
+  const kvHeads = headCountKv;
+  const headDim =
+    headDimOverride > 0
+      ? headDimOverride
+      : embeddingLength > 0
+        ? Math.round(embeddingLength / hCount)
+        : 128;
+  if (!headDim) return 0;
   // 2 (key & value) * layers * kv_heads * head_dim * context_tokens * bytesPerElement
   return 2 * layers * kvHeads * headDim * contextTokens * bytesPerElement;
+}
+
+/**
+ * Hybrid (SSM+attention) KV cache estimate.
+ * Attention lives on a subset of layers, so take the summed per-layer KV
+ * heads directly instead of a layer count.
+ * (e.g. qwen3.5:9b - 8 layers x 4 KV heads x dim 256 x 64k x F16 = ~2.1GB)
+ */
+export function calculateHybridKvCacheBytes(
+  kvHeadsTotal: number,
+  headDim: number,
+  contextTokens: number,
+  bytesPerElement = 2,
+): number {
+  if (!kvHeadsTotal || !headDim || !contextTokens) return 0;
+  return 2 * kvHeadsTotal * headDim * contextTokens * bytesPerElement;
+}
+
+/**
+ * KV cache element size heuristic. Ollama keeps KV in F16 by default
+ * (flash attention may use Q8_0); quantized weight levels don't shrink it.
+ */
+export function kvBytesPerElementForQuant(quantizationLevel: string): number {
+  const q = quantizationLevel.toLowerCase();
+  if (q.includes('q8')) return 1;
+  return 2;
 }
 
 export async function getSystemGpuInfo(): Promise<import('@/lib/types/monitoring').SystemGpuInfo> {
