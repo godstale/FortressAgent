@@ -637,6 +637,7 @@ const ko: Dict = {
   'monitor.gpuShare': 'GPU 점유율',
   'monitor.gpuShareUnit': 'GPU 점유율 (%)',
   'monitor.vram': 'VRAM 메모리',
+  'monitor.unified': '통합 메모리',
   'monitor.vramUsage': 'VRAM 사용량 (GB)',
   'monitor.vramUsageShort': 'VRAM 사용량',
   'monitor.freeMemory': '여유 메모리',

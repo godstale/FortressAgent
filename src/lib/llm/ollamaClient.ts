@@ -521,28 +521,82 @@ export async function getModelArchitectureInfo(
     const data = await fetchShowPayload(host, model);
 
     const info = data.model_info || {};
-    const arch = (info['general.architecture'] as string) || data.details?.family || 'unknown';
-    let paramSize = (data.details?.parameter_size as string) || (info['general.size_label'] as string) || '';
+    const lowerEntries: Array<[string, unknown]> = Object.entries(info).map(
+      ([k, v]) => [k.toLowerCase(), v],
+    );
+    const findNumber = (aliases: string[]): number => {
+      for (const alias of aliases) {
+        for (const [key, val] of lowerEntries) {
+          if (typeof val === 'number' && Number.isFinite(val) && key.endsWith(alias)) {
+            return val;
+          }
+          // Some Ollama/MLX builds stringify numerics.
+          if (typeof val === 'string' && key.endsWith(alias)) {
+            const n = Number(val);
+            if (Number.isFinite(n) && n > 0) return n;
+          }
+        }
+      }
+      return 0;
+    };
+    const archRaw =
+      (info['general.architecture'] as string) ||
+      (info['general.arch'] as string) ||
+      data.details?.family ||
+      'unknown';
+    const arch = typeof archRaw === 'string' ? archRaw : 'unknown';
+    let paramSize =
+      (data.details?.parameter_size as string) ||
+      (info['general.size_label'] as string) ||
+      '';
     const paramCount = (info['general.parameter_count'] as number) || 0;
-    let contextLimit = 4096;
-    let blockCount = 0;
-    let embeddingLength = 0;
-    let headCount = 0;
-    let headCountKv = 0;
-    let feedForwardLength = 0;
+    // GGUF uses *.context_length / *.block_count / *.embedding_length ...;
+    // MLX-converted and custom builds may use hidden_size / num_layers /
+    // num_attention_heads / num_key_value_heads aliases instead.
+    const contextLimit =
+      findNumber(['.context_length', '.max_position_embeddings', '.max_sequence_length']) ||
+      4096;
+    const blockCount = findNumber([
+      '.block_count',
+      '.num_layers',
+      '.n_layer',
+      '.num_hidden_layers',
+      '.layer_count',
+    ]);
+    const embeddingLength = findNumber([
+      '.embedding_length',
+      '.hidden_size',
+      '.n_embd',
+      '.model_dim',
+    ]);
+    const headCount = findNumber([
+      '.attention.head_count',
+      '.num_attention_heads',
+      '.n_head',
+      '.attention_heads',
+    ]);
+    let headCountKv = findNumber([
+      '.attention.head_count_kv',
+      '.num_key_value_heads',
+      '.n_head_kv',
+      '.kv_heads',
+      '.attention.kv_heads',
+    ]);
+    const feedForwardLength = findNumber([
+      '.feed_forward_length',
+      '.feedforward_length',
+      '.intermediate_size',
+      '.ffn_hidden_size',
+      '.n_inner',
+    ]);
+    const headDim = findNumber([
+      '.attention.head_dim',
+      '.attention.key_length',
+      '.head_dim',
+      '.key_length',
+    ]);
     const quantLevel = (data.details?.quantization_level as string) || '';
     const format = (data.details?.format as string) || 'gguf';
-
-    for (const [key, val] of Object.entries(info)) {
-      if (typeof val === 'number') {
-        if (key.endsWith('.context_length')) contextLimit = val;
-        else if (key.endsWith('.block_count')) blockCount = val;
-        else if (key.endsWith('.embedding_length')) embeddingLength = val;
-        else if (key.endsWith('.feed_forward_length')) feedForwardLength = val;
-        else if (key.endsWith('.attention.head_count_kv')) headCountKv = val;
-        else if (key.endsWith('.attention.head_count')) headCount = val;
-      }
-    }
 
     if (!headCountKv && headCount) {
       headCountKv = headCount;
@@ -562,6 +616,7 @@ export async function getModelArchitectureInfo(
       headCount,
       headCountKv,
       feedForwardLength,
+      headDim: headDim || undefined,
       quantizationLevel: quantLevel,
       format,
       rawModelInfo: info,
@@ -584,13 +639,35 @@ export function calculateEstimatedKvCacheBytes(
   headCount: number,
   contextTokens: number,
   bytesPerElement = 2,
+  headDimOverride = 0,
 ): number {
   if (!layers || !contextTokens) return 0;
+  // Without hidden size / head counts the GQA formula degenerates into
+  // 32-head/128-dim defaults that render bogus GB values (e.g. MLX models
+  // whose /api/show lacks these keys). Return 0 so the UI shows "—".
+  if (!embeddingLength && !headDimOverride) return 0;
+  if (!headCount && !headCountKv) return 0;
   const hCount = headCount || 32;
   const kvHeads = headCountKv || hCount;
-  const headDim = embeddingLength > 0 ? Math.round(embeddingLength / hCount) : 128;
+  const headDim =
+    headDimOverride > 0
+      ? headDimOverride
+      : embeddingLength > 0
+        ? Math.round(embeddingLength / hCount)
+        : 128;
+  if (!headDim) return 0;
   // 2 (key & value) * layers * kv_heads * head_dim * context_tokens * bytesPerElement
   return 2 * layers * kvHeads * headDim * contextTokens * bytesPerElement;
+}
+
+/**
+ * KV cache element size heuristic. Ollama keeps KV in F16 by default
+ * (flash attention may use Q8_0); quantized weight levels don't shrink it.
+ */
+export function kvBytesPerElementForQuant(quantizationLevel: string): number {
+  const q = quantizationLevel.toLowerCase();
+  if (q.includes('q8')) return 1;
+  return 2;
 }
 
 export async function getSystemGpuInfo(): Promise<import('@/lib/types/monitoring').SystemGpuInfo> {

@@ -34,6 +34,8 @@ export interface OllamaModelArchitectureInfo {
   headCount: number;
   headCountKv: number;
   feedForwardLength: number;
+  /** Per-head dimension when /api/show exposes it (else derived). */
+  headDim?: number;
   quantizationLevel: string;
   format: string;
   rawModelInfo?: Record<string, unknown>;

@@ -623,6 +623,7 @@ const en: Dict = {
   'monitor.gpuShare': 'GPU share',
   'monitor.gpuShareUnit': 'GPU share (%)',
   'monitor.vram': 'VRAM',
+  'monitor.unified': 'unified',
   'monitor.vramUsage': 'VRAM usage (GB)',
   'monitor.vramUsageShort': 'VRAM usage',
   'monitor.freeMemory': 'Free memory',

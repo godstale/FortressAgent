@@ -144,6 +144,110 @@ pub async fn get_system_gpu_info() -> Result<SystemGpuInfo, String> {
             }
         }
 
+        // macOS: sysctl hw.memsize (total) + vm_stat (free). Apple Silicon uses
+        // unified memory, so VRAM mirrors the system pool: total memory is shown
+        // as RAM, and the LLM-resident slice is shown as VRAM downstream.
+        #[cfg(target_os = "macos")]
+        {
+            if let Ok(out) = Command::new("sysctl").args(["-n", "hw.memsize"]).output() {
+                if out.status.success() {
+                    let total_bytes: u64 =
+                        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(0);
+                    if total_bytes > 0 {
+                        info.system_memory_total_mb = total_bytes / 1024 / 1024;
+                    }
+                }
+            }
+            let page_bytes: u64 = Command::new("sysctl")
+                .args(["-n", "hw.pagesize"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        String::from_utf8_lossy(&o.stdout).trim().parse().ok()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(16384);
+            if let Ok(out) = Command::new("vm_stat").output() {
+                if out.status.success() {
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    let mut free_pages: u64 = 0;
+                    let mut inactive_pages: u64 = 0;
+                    let mut speculative_pages: u64 = 0;
+                    for line in text.lines() {
+                        let line = line.trim();
+                        if let Some(rest) = line.strip_prefix("Pages free:") {
+                            free_pages = rest
+                                .trim()
+                                .trim_end_matches('.')
+                                .replace('.', "")
+                                .parse()
+                                .unwrap_or(0);
+                        } else if let Some(rest) = line.strip_prefix("Pages inactive:") {
+                            inactive_pages = rest
+                                .trim()
+                                .trim_end_matches('.')
+                                .replace('.', "")
+                                .parse()
+                                .unwrap_or(0);
+                        } else if let Some(rest) = line.strip_prefix("Pages speculative:") {
+                            speculative_pages = rest
+                                .trim()
+                                .trim_end_matches('.')
+                                .replace('.', "")
+                                .parse()
+                                .unwrap_or(0);
+                        }
+                    }
+                    let free_bytes =
+                        (free_pages + inactive_pages + speculative_pages) * page_bytes;
+                    if free_bytes > 0 {
+                        info.system_memory_free_mb = free_bytes / 1024 / 1024;
+                    } else if info.system_memory_total_mb > 0 {
+                        info.system_memory_free_mb = info.system_memory_total_mb;
+                    }
+                }
+            }
+            // Unified memory: expose the whole pool as VRAM so the LLM slice
+            // (model weights + KV from /api/ps) renders proportionally.
+            let is_apple_unified = info.gpu_name.to_lowercase().contains("apple");
+            if is_apple_unified && info.system_memory_total_mb > 0 {
+                info.vram_total_mb = info.system_memory_total_mb;
+                info.vram_free_mb = info.system_memory_free_mb;
+                info.vram_used_mb = info
+                    .system_memory_total_mb
+                    .saturating_sub(info.system_memory_free_mb);
+            }
+        }
+
+        // Linux: /proc/meminfo for RAM (MemTotal / MemAvailable fallback MemFree).
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(text) = std::fs::read_to_string("/proc/meminfo") {
+                let mut total_kb: u64 = 0;
+                let mut avail_kb: u64 = 0;
+                let mut free_kb: u64 = 0;
+                for line in text.lines() {
+                    let mut parts = line.split_whitespace();
+                    let key = parts.next().unwrap_or("");
+                    let val: u64 = parts.next().unwrap_or("0").parse().unwrap_or(0);
+                    match key {
+                        "MemTotal:" => total_kb = val,
+                        "MemAvailable:" => avail_kb = val,
+                        "MemFree:" => free_kb = val,
+                        _ => {}
+                    }
+                }
+                if total_kb > 0 {
+                    info.system_memory_total_mb = total_kb / 1024;
+                    let free = if avail_kb > 0 { avail_kb } else { free_kb };
+                    info.system_memory_free_mb = free / 1024;
+                }
+            }
+        }
+
         Ok(info)
     })
     .await
