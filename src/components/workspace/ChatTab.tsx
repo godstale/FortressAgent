@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Bot, Cpu, Sparkles, MessageSquare, Terminal, Zap, Layers, Activity } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import type { ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
-import { chatConfigSignature } from '@/lib/types/agent';
+import { chatConfigSignature, DEFAULT_TEMPERATURE } from '@/lib/types/agent';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
@@ -14,6 +14,14 @@ import { useChatQueue, chatQueueManager } from '@/lib/agent/chatQueueManager';
 import { ChatQueueFloatingDock } from '@/components/chat/ChatQueueFloatingDock';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput } from '@/components/chat/ChatInput';
+import { ChatMacroDialog } from '@/components/chat/ChatMacroDialog';
+import {
+  deleteChatMacro,
+  loadChatMacros,
+  migrateLegacySessionLog,
+  saveChatMacro,
+  type ChatMacro,
+} from '@/lib/chat/chatMacros';
 import { ChatExecutionLog } from '@/components/chat/ChatExecutionLog';
 import { ErrorBanner } from '@/components/chat/ErrorBanner';
 import { EvalLockBanner } from '@/components/eval/EvalLockBanner';
@@ -162,27 +170,51 @@ export function ChatTab({ tab }: ChatTabProps) {
     });
   }, [openTab, activeAgent.id, activeAgent.name, t]);
 
-  // Ensure session record exists in SQLite for stats and persistence tracking
+  // Session row is created lazily on first send (handleSendMessage), so opening
+  // a chat tab never registers it in the conversation list. Here we only
+  // restore the workspace root for existing sessions.
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       try {
         const existing = await sessionsRepo.getSession(sessionId);
-        if (!existing) {
-          await sessionsRepo.createSession({
-            id: sessionId,
-            agentId: activeAgent.id,
-            workspaceRoot: workspaceRoot ?? null,
-            title: tab.title || t('chatTab.newChat'),
-          });
-          await refreshSessions();
-        } else if (existing.workspaceRoot) {
+        if (!cancelled && existing?.workspaceRoot) {
           setSessionWorkspaceRoot(existing.workspaceRoot);
         }
       } catch (err) {
-        console.error('Failed to ensure session exists in DB:', err);
+        console.error('Failed to load session workspace root:', err);
       }
     })();
-  }, [sessionId, activeAgent.id, workspaceRoot, tab.title, refreshSessions, t]);
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  // If the tab closes (or app unmounts) without any message ever sent, make
+  // sure no empty history row survives. With lazy creation there is normally
+  // no DB row at all; this only covers legacy rows / races.
+  useEffect(() => {
+    return () => {
+      void (async () => {
+        try {
+          const existing = await sessionsRepo.getSession(sessionId);
+          if (!existing) return;
+          const { countEntries } = await import('@/lib/db/repositories/entriesRepo');
+          const n = await countEntries(sessionId);
+          if (n === 0) {
+            await sessionsRepo.deleteSession(sessionId);
+            try {
+              await refreshSessions();
+            } catch {
+              // ignore
+            }
+          }
+        } catch {
+          // ignore cleanup failure
+        }
+      })();
+    };
+  }, [sessionId, refreshSessions]);
 
   const effectiveCwd = workspaceRoot ?? sessionWorkspaceRoot ?? undefined;
 
@@ -212,6 +244,11 @@ export function ChatTab({ tab }: ChatTabProps) {
     // 구 Agent(Provider 미설정)는 전역 Ollama 주소를 그대로 사용한다.
     // Agent 고유 llmBaseUrl이 있으면 useChat 내부에서 그쪽이 우선한다.
     baseUrl: settings.ollamaBaseUrl,
+    globalCompactionDefaults: {
+      defaultContextSize: settings.defaultContextSize,
+      defaultReserveTokens: settings.defaultReserveTokens,
+      defaultKeepRecentTokens: settings.defaultKeepRecentTokens,
+    },
   });
 
   // 실행 설정이 바뀌면 채팅 중간에 안내를 표시한다.
@@ -307,7 +344,7 @@ export function ChatTab({ tab }: ChatTabProps) {
             `- **${t('chatTab.modelId')}**: \`${activeAgent.model}\`\n` +
             `- **${t('chatTab.approvalMode')}**: \`${yoloMode ? 'never (YOLO)' : activeAgent.approvalMode}\`\n` +
             `- **${t('chatTab.contextSize')}**: \`${(activeAgent.contextSize || 8192).toLocaleString()} tokens\`\n` +
-            `- **${t('chatTab.temperature')}**: \`${activeAgent.temperature ?? 0.7}\`\n` +
+            `- **${t('chatTab.temperature')}**: \`${activeAgent.temperature ?? DEFAULT_TEMPERATURE}\`\n` +
             `- **${t('chatTab.reasoning')}**: \`${activeAgent.reasoning ?? 'default'}\` / \`${activeAgent.reasoningEffort ?? 'medium'}\` → think: \`${String(effectiveThink ?? 'default')}\`\n` +
             `- **${t('chatTab.generation')}**: \`top-p ${activeAgent.topP ?? 'auto'} · top-k ${activeAgent.topK ?? 'auto'} · repeat ${activeAgent.repeatPenalty ?? 'auto'} · freq ${activeAgent.frequencyPenalty ?? 'auto'} · pres ${activeAgent.presencePenalty ?? 'auto'} · seed ${activeAgent.seed ?? 'auto'} · max ${activeAgent.maxOutputTokens ?? 'auto'}\`\n` +
             `- **${t('chatTab.enabledTools')}**: \`${(activeAgent.enabledBuiltinTools || []).join(', ')}\``,
@@ -507,6 +544,68 @@ export function ChatTab({ tab }: ChatTabProps) {
     [resumeQueue, dequeueItem, handleSlashCommand, handleSendMessage, isAgentDeleted],
   );
 
+  // Conversation macros: user prompts bundled into one auto-input unit.
+  // Load enqueues everything paused so the user reviews/runs via the queue dock.
+  const userPromptCount = messages.filter((m) => m.role === 'user').length;
+  const [macros, setMacros] = useState<ChatMacro[]>([]);
+  const [macroDialogOpen, setMacroDialogOpen] = useState(false);
+
+  useEffect(() => {
+    migrateLegacySessionLog(sessionId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate macro list on session switch
+    setMacros(loadChatMacros());
+  }, [sessionId]);
+
+  const handleSaveLog = useCallback(() => {
+    if (isAgentDeleted) return;
+    const items = messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content.trim())
+      .filter((s) => s.length > 0);
+    if (items.length === 0) return;
+    // 시스템 자동 안내 등은 role이 system이라 위 필터에서 이미 제외된다.
+    // 저장된 매크로는 프롬프트 히스토리(↑/↓)의 대상이 아니다.
+    const macro = saveChatMacro(items, { agentId: effectiveAgentId });
+    if (!macro) return;
+    setMacros(loadChatMacros());
+    injectInfoMessage(t('chatInput.macroSaved', { name: macro.name, n: items.length }));
+  }, [messages, effectiveAgentId, injectInfoMessage, t, isAgentDeleted]);
+
+  const handleLoadLog = useCallback(() => {
+    if (isAgentDeleted || evalLock.get()) return;
+    setMacros(loadChatMacros());
+    setMacroDialogOpen(true);
+  }, [isAgentDeleted]);
+
+  const handleSelectMacro = useCallback((macro: ChatMacro) => {
+    if (isAgentDeleted || evalLock.get()) return;
+    const items = macro.items.filter((s) => s.trim().length > 0);
+    if (items.length === 0) {
+      injectInfoMessage(t('chatInput.noSavedLog'));
+      return;
+    }
+    for (const itemText of items) {
+      const slashMatch = itemText.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
+      if (slashMatch) {
+        enqueue({
+          text: itemText,
+          type: 'slash_command',
+          commandName: slashMatch[1].toLowerCase(),
+          commandArgs: slashMatch[2]?.trim(),
+        });
+      } else {
+        enqueue({ text: itemText, type: 'message' });
+      }
+    }
+    pauseQueue();
+    setMacroDialogOpen(false);
+    injectInfoMessage(t('chatInput.logLoaded', { n: items.length }));
+  }, [enqueue, pauseQueue, injectInfoMessage, t, isAgentDeleted]);
+
+  const handleDeleteMacro = useCallback((id: string) => {
+    setMacros(deleteChatMacro(id));
+  }, []);
+
   useEffect(() => {
     return () => {
       chatQueueManager.setSessionRunning(sessionId, false);
@@ -659,6 +758,10 @@ export function ChatTab({ tab }: ChatTabProps) {
           onOpenCompactDialog={() => setCompactDialogOpen(true)}
           onSlashCommand={handleSlashCommand}
           onQueue={enqueue}
+          onSaveLog={handleSaveLog}
+          onLoadLog={handleLoadLog}
+          canSaveLog={userPromptCount > 0 && !isAgentDeleted}
+          hasSavedLog={macros.length > 0}
           isStreaming={isStreaming}
           isLockedByOtherSession={isLockedByOtherSession}
           isThisSessionBusy={isThisSessionBusy || isStreaming || queuedItems.length > 0}
@@ -672,6 +775,7 @@ export function ChatTab({ tab }: ChatTabProps) {
           onEffortOverrideChange={setEffortOverride}
           customHeight={customInputHeight ? Math.max(60, customInputHeight - 24) : null}
           isAgentDeleted={isAgentDeleted}
+          sessionId={sessionId}
         />
       </div>
 
@@ -745,6 +849,15 @@ export function ChatTab({ tab }: ChatTabProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Saved macro list: selecting one queues all of its prompts, deletion allowed */}
+      <ChatMacroDialog
+        open={macroDialogOpen}
+        onOpenChange={setMacroDialogOpen}
+        macros={macros}
+        onSelect={handleSelectMacro}
+        onDelete={handleDeleteMacro}
+      />
     </div>
   );
 }

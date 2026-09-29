@@ -1263,7 +1263,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
             <span className="text-muted-foreground text-[10px]">{t('monitor.params')}</span>
             <span className="font-mono text-[10px] font-semibold text-info truncate">
               {currentSnapshot?.llmParameterSize || '—'} (
-              {rawDetails.quantizationLevel ? String(rawDetails.quantizationLevel) : 'Q4_K'})
+              {rawDetails.quantizationLevel ? String(rawDetails.quantizationLevel) : '—'})
             </span>
           </div>
           <div className="text-[10px] text-muted-foreground truncate">
@@ -1488,6 +1488,7 @@ export function AgentMonitorTab({ tab }: { tab: WorkspaceTab }) {
               title={currentSnapshot?.gpuName}
             >
               {currentSnapshot?.gpuName}
+              {isUnifiedMemory ? ` (${t('monitor.unified')})` : ''}
             </span>
           </div>
 

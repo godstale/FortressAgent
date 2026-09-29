@@ -18,6 +18,7 @@ import {
   Activity,
 } from 'lucide-react';
 import type { Agent, ApprovalMode, BuiltinToolId, LlmProviderKind, ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
+import { DEFAULT_TEMPERATURE } from '@/lib/types/agent';
 import { Button } from '@/components/ui/button';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { useSafeSkills } from '@/lib/context/SkillsContext';
@@ -47,7 +48,7 @@ import {
   type GenerationParamKey,
 } from '@/lib/llm/generationParams';
 
-/** ?쇰꺼 ??[?] ?꾩씠肄??????꾩뿭 ?꾩?留??앹뾽怨??숈씪???뺥깭瑜??ъ슜?쒕떎. */
+/** [?] icon next to a label - same form as the app-wide help popup. */
 const ParamInfo: React.FC<{ help: string; label: string }> = ({ help, label }) => (
   <HelpTooltip title={label} description={help} />
 );
@@ -200,7 +201,6 @@ const ALL_BUILTIN_TOOLS: { id: BuiltinToolId; risk: string }[] = [
   { id: 'grep', risk: 'low' },
   { id: 'find', risk: 'low' },
   { id: 'shell', risk: 'critical' },
-  { id: 'wiki', risk: 'low' },
   { id: 'web_search', risk: 'low' },
   { id: 'web_fetch', risk: 'low' },
 ];
@@ -244,7 +244,16 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
     initialAgent?.systemPrompt || DEFAULT_INITIAL_PROMPT,
   );
   const [model, setModel] = useState(initialAgent?.model || '');
-  const [temperature, setTemperature] = useState(initialAgent?.temperature ?? 0.7);
+  const [temperature, setTemperature] = useState(
+    initialAgent?.temperature ?? settings.defaultTemperature ?? DEFAULT_TEMPERATURE,
+  );
+  const tempTouchedRef = useRef(initialAgent?.temperature !== undefined);
+  // Create mode: adopt the async-loaded global default until the user touches the slider.
+  useEffect(() => {
+    if (mode !== 'create' || initialAgent || tempTouchedRef.current) return;
+    const globalDefault = settings.defaultTemperature ?? DEFAULT_TEMPERATURE;
+    setTemperature((prev) => (prev === DEFAULT_TEMPERATURE ? globalDefault : prev));
+  }, [mode, initialAgent, settings.defaultTemperature]);
   // LLM Provider (기본 정보 카드 바로 아래 섹션)
   const [llmProvider, setLlmProvider] = useState<LlmProviderKind>(
     initialAgent?.llmProvider ?? 'ollama',
@@ -287,17 +296,18 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
   // 자동 모니터링: 대화 시작 시 자동으로 모니터링을 시작하고 LLM完了 시 중단한다 (기본 on).
   const [autoMonitor, setAutoMonitor] = useState(initialAgent?.autoMonitor ?? true);
   const [enabledBuiltinTools, setEnabledBuiltinTools] = useState<BuiltinToolId[]>(
-    initialAgent?.enabledBuiltinTools || [
-      'read',
-      'write',
-      'edit',
-      'ls',
-      'grep',
-      'find',
-      'wiki',
-      'web_search',
-      'web_fetch',
-    ],
+    initialAgent?.enabledBuiltinTools
+      ? initialAgent.enabledBuiltinTools.filter((t) => t !== 'wiki')
+      : [
+        'read',
+        'write',
+        'edit',
+        'ls',
+        'grep',
+        'find',
+        'web_search',
+        'web_fetch',
+      ],
   );
   const [enabledSkills, setEnabledSkills] = useState<string[]>(
     initialAgent?.enabledSkills || [],
@@ -623,12 +633,19 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
   // Derived budget preview
   const derivedBudget = useMemo(() => {
     const effectiveContextSize = contextSize > 0 ? contextSize : settings.defaultContextSize || 8192;
-    return resolveCompactionSettings({
-      contextSize: effectiveContextSize,
-      reserveTokens: reserveTokens > 0 ? reserveTokens : undefined,
-      keepRecentTokens: keepRecentTokens > 0 ? keepRecentTokens : undefined,
-    });
-  }, [contextSize, reserveTokens, keepRecentTokens, settings.defaultContextSize]);
+    return resolveCompactionSettings(
+      {
+        contextSize: effectiveContextSize,
+        reserveTokens: reserveTokens > 0 ? reserveTokens : undefined,
+        keepRecentTokens: keepRecentTokens > 0 ? keepRecentTokens : undefined,
+      },
+      {
+        defaultContextSize: settings.defaultContextSize,
+        defaultReserveTokens: settings.defaultReserveTokens,
+        defaultKeepRecentTokens: settings.defaultKeepRecentTokens,
+      },
+    );
+  }, [contextSize, reserveTokens, keepRecentTokens, settings.defaultContextSize, settings.defaultReserveTokens, settings.defaultKeepRecentTokens]);
 
   // Cross-validation: enabled skills require 'read' tool
   const showReadToolWarning =
@@ -1158,10 +1175,13 @@ export const AgentEditorForm: React.FC<AgentEditorFormProps> = ({
           <input
             type="range"
             min="0.0"
-            max="1.0"
+            max="2.0"
             step="0.05"
             value={temperature}
-            onChange={(e) => setTemperature(parseFloat(e.target.value))}
+            onChange={(e) => {
+              tempTouchedRef.current = true;
+              setTemperature(parseFloat(e.target.value));
+            }}
             className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary mt-2"
           />
         </div>

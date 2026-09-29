@@ -40,6 +40,8 @@ export interface OllamaModelArchitectureInfo {
   attentionLayers: number;
   /** 하이브리드 모델의 전 레이어 KV 헤드 합 (KV 캐시 추정에 사용). */
   kvHeadsTotal: number;
+  /** Per-head dimension when /api/show exposes it (else derived). */
+  headDim?: number;
   quantizationLevel: string;
   format: string;
   rawModelInfo?: Record<string, unknown>;

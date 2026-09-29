@@ -52,6 +52,12 @@ export interface AppSettings {
   language: string;
   ollamaBaseUrl: string;
   defaultContextSize: number;
+  /** 새 에이전트의 temperature 기본값 (기본 0.2). */
+  defaultTemperature: number;
+  /** 전역 압축 여유분 기본값. 0이면 컨텍스트 크기별 단계표(auto)를 쓴다. */
+  defaultReserveTokens: number;
+  /** 전역 압축 후 보존량 기본값. 0이면 컨텍스트 크기별 단계표(auto)를 쓴다. */
+  defaultKeepRecentTokens: number;
   defaultApprovalMode: ApprovalMode;
   trustedWorkspaces: string[];
   lastWorkspaceRoot: string | null;

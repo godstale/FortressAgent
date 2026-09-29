@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
-import { useChatSessions } from '@/lib/context/ChatSessionsContext';
 import { approvalBus } from '@/lib/approval/approvalBus';
 import { useSafeWorkspace } from '@/lib/context/WorkspaceContext';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
@@ -23,7 +22,6 @@ export interface KeyboardShortcutHandlers {
 export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers): void {
   const navigate = useNavigate();
   const { tabs, activeTabId, closeTab, openTab } = useWorkspaceTabs();
-  const { createSession } = useChatSessions();
   const workspace = useSafeWorkspace();
   const { t } = useLanguage();
   const hasWorkspace = workspace === null || Boolean(workspace.workspaceRoot);
@@ -38,25 +36,13 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
         if (customHandlers?.onNewChat) {
           customHandlers.onNewChat();
         } else if (hasWorkspace) {
-          void (async () => {
-            try {
-              const session = await createSession({ title: t('shortcuts.newChat') });
-              openTab({
-                id: `chat:${session.id}`,
-                type: 'chat',
-                title: session.title,
-                meta: { sessionId: session.id, agentId: session.agentId },
-              });
-            } catch {
-              const fallbackId = `${Date.now()}`;
-              openTab({
-                id: `chat:${fallbackId}`,
-                type: 'chat',
-                title: t('shortcuts.newChat'),
-                meta: { sessionId: fallbackId },
-              });
-            }
-          })();
+          const sessionId = crypto.randomUUID();
+          openTab({
+            id: `chat:${sessionId}`,
+            type: 'chat',
+            title: t('shortcuts.newChat'),
+            meta: { sessionId },
+          });
         }
         return;
       }
@@ -110,7 +96,6 @@ export function useKeyboardShortcuts(customHandlers?: KeyboardShortcutHandlers):
     activeTabId,
     closeTab,
     openTab,
-    createSession,
     hasWorkspace,
     t,
   ]);

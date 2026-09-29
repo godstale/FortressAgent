@@ -1,4 +1,5 @@
 import {
+  SYSTEM_AUTO_GUIDE_PREFIX,
   type AgentEvent,
   type AgentMessage,
   type AgentTool,
@@ -481,9 +482,12 @@ export async function runAgentLoop(options: RunAgentLoopOptions): Promise<AgentM
         emit({ type: 'message_end', message: partialAssistantMessage });
 
         const recoveryPrompt =
-          '[시스템 자동 안내]: 사고 과정(Thinking)만 완료되었고 계획한 도구 호출(Tool Call)이나 최종 응답 본문이 생성되지 않았습니다. 지체 없이 계획한 도구(예: read, ls, write 등)를 호출하거나, 추가 도구가 필요 없다면 사용자의 질문에 대한 실질적인 최종 답변 전문을 즉시 작성해 주십시오.';
+          `${SYSTEM_AUTO_GUIDE_PREFIX}: 사고 과정(Thinking)만 완료되었고 계획한 도구 호출(Tool Call)이나 최종 응답 본문이 생성되지 않았습니다. 지체 없이 계획한 도구(예: read, ls, write 등)를 호출하거나, 추가 도구가 필요 없다면 사용자의 질문에 대한 실질적인 최종 답변 전문을 즉시 작성해 주십시오.`;
 
-        messages.push({ role: 'user', content: recoveryPrompt });
+        // 자동 복구 안내는 사용자 발화가 아니라 시스템 안내다. user 역할로
+        // 남기면 파란 말풍선·프롬프트 히스토리(↑/↓)·매크로 저장에 섞이므로
+        // system 역할로 기록해 LLM 컨텍스트에는 포함하되 사용자 기록에서는 제외한다.
+        messages.push({ role: 'system', content: recoveryPrompt });
         continue;
       }
 

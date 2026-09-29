@@ -115,3 +115,16 @@ export async function deleteEntriesForSession(
   const db = dbOverride ?? (await getDatabase());
   await db.execute('DELETE FROM entries WHERE session_id = ?', [sessionId]);
 }
+
+/** Returns the number of entries stored for a session (0 = empty / not yet started). */
+export async function countEntries(
+  sessionId: string,
+  dbOverride?: SqlDatabase,
+): Promise<number> {
+  const db = dbOverride ?? (await getDatabase());
+  const rows = await db.select<{ n: number }[]>(
+    'SELECT COUNT(*) as n FROM entries WHERE session_id = ?',
+    [sessionId],
+  );
+  return rows[0]?.n ?? 0;
+}

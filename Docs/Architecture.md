@@ -348,7 +348,7 @@ export interface Agent {
   description?: string;
   systemPrompt: string;
   model: string; // Ollama 모델 태그, 예: "llama3.1:8b"
-  temperature: number; // 0.0 ~ 2.0, 기본 0.7
+  temperature: number; // 0.0 ~ 2.0, 기본 0.2
   reasoning?: ReasoningMode; // 사고모드: 'default'(모델 기본값) | 'off' | 'on'
   reasoningEffort?: ReasoningEffort; // reasoning==='on'일 때 think 레벨: 'low'|'medium'|'high'(기본 'medium')
   // 생성 파라미터(샘플링/출력 제어). 전부 선택값이며 미지정(undefined) 시 Provider·모델 기본값("자동")
@@ -377,7 +377,7 @@ export type BuiltinToolId =
 ```
 
 - **기본 Agent 불변식**: Agent가 1개 이상 존재하면 정확히 하나는 `isDefault === true`. 최초 생성된 Agent가 자동으로 기본이 되고, 기본 Agent 삭제 시 다음 Agent가 승격됩니다. (VivoAcademy `external-agents.ts`의 `is_ai_tutor` 로직을 참고해 `agentsRepo.ts`에 동일하게 구현.)
-- **새 Agent의 기본 활성 도구**: `["read", "ls", "grep", "find", "write", "edit", "wiki"]`. `shell`과 `web_search`는 기본 비활성이며 사용자가 명시적으로 켜야 합니다. `wiki`는 `workspace/wiki/` 스코프의 등록/조회/삭제 단일 도구(`action: ingest/query/list/delete`, risk `low`)이며, llm-wiki 스킬의 온톨로지·그래프·백업 등 부가 기능 없이 기본기만 제공한다.
+- **새 Agent의 기본 활성 도구**: `["read", "ls", "grep", "find", "write", "edit"]`. `shell`과 `web_search`는 기본 비활성이며 사용자가 명시적으로 켜야 합니다. `wiki` 내장 도구는 에디터 UI에서 제거되었으며(기존 저장값과의 호환을 위해 런타임 등록은 유지), 지식 베이스 용도는 `basic-llm-wiki` 스킬("활성 스킬"에서 on/off)을 사용합니다.
 - **`enabledSkills`가 도구 목록이 아닌 이유**: 스킬은 도구로 등록되지 않고 시스템 프롬프트에 이름/설명만 노출됩니다(§6.2). 따라서 `enabledSkills`는 "프롬프트에 노출할 스킬 화이트리스트"이며, 스킬을 실제로 사용하려면 `read` 도구(및 스크립트형 스킬은 `shell`)가 활성화되어 있어야 합니다. `AgentEditorForm`은 스킬을 켜면서 `read`가 꺼져 있으면 경고를 표시합니다.
 - **`visualizationTool`을 내장 도구 목록에 넣지 않은 이유**: 로컬 LLM의 함수 호출(tool-calling) 신뢰도가 모델마다 크게 다르므로, 시각화는 "도구 호출"이 아니라 **출력 형식 규약**(시스템 프롬프트에 "필요시 \`\`\`mermaid / \`\`\`recharts 코드펜스로 응답하라"는 지침 포함 + 렌더러가 후처리 파싱)으로 구현합니다. Phase 5에서 상세 설계.
 
@@ -908,14 +908,16 @@ cd <skill dir> && npm install
 압축 트리거:  contextTokens > contextSize - reserveTokens
 ```
 
-`reserveTokens`는 "요약 프롬프트와 다음 응답을 위해 비워둘 양"입니다. Agent에 명시값이 없으면(0) `contextSize`에서 파생합니다:
+`reserveTokens`는 "요약 프롬프트와 다음 응답을 위해 비워둘 양"입니다. Agent에 명시값이 없으면(0) 전역 기본값 → 컨텍스트 크기별 단계표 순으로 파생합니다 (`src/lib/compaction/settings.ts`의 `defaultReserveForContext`/`defaultKeepForContext`, 전역값은 "앱 설정 > 모델 및 LLM"에서 변경):
 
-```ts
-reserveTokens = clamp(contextSize * 0.25, 1024, 16384);
-keepRecentTokens = clamp(contextSize * 0.35, 1024, 20000);
+```
+8K 이하 → reserve 2048 / keep 1024
+16K 이하 → reserve 4096 / keep 2048
+24K 이하 → reserve 6144 / keep 4096
+32K 이하·초과 → reserve 8192 / keep 8192
 ```
 
-> 파생식의 0.25는 의도적입니다 — `contextSize`가 8192면 트리거가 정확히 **75%**(6144)가 되어 원 요구사항의 "75% 자동 압축"을 그대로 만족합니다. 다만 저장·설정 단위는 비율이 아니라 **절대 토큰 수**입니다. 컨텍스트 128K 모델에서 "25% 여유"는 32K로 과하므로 상한(16384)을 두고, 사용자가 Agent별로 직접 지정할 수 있게 합니다.
+> reserve의 25% 비율은 의도적입니다 — `contextSize`가 8192면 트리거가 정확히 **75%**(6144)가 되어 원 요구사항의 "75% 자동 압축"을 그대로 만족합니다. 다만 저장·설정 단위는 비율이 아니라 **절대 토큰 수**입니다. 32K 초과분도 8K/8K로 고정해 두는데, 이는 128K급에서 비율대로 잡으면(32K) 요약 호출 자체가 비대해지기 때문입니다. 작은 컨텍스트의 keep(8K→1K)은 도구형 작업에 빠듯할 수 있어 요약 품질에 의존합니다 — 도구 위주면 전역 또는 Agent별 keep을 상향하십시오.
 
 pi의 기본값(16384/20000)을 그대로 쓰지 않는 이유: pi는 200K급 상용 모델을, Fortress는 8K~128K 로컬 모델을 전제합니다.
 
