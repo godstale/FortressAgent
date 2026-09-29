@@ -162,27 +162,51 @@ export function ChatTab({ tab }: ChatTabProps) {
     });
   }, [openTab, activeAgent.id, activeAgent.name, t]);
 
-  // Ensure session record exists in SQLite for stats and persistence tracking
+  // Session row is created lazily on first send (handleSendMessage), so opening
+  // a chat tab never registers it in the conversation list. Here we only
+  // restore the workspace root for existing sessions.
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       try {
         const existing = await sessionsRepo.getSession(sessionId);
-        if (!existing) {
-          await sessionsRepo.createSession({
-            id: sessionId,
-            agentId: activeAgent.id,
-            workspaceRoot: workspaceRoot ?? null,
-            title: tab.title || t('chatTab.newChat'),
-          });
-          await refreshSessions();
-        } else if (existing.workspaceRoot) {
+        if (!cancelled && existing?.workspaceRoot) {
           setSessionWorkspaceRoot(existing.workspaceRoot);
         }
       } catch (err) {
-        console.error('Failed to ensure session exists in DB:', err);
+        console.error('Failed to load session workspace root:', err);
       }
     })();
-  }, [sessionId, activeAgent.id, workspaceRoot, tab.title, refreshSessions, t]);
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  // If the tab closes (or app unmounts) without any message ever sent, make
+  // sure no empty history row survives. With lazy creation there is normally
+  // no DB row at all; this only covers legacy rows / races.
+  useEffect(() => {
+    return () => {
+      void (async () => {
+        try {
+          const existing = await sessionsRepo.getSession(sessionId);
+          if (!existing) return;
+          const { countEntries } = await import('@/lib/db/repositories/entriesRepo');
+          const n = await countEntries(sessionId);
+          if (n === 0) {
+            await sessionsRepo.deleteSession(sessionId);
+            try {
+              await refreshSessions();
+            } catch {
+              // ignore
+            }
+          }
+        } catch {
+          // ignore cleanup failure
+        }
+      })();
+    };
+  }, [sessionId, refreshSessions]);
 
   const effectiveCwd = workspaceRoot ?? sessionWorkspaceRoot ?? undefined;
 

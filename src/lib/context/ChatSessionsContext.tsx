@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { ChatSession } from '@/lib/types/chat';
 import * as sessionsRepo from '@/lib/db/repositories/sessionsRepo';
+import * as entriesRepo from '@/lib/db/repositories/entriesRepo';
 import * as agentsRepo from '@/lib/db/repositories/agentsRepo';
 import { DEFAULT_AGENT } from '@/lib/agent/defaultAgent';
 import { useWorkspace } from '@/lib/context/WorkspaceContext';
@@ -41,14 +42,50 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       const list = await sessionsRepo.listSessions();
-      if (workspaceRoot) {
-        // Show sessions matching this workspace root, or global sessions
-        const workspaceSessions = list.filter(
-          (s) => s.workspaceRoot === workspaceRoot || !s.workspaceRoot,
+      let filtered = workspaceRoot
+        ? // Show sessions matching this workspace root, or global sessions
+          list.filter(
+            (s) => s.workspaceRoot === workspaceRoot || !s.workspaceRoot,
+          )
+        : list;
+      // Empty sessions (no entries, i.e. chat tab opened but no message sent yet)
+      // must not appear in the conversation list. Prune stale ones (>60s old to
+      // avoid racing an in-flight first send) and hide the rest.
+      try {
+        const now = Date.now();
+        const checks = await Promise.all(
+          filtered.map(async (s) => {
+            try {
+              const n = await entriesRepo.countEntries(s.id);
+              return { session: s, count: n };
+            } catch {
+              return { session: s, count: 1 };
+            }
+          }),
         );
-        setSessions(workspaceSessions);
+        const visible: ChatSession[] = [];
+        for (const { session, count } of checks) {
+          if (count === 0) {
+            const ageMs = now - new Date(session.createdAt).getTime();
+            if (Number.isFinite(ageMs) && ageMs > 60_000) {
+              try {
+                await sessionsRepo.deleteSession(session.id);
+              } catch {
+                // ignore prune failure, just hide below
+              }
+            }
+            continue;
+          }
+          visible.push(session);
+        }
+        filtered = visible;
+      } catch {
+        // entry-count lookup failed: fall back to unfiltered list
+      }
+      if (workspaceRoot) {
+        setSessions(filtered);
       } else {
-        setSessions(list);
+        setSessions(filtered);
       }
     } catch (err) {
       console.error('Failed to load chat sessions:', err);

@@ -92,7 +92,6 @@ export function ChatSessionList() {
   const {
     sessions,
     isLoading,
-    createSession,
     deleteSession,
     clearSessions,
     selectSession,
@@ -107,20 +106,14 @@ export function ChatSessionList() {
     () => new Set(),
   );
 
-  const handleNewChat = async () => {
-    let sessionId = `${Date.now()}`;
-    let title = t('sessions.newChat');
-    try {
-      const session = await createSession();
-      sessionId = session.id;
-      title = session.title;
-    } catch (err) {
-      console.error('Failed to create new chat session in DB, opening tab with fallback:', err);
-    }
+  const handleNewChat = () => {
+    // Empty chat tabs are not registered in the conversation list.
+    // The session row is created lazily on first send (ChatTab.handleSendMessage).
+    const sessionId = crypto.randomUUID();
     openTab({
       type: 'chat',
       id: `chat:${sessionId}`,
-      title,
+      title: t('sessions.newChat'),
       meta: { sessionId },
     });
   };
