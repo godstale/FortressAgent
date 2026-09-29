@@ -12,6 +12,7 @@ import {
   getModelArchitectureInfo,
   getSystemGpuInfo,
   calculateEstimatedKvCacheBytes,
+  calculateHybridKvCacheBytes,
 } from '@/lib/llm/ollamaClient';
 import { saveMonitoringSnapshot, saveConversationSummary } from '@/lib/db/repositories/monitoringRepo';
 import { appLogger } from '@/lib/logger/logger';
@@ -463,15 +464,27 @@ class MonitoringCollectorService {
           : 0;
 
       // 5. Calculate KV cache size (GQA-aware actual + MHA reference for comparison)
+      // 하이브리드(SSM+어텐션, 예: qwen3.5:9b) 모델은 어텐션층만 KV를 쓰므로
+      // 전층 공식이 아닌 레이어별 KV 헤드 합으로 추정한다 (64k 기준 약 2.1GB).
       const targetContextSize = agent.contextSize > 0 ? agent.contextSize : 8192;
+      const derivedHeadDim =
+        arch && arch.headCount > 0 && arch.embeddingLength > 0
+          ? Math.round(arch.embeddingLength / arch.headCount)
+          : 0;
       const kvCacheGqaBytes = arch
-        ? calculateEstimatedKvCacheBytes(
-            arch.blockCount,
-            arch.headCountKv,
-            arch.embeddingLength,
-            arch.headCount,
-            targetContextSize,
-          )
+        ? arch.attentionLayers > 0 && arch.kvHeadsTotal > 0 && derivedHeadDim > 0
+          ? calculateHybridKvCacheBytes(
+              arch.kvHeadsTotal,
+              derivedHeadDim,
+              targetContextSize,
+            )
+          : calculateEstimatedKvCacheBytes(
+              arch.blockCount,
+              arch.headCountKv,
+              arch.embeddingLength,
+              arch.headCount,
+              targetContextSize,
+            )
         : 0;
       const kvCacheMhaBytes = arch
         ? calculateEstimatedKvCacheBytes(
@@ -550,6 +563,10 @@ class MonitoringCollectorService {
           headCountKv: arch?.headCountKv ?? 0,
           embeddingLength: arch?.embeddingLength ?? 0,
           feedForwardLength: arch?.feedForwardLength ?? 0,
+          attentionKind: arch?.attentionKind ?? 'unknown',
+          attentionLayers: arch?.attentionLayers ?? 0,
+          kvHeadsTotal: arch?.kvHeadsTotal ?? 0,
+          kvContextTokens: targetContextSize,
           quantizationLevel: arch?.quantizationLevel ?? '',
           format: arch?.format ?? 'gguf',
           parameterCount: arch?.parameterCount ?? 0,

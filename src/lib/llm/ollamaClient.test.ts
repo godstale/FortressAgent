@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   streamChat,
+  getModelArchitectureInfo,
+  calculateEstimatedKvCacheBytes,
+  calculateHybridKvCacheBytes,
   OllamaModelNotFoundError,
   OllamaConnectionError,
   OllamaContextOverflowError,
@@ -299,5 +302,69 @@ describe('messageMapper', () => {
 
     const raw3 = 'I will now read the file.\n</thinking>';
     expect(cleanThinkingText(raw3)).toBe('I will now read the file.');
+  });
+});
+
+describe('model architecture parsing', () => {
+  const mockShow = (modelInfo: Record<string, unknown>) => {
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ model_info: modelInfo }), { status: 200 }),
+    );
+  };
+
+  it('ignores vision-tower keys and judges GQA from text-tower heads', async () => {
+    mockShow({
+      'general.architecture': 'qwen35',
+      'qwen35.block_count': 32,
+      'qwen35.embedding_length': 4096,
+      'qwen35.attention.head_count': 16,
+      'qwen35.attention.head_count_kv': 8,
+      'qwen35.feed_forward_length': 12288,
+      'qwen35.vision.block_count': 27,
+      'qwen35.vision.embedding_length': 1152,
+      'qwen35.vision.attention.head_count': 16,
+    });
+    const info = await getModelArchitectureInfo(undefined, 'qwen3.5:9b');
+    expect(info.blockCount).toBe(32);
+    expect(info.embeddingLength).toBe(4096);
+    expect(info.headCount).toBe(16);
+    expect(info.headCountKv).toBe(8);
+    expect(info.attentionKind).toBe('GQA');
+  });
+
+  it('parses per-layer head_count_kv arrays as hybrid attention', async () => {
+    // qwen3.5:9b 실측 — 32층 중 8층만 어텐션(층당 KV 4헤드)
+    const kvArray = Array.from({ length: 32 }, (_, i) => (i % 4 === 3 ? 4 : 0));
+    mockShow({
+      'general.architecture': 'qwen35',
+      'qwen35.block_count': 32,
+      'qwen35.embedding_length': 4096,
+      'qwen35.attention.head_count': 16,
+      'qwen35.attention.head_count_kv': kvArray,
+    });
+    const info = await getModelArchitectureInfo(undefined, 'qwen3.5:9b');
+    expect(info.attentionKind).toBe('hybrid');
+    expect(info.attentionLayers).toBe(8);
+    expect(info.kvHeadsTotal).toBe(32);
+    expect(info.headCountKv).toBe(4);
+    // 8층 x 4헤드 x dim 256 x 64k x F16 = 2,147,483,648 (약 2.1GB)
+    expect(calculateHybridKvCacheBytes(32, 256, 65536, 2)).toBe(2147483648);
+  });
+
+  it('judges MHA/MQA/unknown without fabricating KV heads', async () => {
+    mockShow({
+      'qwen35.attention.head_count': 16,
+      'qwen35.attention.head_count_kv': 16,
+    });
+    expect((await getModelArchitectureInfo(undefined, 'm')).attentionKind).toBe('MHA');
+
+    mockShow({ 'llama.attention.head_count': 32, 'llama.attention.head_count_kv': 1 });
+    expect((await getModelArchitectureInfo(undefined, 'm')).attentionKind).toBe('MQA');
+
+    mockShow({ 'llama.attention.head_count': 32 });
+    const unknown = await getModelArchitectureInfo(undefined, 'm');
+    expect(unknown.attentionKind).toBe('unknown');
+    expect(unknown.headCountKv).toBe(0);
+    expect(calculateEstimatedKvCacheBytes(32, 0, 4096, 32, 65536)).toBe(0);
   });
 });
