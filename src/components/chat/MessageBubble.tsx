@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Copy, Check, ChevronDown, ChevronRight, Brain, Clock, AlertCircle, Info, Settings2, BookmarkPlus } from 'lucide-react';
@@ -55,7 +55,7 @@ function ConfigSnapshotRows({ snapshot }: { snapshot: ChatConfigSnapshot }) {
   );
 }
 
-export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, isStreaming, fallbackConfig }: MessageBubbleProps) {
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const [showThinking, setShowThinking] = useState(false);
@@ -267,12 +267,12 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
 
               {/* Final Markdown content */}
               {message.content ? (
-                <div className="relative text-sm text-foreground leading-relaxed prose prose-sm dark:prose-invert max-w-none break-words">
+                <div className="chat-markdown relative text-sm text-foreground leading-relaxed max-w-none break-words">
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       code({ className, children, ...props }) {
-                        const match = /language-(\w+)/.exec(className || '');
+                        const match = /language-([\w+#-]+)/.exec(className || '');
                         const language = match ? match[1].toLowerCase() : '';
                         const codeString = String(children).replace(/\n$/, '');
                         const isInline = !match && !codeString.includes('\n');
@@ -286,7 +286,7 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
                         }
 
                         if (language === 'mermaid') {
-                          return <MermaidViewer code={codeString} />;
+                          return <MermaidViewer code={codeString} isStreaming={isStreaming} />;
                         }
 
                         if (isInline) {
@@ -305,6 +305,14 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
                             code={codeString}
                             language={language || 'text'}
                           />
+                        );
+                      },
+                      // GFM tables need explicit styling (no typography plugin).
+                      table({ children, ...props }) {
+                        return (
+                          <div className="overflow-x-auto">
+                            <table {...props}>{children}</table>
+                          </div>
                         );
                       },
                       a({ href, children, ...props }) {
@@ -390,4 +398,4 @@ export function MessageBubble({ message, isStreaming, fallbackConfig }: MessageB
       )}
     </div>
   );
-}
+});
