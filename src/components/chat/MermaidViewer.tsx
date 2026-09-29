@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import mermaid from 'mermaid';
 import { AlertCircle, Check, Copy } from 'lucide-react';
 import { useTheme } from '../../lib/context/ThemeContext';
@@ -51,11 +51,12 @@ let mermaidInitializedTheme: string | null = null;
 const MermaidDiagramViewer: React.FC<MermaidViewerProps> = ({ code, isStreaming = false }) => {
   const { theme } = useTheme();
   const rawId = useId();
-  const idRef = useRef<string | null>(null);
-  if (!idRef.current) {
-    idRef.current = 'mermaid-' + rawId.replace(/[^a-zA-Z0-9_-]/g, '');
-  }
-  const elementId = idRef.current;
+  // useId is stable per mount; memo keeps the mermaid render target id constant
+  // across re-renders so scroll/parent updates never re-trigger a draw.
+  const elementId = useMemo(
+    () => 'mermaid-' + rawId.replace(/[^a-zA-Z0-9_-]/g, ''),
+    [rawId],
+  );
 
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

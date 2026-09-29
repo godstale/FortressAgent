@@ -15,7 +15,7 @@ export const MIGRATION_STATEMENTS: string[] = [
     description TEXT,
     system_prompt TEXT NOT NULL,
     model TEXT NOT NULL,
-    temperature REAL NOT NULL DEFAULT 0.7,
+    temperature REAL NOT NULL DEFAULT 0.2,
     context_size INTEGER NOT NULL DEFAULT 0,
     reserve_tokens INTEGER NOT NULL DEFAULT 0,
     keep_recent_tokens INTEGER NOT NULL DEFAULT 0,
@@ -66,6 +66,9 @@ export const MIGRATION_STATEMENTS: string[] = [
     language TEXT NOT NULL DEFAULT 'ko',
     ollama_base_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:11434',
     default_context_size INTEGER NOT NULL DEFAULT 8192,
+    default_temperature REAL NOT NULL DEFAULT 0.2,
+    default_reserve_tokens INTEGER NOT NULL DEFAULT 0,
+    default_keep_recent_tokens INTEGER NOT NULL DEFAULT 0,
     default_approval_mode TEXT NOT NULL DEFAULT 'dangerous-only',
     trusted_workspaces TEXT NOT NULL DEFAULT '[]',
     last_workspace_root TEXT,
@@ -628,6 +631,39 @@ export class MemorySqlFallback implements SqlDatabase {
     }
 
     if (q.startsWith('INSERT INTO app_settings')) {
+      if (bindValues.length <= 11) {
+        // Legacy 11-column insert (pre model-defaults).
+        const [
+          id,
+          open_tabs,
+          active_tab_id,
+          theme,
+          language,
+          ollama_base_url,
+          default_context_size,
+          default_approval_mode,
+          trusted_workspaces,
+          last_workspace_root,
+          monitoring_interval_ms,
+        ] = bindValues;
+        this.tables.get('app_settings')?.set(id as string, {
+          id,
+          open_tabs,
+          active_tab_id,
+          theme,
+          language,
+          ollama_base_url,
+          default_context_size,
+          default_temperature: 0.2,
+          default_reserve_tokens: 0,
+          default_keep_recent_tokens: 0,
+          default_approval_mode,
+          trusted_workspaces,
+          last_workspace_root,
+          monitoring_interval_ms: (monitoring_interval_ms as number) ?? 1000,
+        });
+        return { rowsAffected: 1 };
+      }
       const [
         id,
         open_tabs,
@@ -636,6 +672,9 @@ export class MemorySqlFallback implements SqlDatabase {
         language,
         ollama_base_url,
         default_context_size,
+        default_temperature,
+        default_reserve_tokens,
+        default_keep_recent_tokens,
         default_approval_mode,
         trusted_workspaces,
         last_workspace_root,
@@ -649,6 +688,9 @@ export class MemorySqlFallback implements SqlDatabase {
         language,
         ollama_base_url,
         default_context_size,
+        default_temperature: (default_temperature as number) ?? 0.2,
+        default_reserve_tokens: (default_reserve_tokens as number) ?? 0,
+        default_keep_recent_tokens: (default_keep_recent_tokens as number) ?? 0,
         default_approval_mode,
         trusted_workspaces,
         last_workspace_root,
@@ -667,20 +709,53 @@ export class MemorySqlFallback implements SqlDatabase {
     }
 
     if (q.startsWith('UPDATE app_settings SET')) {
-      const [
-        open_tabs,
-        active_tab_id,
-        theme,
-        language,
-        ollama_base_url,
-        default_context_size,
-        default_approval_mode,
-        trusted_workspaces,
-        last_workspace_root,
-        monitoring_interval_ms,
-      ] = bindValues;
       const settings = this.tables.get('app_settings')?.get('singleton');
       if (settings) {
+        if (bindValues.length <= 10) {
+          // Legacy 10-column update (pre model-defaults).
+          const [
+            open_tabs,
+            active_tab_id,
+            theme,
+            language,
+            ollama_base_url,
+            default_context_size,
+            default_approval_mode,
+            trusted_workspaces,
+            last_workspace_root,
+            monitoring_interval_ms,
+          ] = bindValues;
+          Object.assign(settings, {
+            open_tabs,
+            active_tab_id,
+            theme,
+            language,
+            ollama_base_url,
+            default_context_size,
+            default_approval_mode,
+            trusted_workspaces,
+            last_workspace_root,
+            ...(monitoring_interval_ms !== undefined
+              ? { monitoring_interval_ms }
+              : {}),
+          });
+          return { rowsAffected: 1 };
+        }
+        const [
+          open_tabs,
+          active_tab_id,
+          theme,
+          language,
+          ollama_base_url,
+          default_context_size,
+          default_temperature,
+          default_reserve_tokens,
+          default_keep_recent_tokens,
+          default_approval_mode,
+          trusted_workspaces,
+          last_workspace_root,
+          monitoring_interval_ms,
+        ] = bindValues;
         Object.assign(settings, {
           open_tabs,
           active_tab_id,
@@ -688,6 +763,9 @@ export class MemorySqlFallback implements SqlDatabase {
           language,
           ollama_base_url,
           default_context_size,
+          default_temperature,
+          default_reserve_tokens,
+          default_keep_recent_tokens,
           default_approval_mode,
           trusted_workspaces,
           last_workspace_root,
@@ -1593,6 +1671,9 @@ export async function runMigrations(db: SqlDatabase): Promise<void> {
     'ALTER TABLE agent_monitoring_snapshots ADD COLUMN conversation_id TEXT',
     'ALTER TABLE agent_monitoring_snapshots ADD COLUMN conversation_seq INTEGER',
     'ALTER TABLE app_settings ADD COLUMN monitoring_interval_ms INTEGER NOT NULL DEFAULT 1000',
+    'ALTER TABLE app_settings ADD COLUMN default_temperature REAL NOT NULL DEFAULT 0.2',
+    'ALTER TABLE app_settings ADD COLUMN default_reserve_tokens INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE app_settings ADD COLUMN default_keep_recent_tokens INTEGER NOT NULL DEFAULT 0',
     "ALTER TABLE agents ADD COLUMN reasoning TEXT NOT NULL DEFAULT 'default'",
     "ALTER TABLE agents ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'medium'",
     'ALTER TABLE agents ADD COLUMN top_p REAL',

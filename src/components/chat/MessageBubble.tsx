@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { AgentMessage } from '@/lib/agent/types';
 import { dispatchSaveEvalCase } from '@/lib/eval/personal/caseBuilder';
 import type { ChatConfigSnapshot } from '@/lib/types/agent';
+import { DEFAULT_TEMPERATURE } from '@/lib/types/agent';
 import { getProviderPreset } from '@/lib/llm/providers';
 import { useLanguage } from '@/lib/i18n/LanguageContext';
 import { ToolCallCard } from './ToolCallCard';
@@ -32,7 +33,7 @@ function ConfigSnapshotRows({ snapshot }: { snapshot: ChatConfigSnapshot }) {
   const rows: Array<[string, string]> = [
     [t('chat.configModel'), `${snapshot.agentName} • ${snapshot.model}`],
     [t('chat.configProvider'), providerLabel],
-    [t('chat.configTemperature'), String(snapshot.temperature ?? 0.7)],
+    [t('chat.configTemperature'), String(snapshot.temperature ?? DEFAULT_TEMPERATURE)],
     [t('chat.configContextSize'), `${(snapshot.contextSize || 8192).toLocaleString()} tokens`],
     [t('chat.configReasoning'), snapshot.reasoning],
     [t('chat.configEffort'), snapshot.reasoningEffort],

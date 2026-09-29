@@ -284,5 +284,54 @@ describe('ChatInput component', () => {
       evalLock.release('run-1');
     }
   });
+
+  it('recalls the previous prompt with ArrowUp and restores draft with ArrowDown', () => {
+    window.localStorage.removeItem('fortress:prompt-history');
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox');
+    fireEvent.change(textarea, { target: { value: 'first prompt' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    fireEvent.change(textarea, { target: { value: 'second prompt' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledTimes(2);
+
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    expect(textarea).toHaveValue('second prompt');
+    fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+    expect(textarea).toHaveValue('first prompt');
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(textarea).toHaveValue('second prompt');
+    fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+    expect(textarea).toHaveValue('');
+    window.localStorage.removeItem('fortress:prompt-history');
+  });
+
+  it('renders save/load log buttons before the context gauge', () => {
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+        onStop={vi.fn()}
+        isStreaming={false}
+        contextUsage={{ tokens: 10, limit: 8192 }}
+        onSaveLog={vi.fn()}
+        onLoadLog={vi.fn()}
+        canSaveLog
+        hasSavedLog={false}
+      />,
+    );
+
+    expect(screen.getByLabelText('대화 기록 저장')).toBeEnabled();
+    expect(screen.getByLabelText('대화 기록 불러오기')).toBeDisabled();
+  });
 });
 

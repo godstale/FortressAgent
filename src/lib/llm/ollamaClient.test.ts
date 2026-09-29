@@ -4,6 +4,9 @@ import {
   OllamaModelNotFoundError,
   OllamaConnectionError,
   OllamaContextOverflowError,
+  calculateEstimatedKvCacheBytes,
+  kvBytesPerElementForQuant,
+  getModelArchitectureInfo,
 } from './ollamaClient';
 import {
   cleanThinkingText,
@@ -176,6 +179,51 @@ describe('ollamaClient', () => {
       values: ['low', 'medium', 'high'],
       default: 'medium',
     });
+  });
+
+  it('parses hidden_size/num_layers aliases (MLX-style keys)', async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          model_info: {
+            'qwen3_5.hidden_size': 5120,
+            'qwen3_5.num_hidden_layers': 48,
+            'qwen3_5.num_attention_heads': 40,
+            'qwen3_5.num_key_value_heads': 8,
+            'qwen3_5.intermediate_size': 17408,
+            'qwen3_5.max_position_embeddings': 32768,
+          },
+          details: {
+            family: 'qwen3_5',
+            parameter_size: '35B',
+            quantization_level: 'Q4_K_M',
+            format: 'gguf',
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const arch = await getModelArchitectureInfo(undefined, 'qwen3.5:35b-mlx');
+    expect(arch.blockCount).toBe(48);
+    expect(arch.embeddingLength).toBe(5120);
+    expect(arch.headCount).toBe(40);
+    expect(arch.headCountKv).toBe(8);
+    expect(arch.feedForwardLength).toBe(17408);
+    expect(arch.contextLimit).toBe(32768);
+  });
+
+  it('returns 0 KV estimate when arch dims are missing (no bogus GB)', () => {
+    expect(calculateEstimatedKvCacheBytes(48, 0, 0, 0, 8192)).toBe(0);
+    expect(calculateEstimatedKvCacheBytes(0, 8, 5120, 40, 8192)).toBe(0);
+    // Sanity: full dims produce a positive estimate
+    expect(calculateEstimatedKvCacheBytes(48, 8, 5120, 40, 8192)).toBeGreaterThan(0);
+  });
+
+  it('uses Q8 element size only for q8 KV quants', () => {
+    expect(kvBytesPerElementForQuant('Q4_K_M')).toBe(2);
+    expect(kvBytesPerElementForQuant('Q8_0')).toBe(1);
+    expect(kvBytesPerElementForQuant('')).toBe(2);
   });
 });
 

@@ -24,7 +24,6 @@ export const DEFAULT_ACTIVE_TOOLS: BuiltinToolId[] = [
   'find',
   'write',
   'edit',
-  'wiki',
 ];
 
 const toolRegistry = new Map<string, (ctx: ToolContext) => AgentTool>();
@@ -36,7 +35,9 @@ export function registerToolFactory(
   toolRegistry.set(id, factory);
 }
 
-// Register all 10 built-in tools
+// Register all 10 built-in tools (wiki stays registered for backward
+// compatibility with stored agents, but is hidden from the editor UI.
+// Use the basic-llm-wiki skill instead.)
 registerToolFactory('read', (ctx) => createReadTool(ctx));
 registerToolFactory('ls', (ctx) => createLsTool(ctx));
 registerToolFactory('grep', (ctx) => createGrepTool(ctx));

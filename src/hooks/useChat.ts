@@ -46,6 +46,12 @@ export interface UseChatOptions {
   cwd?: string;
   skills?: SkillManifest[];
   contextFiles?: ContextFileItem[];
+  /** 전역 압축 기본값 (SettingsModel). 0=auto 항목의 단계표 해석에 쓴다. */
+  globalCompactionDefaults?: {
+    defaultContextSize?: number;
+    defaultReserveTokens?: number;
+    defaultKeepRecentTokens?: number;
+  };
   /**
    * 세션 단위 reasoning 오버라이드 (채팅 화면의 effort 셀렉터).
    * undefined 필드는 Agent 기본값을 따른다. think는 요청 최상위 필드로만 전달되므로
@@ -95,12 +101,14 @@ export function useChat(
   const persistedCountRef = useRef<number>(0);
 
   const contextLimit = useMemo(() => {
-    return agentConfig.contextSize > 0 ? agentConfig.contextSize : 32768;
-  }, [agentConfig.contextSize]);
+    // 0 = auto → 전역 기본값(없으면 8192)으로 폴백한다.
+    if (agentConfig.contextSize > 0) return agentConfig.contextSize;
+    return options.globalCompactionDefaults?.defaultContextSize || 8192;
+  }, [agentConfig.contextSize, options.globalCompactionDefaults?.defaultContextSize]);
 
   const compactionSettings = useMemo(() => {
-    return resolveCompactionSettings(agentConfig);
-  }, [agentConfig]);
+    return resolveCompactionSettings(agentConfig, options.globalCompactionDefaults);
+  }, [agentConfig, options.globalCompactionDefaults]);
 
   // Agent의 LLM Provider 설정을 실제 접속 정보로 해석한다.
   // Agent 고유값이 있으면 우선하고, 없으면 useChat 옵션(전역 설정 전달용)을 사용한다.

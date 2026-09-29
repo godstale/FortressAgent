@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Bot, Cpu, Sparkles, MessageSquare, Terminal, Zap, Layers, Activity } from 'lucide-react';
 import type { WorkspaceTab } from '@/lib/types/workspaceTab';
 import type { ReasoningEffort, ReasoningMode } from '@/lib/types/agent';
-import { chatConfigSignature } from '@/lib/types/agent';
+import { chatConfigSignature, DEFAULT_TEMPERATURE } from '@/lib/types/agent';
 import { useAgents } from '@/lib/context/AgentsContext';
 import { useSettings } from '@/lib/context/SettingsContext';
 import { useWorkspaceTabs } from '@/lib/context/WorkspaceTabsContext';
@@ -236,6 +236,11 @@ export function ChatTab({ tab }: ChatTabProps) {
     // 구 Agent(Provider 미설정)는 전역 Ollama 주소를 그대로 사용한다.
     // Agent 고유 llmBaseUrl이 있으면 useChat 내부에서 그쪽이 우선한다.
     baseUrl: settings.ollamaBaseUrl,
+    globalCompactionDefaults: {
+      defaultContextSize: settings.defaultContextSize,
+      defaultReserveTokens: settings.defaultReserveTokens,
+      defaultKeepRecentTokens: settings.defaultKeepRecentTokens,
+    },
   });
 
   // 실행 설정이 바뀌면 채팅 중간에 안내를 표시한다.
@@ -331,7 +336,7 @@ export function ChatTab({ tab }: ChatTabProps) {
             `- **${t('chatTab.modelId')}**: \`${activeAgent.model}\`\n` +
             `- **${t('chatTab.approvalMode')}**: \`${yoloMode ? 'never (YOLO)' : activeAgent.approvalMode}\`\n` +
             `- **${t('chatTab.contextSize')}**: \`${(activeAgent.contextSize || 8192).toLocaleString()} tokens\`\n` +
-            `- **${t('chatTab.temperature')}**: \`${activeAgent.temperature ?? 0.7}\`\n` +
+            `- **${t('chatTab.temperature')}**: \`${activeAgent.temperature ?? DEFAULT_TEMPERATURE}\`\n` +
             `- **${t('chatTab.reasoning')}**: \`${activeAgent.reasoning ?? 'default'}\` / \`${activeAgent.reasoningEffort ?? 'medium'}\` → think: \`${String(effectiveThink ?? 'default')}\`\n` +
             `- **${t('chatTab.generation')}**: \`top-p ${activeAgent.topP ?? 'auto'} · top-k ${activeAgent.topK ?? 'auto'} · repeat ${activeAgent.repeatPenalty ?? 'auto'} · freq ${activeAgent.frequencyPenalty ?? 'auto'} · pres ${activeAgent.presencePenalty ?? 'auto'} · seed ${activeAgent.seed ?? 'auto'} · max ${activeAgent.maxOutputTokens ?? 'auto'}\`\n` +
             `- **${t('chatTab.enabledTools')}**: \`${(activeAgent.enabledBuiltinTools || []).join(', ')}\``,
@@ -541,6 +546,7 @@ export function ChatTab({ tab }: ChatTabProps) {
     try {
       const raw = window.localStorage.getItem(chatLogKey);
       if (!raw) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- sync saved-log flag from localStorage on session switch
         setHasSavedLog(false);
         return;
       }
@@ -572,7 +578,7 @@ export function ChatTab({ tab }: ChatTabProps) {
 
   const handleLoadLog = useCallback(() => {
     if (isAgentDeleted || evalLock.get()) return;
-    let items: string[] = [];
+    let items: string[];
     try {
       const raw = window.localStorage.getItem(chatLogKey);
       if (!raw) {
