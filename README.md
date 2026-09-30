@@ -12,9 +12,10 @@ Tauri 2와 React 19로 구축되었으며, 외부 프레임워크 오버헤드(N
 - 🤖 **자율 에이전트 루프 (`pi` Architecture)**
   - 외부 프레임워크 없이 순수 TypeScript로 구동되는 경량 에이전트 루프.
   - 모델의 사고 과정(`<think>` / `thinking`) 감지 및 사고 단계에서 중단되는 현상을 방지하는 자동 복구 메커니즘 내장.
-- 🛠 **8대 강력한 도구 (Tools) 내장**
+- 🛠 **10종 내장 도구 (Tools, 신규 에이전트 기본 8종 활성)**
   - 파일 조작: `read`, `write`, `edit`, `ls`, `grep`, `find`
   - 웹 탐색: `web_search` (DuckDuckGo), `web_fetch` (콘텐츠 스크래핑)
+  - `shell` (OS 셸 실행, 기본 비활성 — 승인 필수), `wiki` (개인 지식 베이스, 기존 저장값 호환용으로만 등록 유지 — 신규 사용은 `basic-llm-wiki` 스킬 권장)
 - 📊 **실시간 인터랙티브 시각화**
   - **Mermaid 다이어그램**: 모델이 생성한 흐름도, 시퀀스, 아키텍처 다이어그램을 실시간 SVG로 렌더링 (확대/축소/이동 지원).
   - **Recharts 데이터 차트**: 모델이 제공한 구조화된 데이터 블록을 Line, Bar, Pie 등의 동적 차트로 즉시 시각화.
@@ -25,7 +26,7 @@ Tauri 2와 React 19로 구축되었으며, 외부 프레임워크 오버헤드(N
   - 워크스페이스의 `.agents/skills/*/SKILL.md` 및 `AGENTS.md` 자동 탐색.
   - 프로그레시브 디스클로저(필요 시에만 스킬 본문 로드)를 통해 컨텍스트 낭비 방지.
 - 🗄 **로컬 퍼스트 & 프로젝트 격리 스토리지**
-  - 대화 및 모니터링 스냅샷은 워크스페이스 내 `.fortress/project.db` (SQLite)에 Append-Only 이벤트 소싱 방식으로 안전하게 보관.
+  - 대화 및 모니터링 스냅샷은 워크스페이스 내 `.fortress/fortress.db` (SQLite)에 Append-Only 이벤트 소싱 방식으로 안전하게 보관.
 - 🛡 **인간 개입 승인 (Human-in-the-Loop, HITL)**
   - 파일 쓰기/편집 및 중요 도구 호출 시 사용자의 사전 승인을 강제하는 보안 계층.
 - 🧪 **자동 평가 (Evaluation)**
@@ -75,7 +76,7 @@ pnpm dev
 pnpm typecheck
 pnpm lint
 
-# 42개 테스트 파일 188개 테스트 실행
+# 146개 테스트 파일 1009개 테스트 실행 (2026-09-30 실측)
 pnpm test
 
 # 프로덕션 배포용 데스크탑 인스톨러 생성
@@ -87,8 +88,8 @@ pnpm tauri build
 ## 💡 앱 사용 가이드 (How to Use)
 
 1. **워크스페이스 폴더 열기**
-   - 상단 메뉴의 `File` → `Open Folder` (또는 `Ctrl+O`)를 눌러 작업할 프로젝트 폴더를 선택합니다.
-   - 좌측 패널에 파일 트리가 나타나며, 프로젝트 전용 데이터베이스(`.fortress/project.db`)가 자동 생성됩니다.
+   - 상단 메뉴의 `File` → `Open Folder`를 눌러 작업할 프로젝트 폴더를 선택합니다.
+   - 좌측 패널에 파일 트리가 나타나며, 프로젝트 전용 데이터베이스(`.fortress/fortress.db`)가 자동 생성됩니다.
 2. **에이전트 선택 및 설정**
    - 좌측 하단 `Agents` 패널에서 기본 에이전트를 확인하거나 새 에이전트를 생성할 수 있습니다.
    - 에이전트 수정 탭에서 모델, 시스템 프롬프트, 도구 활성화 여부, 컨텍스트 크기(예: 32k, 64k)를 조정할 수 있습니다.
@@ -102,8 +103,8 @@ pnpm tauri build
    - `Agents` 패널에서 에이전트 카드의 모니터 아이콘(또는 상단 메뉴 `Agent` → `Monitor Dashboard`)을 클릭하면 실시간 모니터링 탭이 열립니다.
    - VRAM 점유율, KV 캐시 크기, 디코딩 속도(tokens/s)가 실시간 그래프로 시각화됩니다.
 6. **자동 평가로 모델 비교하기**
-   - 좌측 ActivityBar의 **평가(플라스크)** 아이콘 → [새 평가] → 마법사 4단계(**프로파일 → 평가셋 → 후보 → 확인**)를 진행합니다.
-   - 확인 단계에서 "확인했습니다"를 체크해야 [실행 생성]이 활성화되며, [지금 시작] 또는 [나중에 시작]을 고릅니다.
+   - 좌측 ActivityBar의 **평가(플라스크)** 아이콘 → [새 평가] → 마법사 4단계(**프로파일 → 평가셋 → 후보 → 검토·생성**)를 진행합니다.
+   - 검토·생성 단계에서 가중치·기준값 전체를 보고 "가중치를 확인했습니다"를 체크해야 [실행 생성]이 활성화되며, 완료 팝업에서 [즉시 실행] 또는 [나중에 실행]을 고릅니다.
    - 완료되면 같은 탭이 리포트로 전환되어 최적/빠른 대안/고품질 대안 추천, 순위표·레이더·파레토 차트를 확인합니다.
    - ⚠️ 평가 중에는 모든 채팅 입력·전송이 차단되고(상단 배너 표시), 종료 후 자동 해제됩니다.
    - 자세한 절차·옵션·결과 읽기는 **[Docs/EvaluationGuide.md](./Docs/EvaluationGuide.md)**를 참고하세요.
@@ -118,9 +119,9 @@ pnpm tauri build
 ### 실행 흐름 (마법사 4단계)
 
 1. **프로파일 선택**: 내장 5종(균형 / 코딩 에이전트 / 한국어 문서 작성 / 빠른 응답 / 긴 문서 분석) 중 목적에 맞는 기준을 고릅니다. [복제·편집]으로 커스텀 저장도 가능합니다.
-2. **평가셋 선택**: 1개 이상 선택. 내장 20종(**FAB 11종** + **공개셋 9종**: `gsm8k`, `ifeval`, `ko-ifeval`, `humaneval-plus`, `bfcl`, `mmlu-pro`, `kmmlu`, `kobest` 등) + 내 개인 팩. 티어(**Smoke-all / Standard / Full**)로 분량 조절.
-3. **후보·Judge·옵션**: 비교할 에이전트를 1개 이상 선택(최대 24). 루브릭·작문 계열 팩은 Judge 필수. 외부 LLM을 Judge·후보로 쓰려면 **설정 > 외부 연동**을 먼저 켜야 합니다.
-4. **확인 후 생성**: 가중치·기준값 전체를 보고 "확인했습니다" 체크 → [실행 생성] → [지금 시작] / [나중에 시작]. 자동·예약 실행은 없습니다.
+2. **평가셋 선택**: 1개 이상 선택. 내장 20종(**FAB 11종** + **공개셋 9종**: `gsm8k`, `gsm8k-perturb`, `mmlu-pro`, `ifeval`, `ko-ifeval`, `kmmlu`, `kobest`, `humaneval-plus`, `bfcl` 등) + 내 개인 팩. **크기 선택(Quick 약 30분 / Standard 약 1시간 반 / Full 수 시간)**으로 분량을 자동조합하고, 팩별 세부 분량은 고급 설정에서 조절합니다.
+3. **후보·평가 모델·옵션**: 비교할 에이전트를 1개 이상 선택(최대 24). 루브릭·작문 계열 팩은 **평가 모델 설정** 필수. 외부 LLM을 평가 모델·후보로 쓰려면 **설정 > 외부 연동**을 먼저 켜야 합니다.
+4. **검토 후 생성**: 가중치·기준값 전체를 보고 "가중치를 확인했습니다" 체크 → [실행 생성] → 완료 팝업에서 [즉시 실행] / [나중에 실행]. 자동·예약 실행은 없습니다.
 
 ### 결과 읽기
 
@@ -146,10 +147,6 @@ pnpm tauri build
 | :--- | :--- |
 | `Ctrl+N` | 새 대화 세션 시작 |
 | `Ctrl+W` | 현재 활성 탭 닫기 |
-| `Ctrl+B` | 좌측 사이드바 토글 |
-| `Ctrl+Shift+E` | 파일 탐색기 패널 열기 |
-| `Ctrl+Shift+A` | 에이전트 관리 패널 열기 |
-| `Ctrl+Shift+S` | 세션 목록 패널 열기 |
 | `Ctrl+,` | 에이전트 설정 탭 열기 |
 
 ---
@@ -175,7 +172,7 @@ Fortress의 내부 구조 파악, 커스텀 에이전트 개발, 벤치마크 �
 | **Nemotron 64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Nemotron3.5_64k.md](./Docs/MonitoringAnalysis_Nemotron3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Nemotron-3.5-Lightning(30B MoE, A3B, Mamba-2 하이브리드) 64k 컨텍스트 실측 데이터 및 VRAM/속도 분석 리포트. | [바로가기](./Docs/MonitoringAnalysis_Nemotron3.5_64k.md) |
 | **Qwen 64k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_64k.md](./Docs/MonitoringAnalysis_Qwen3.5_64k.md)**<br>RTX 4070 SUPER(12GB) 환경에서 Qwen3.5 64k 컨텍스트 및 8개 도구/위키 연동 실측 데이터 분석 및 대용량 최적화 리포트. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_64k.md) |
 | **Qwen 8k 벤치마크 분석 보고서** | **[MonitoringAnalysis_Qwen3.5_8k.md](./Docs/MonitoringAnalysis_Qwen3.5_8k.md)**<br>8k 컨텍스트 환경의 하드웨어 리소스 병목 진단 및 VRAM 예산 산정 가이드. | [바로가기](./Docs/MonitoringAnalysis_Qwen3.5_8k.md) |
-| **단계별 구현 계획서** | **[ImplementationPlan.md](./Docs/ImplementationPlan.md)**<br>Phase 0부터 Phase 7까지의 상세 작업 분할 및 단계별 의존성 그래프. | [바로가기](./Docs/ImplementationPlan.md) |
+| **단계별 구현 계획서** | **[ImplementationPlan.md](./Docs/ImplementationPlan.md)**<br>Phase 0부터 Phase 10까지(i18n·Follow-ups·자동 평가 포함)의 상세 작업 분할 및 단계별 의존성 그래프. | [바로가기](./Docs/ImplementationPlan.md) |
 | **진행상황 트래커** | **[TODO.md](./Docs/TODO.md)**<br>전체 작업 항목의 완료 상태 트래커 및 과거 이슈 해결 기록. | [바로가기](./Docs/TODO.md) |
 | **품질 검증 체크리스트** | **[QA-Checklist.md](./Docs/QA-Checklist.md)**<br>기능, 성능, 보안, UX 각 영역별 테스트 시나리오 및 품질 검증 기준. | [바로가기](./Docs/QA-Checklist.md) |
 | **디자인 시스템** | **[DESIGN.md](./DESIGN.md)**<br>Midnight Rampart 라이트/다크 테마의 색상 토큰, 타이포그래피, 컴포넌트 패턴, 다른 앱으로의 포팅 가이드(`design/` 리소스). | [바로가기](./DESIGN.md) |

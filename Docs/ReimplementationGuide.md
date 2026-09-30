@@ -1,7 +1,7 @@
 # Fortress 시스템 아키텍처 및 재구현 가이드 (Reimplementation Blueprint)
 
-> **문서 버전**: 1.0.0  
-> **최종 갱신**: 2026-09-22  
+> **문서 버전**: 1.1.0  
+> **최종 갱신**: 2026-09-30  
 > **대상 독자**: Fortress를 처음 파악하려는 엔지니어, 현재 코드를 기반으로 새로운 로컬 AI 에이전트 애플리케이션을 제작하려는 개발자 및 AI 코딩 에이전트.
 
 ---
@@ -16,7 +16,7 @@
    - Ollama의 네이티브 HTTP API(`/api/chat`, `/api/tags`, `/api/ps`, `/api/show`)와 직접 통신하여 오버헤드를 없애고 디버깅 투명성을 100% 확보했습니다.
 2. **Local-First & Append-Only Storage**
    - 네트워크 연결 없이 동작하며, 모든 대화, 도구 실행 기록, 에이전트 메트릭, 하드웨어 스냅샷은 SQLite에 이벤트 소싱(Append-Only) 방식으로 저장됩니다.
-   - 워크스페이스별로 독립된 `.fortress/project.db`가 자동 생성되어 프로젝트 간 데이터가 완전히 격리됩니다.
+   - 워크스페이스별로 독립된 `.fortress/fortress.db`가 자동 생성되어 프로젝트 간 데이터가 완전히 격리됩니다.
 3. **Strict Security & HITL (Human-in-the-Loop)**
    - 파일 쓰기(`write`), 편집(`edit`), 셸 실행 등 위험 도구는 사용자의 사전 승인을 강제하는 보안 계층을 내장합니다.
 4. **Context Budgeting & Compaction**
@@ -29,18 +29,21 @@
 
 ## 2. 현재까지의 구현 현황 (Implementation Status)
 
-Fortress는 Phase 0부터 Phase 7까지 계획된 모든 기능의 구현 및 검증을 완료했습니다 (총 42개 테스트 파일, 188개 테스트 100% 통과).
+Fortress는 Phase 0부터 Phase 10까지 계획된 모든 기능의 구현 및 검증을 완료했습니다 (총 146개 테스트 파일, 1009개 테스트).
 
 | 단계 (Phase) | 명칭 | 핵심 구현 내용 | 주요 소유 모듈 |
 | :--- | :--- | :--- | :--- |
 | **Phase 0** | Foundation | Tauri 2 + React 19 + TypeScript + Tailwind CSS v3 스택 구성, SQLite 플러그인 연동, Ollama HTTP 클라이언트 | `src-tauri/`, `src/lib/llm/`, `src/lib/db/` |
 | **Phase 1** | Shell & Layout | VivoStudio 풍 3패널 반응형 레이아웃(`react-resizable-panels`), 커스텀 타이틀바, 시스템 리소스 위젯, 다크/라이트 테마 | `src/components/layout/`, `src/components/explorer/` |
-| **Phase 2** | Agent Runtime | 순수 TS 자율 루프(`loop.ts`), 8대 도구 세트(`read`, `write`, `edit`, `ls`, `grep`, `find`, `web_search`, `web_fetch`), 컨텍스트 슬라이딩 압축(`compact.ts`) | `src/lib/agent/`, `src/lib/tools/`, `src/lib/compaction/` |
+| **Phase 2** | Agent Runtime | 순수 TS 자율 루프(`loop.ts`), 10종 내장 도구(`read`, `write`, `edit`, `ls`, `grep`, `find`, `shell`, `web_search`, `web_fetch`, `wiki` — 신규 에이전트 기본 8종 활성), 컨텍스트 슬라이딩 압축(`compact.ts`) | `src/lib/agent/`, `src/lib/tools/`, `src/lib/compaction/` |
 | **Phase 3** | Skills & Context | Agent Skills 오픈 표준(.agents/skills/*/SKILL.md) 파서, 프로그레시브 디스클로저, 계층별 `AGENTS.md` 로더, 스킬 인보커 | `src/lib/skills/`, `src/lib/prompt/` |
-| **Phase 4** | Session Storage | SQLite 기반 세션 및 메시지 이벤트 영속화, 프로젝트별 격리 DB (`.fortress/project.db`) 자동 초기화 및 마이그레이션 | `src/lib/db/repositories/`, `src/components/chatsessions/` |
+| **Phase 4** | Session Storage | SQLite 기반 세션 및 메시지 이벤트 영속화, 프로젝트별 격리 DB (`.fortress/fortress.db`) 자동 초기화 및 마이그레이션 | `src/lib/db/repositories/`, `src/components/chatsessions/` |
 | **Phase 5** | Visualization & HITL | 실시간 스트리밍 대화창, 도구 실행 블록, Mermaid 다이어그램 실시간 렌더링, Recharts 인터랙티브 차트, 도구 승인 다이얼로그(`ApprovalDialog.tsx`) | `src/components/chat/`, `src/lib/markdown/` |
 | **Phase 6** | Agent Management | 에이전트 다중 프로필 CRUD, 시스템 프롬프트 및 도구 커스터마이징, 에이전트 통계 탭, GPU/VRAM 실시간 모니터링 대시보드 | `src/components/agents/`, `src/components/workspace/` |
 | **Phase 7** | Multi-Tab & Polish | 드래그 앤 드롭 탭 재정렬, 탭 컨텍스트 메뉴(우측/좌측/다른 탭 닫기), 파일 탐색기 CRUD(생성/삭제/이름변경), 단축키, 에러 바운더리 | `src/lib/context/WorkspaceTabsContext.tsx`, `CenterWorkspace.tsx` |
+| **Phase 8** | Internationalization | ko/en i18n 인프라(`LanguageContext`, 사전, 첫 실행 언어 선택), 전 화면 문구 전환 | `src/lib/i18n/`, `src/components/language/` |
+| **Phase 9** | Follow-ups | reasoning/effort 제어, 다중 LLM Provider, 생성 파라미터 확장, 토큰 추적·모니터링 개편, `basic-llm-wiki` 스킬 | `src/lib/llm/`, `src/lib/monitoring/`, `src/components/agents/` |
+| **Phase 10** | Automated Evaluation | 평가 팩 20종(FAB 11 + 공개셋 9)·러너·채점기·통계·리포트·Arena·가져오기/내보내기, 실행 마법사(Quick/Standard/Full) | `src/lib/eval/`, `src/components/eval/`, `src-tauri/resources/evals/` |
 
 ---
 
@@ -89,7 +92,7 @@ flowchart TB
 
     subgraph Storage_Layer ["로컬 저장소 (SQLite)"]
         GlobalDB["Global DB (Agents, Global Settings)"]
-        ProjectDB[".fortress/project.db (Sessions, Messages, Monitoring Snapshots)"]
+        ProjectDB[".fortress/fortress.db (Sessions, Entries, Monitoring Snapshots)"]
     end
 
     %% 연결 관계
@@ -120,7 +123,7 @@ flowchart TB
 7. **도구 실행 및 결과 반영**:
    - 도구 실행 결과를 `role: 'tool'` 메시지로 대화 이력에 추가하고 다음 턴 스트리밍 재개.
 8. **이벤트 소싱 영속화**:
-   - 모든 턴과 도구 호출 결과는 비동기로 SQLite `.fortress/project.db`의 `chat_messages` 테이블에 기록.
+   - 모든 턴과 도구 호출 결과는 비동기로 SQLite `.fortress/fortress.db`의 `entries` 테이블에 기록.
 
 ---
 
@@ -273,13 +276,13 @@ pnpm tauri init
 
 ### 4단계: 도구 샌드박스 및 보안 승인 계층 (`src/lib/tools/`)
 - 도구들은 기본적으로 워크스페이스 루트 경로를 벗어날 수 없도록 경로 정규화(`resolvePath`) 검증을 거칩니다.
-- `read`, `write`, `edit`, `ls`, `grep`, `find`, `web_search`, `web_fetch` 도구를 Zod 스키마와 함께 선언합니다.
+- `read`, `write`, `edit`, `ls`, `grep`, `find`, `shell`, `web_search`, `web_fetch`, `wiki` 도구를 Zod 스키마와 함께 선언합니다(신규 에이전트 기본 활성은 `shell`·`wiki` 제외 8종).
 - `write`, `edit` 등 파일 수정 도구는 React `ApprovalQueueContext`에 승인 요청을 발행하고 사용자가 UI에서 "승인"을 누를 때까지 비동기 대기(`Promise`)합니다.
 
 ### 5단계: SQLite 로컬 영속화 계층 (`src/lib/db/`)
 - `@tauri-apps/plugin-sql`을 사용하여 SQLite 데이터베이스를 초기화합니다.
-- `chat_sessions`, `chat_messages`, `agents`, `agent_monitoring_snapshots` 테이블을 생성하는 마이그레이션 스크립트를 작성합니다.
-- 대화 내역은 덮어쓰지 않고 `turn_index` 순서대로 Append-Only 저장합니다.
+- `sessions`, `entries`(message/compaction/custom), `agents`, `agent_monitoring_snapshots` 테이블을 생성하는 마이그레이션 스크립트를 작성합니다.
+- 대화 내역은 덮어쓰지 않고 `seq` 순서대로 Append-Only 저장합니다.
 
 ### 6단계: 시각화 및 멀티 탭 UI 통합 (`src/components/`)
 - `MermaidViewer`: 에이전트가 출력한 ` ```mermaid ` 블록을 감지하여 `mermaid.render()`로 SVG를 생성하고 줌/패닝 기능을 제공합니다.

@@ -730,7 +730,7 @@ export function getRegisteredHooks(): AgentHooks; // 등록 순서대로 합성
 - **Reasoning 제어**: `POST /api/chat`의 최상위 `think` 필드에 Agent의 `reasoning`/`reasoningEffort` 해석값(`resolveThinkValue`)을 실어 보냅니다. `default`면 필드 생략(모델 기본값), `off`면 `false`, `on`이면 effort 문자열(`low`/`medium`/`high`). `/api/show` 응답의 `thinking.{values,default}`로 모델별 지원 범위를 확인해 Agent 편집 폼에 힌트로 표시합니다. `think`는 메시지 배열과 무관하므로 채팅 화면에서 세션 단위로 바꿔도 시스템 프롬프트 diff나 prefill 토큰 증가가 없습니다.
 - **생성 파라미터**: `src/lib/llm/generationParams.ts`의 지원 매트릭스가 단일 진실 공급원입니다. 양쪽 규격 공통(`top_p`·`seed`·`stop`·`max_tokens`/`num_predict`), Ollama 전용(`top_k`·`repeat_penalty`), OpenAI 호환 전용(`frequency_penalty`·`presence_penalty`)으로 나뉘며, Agent 편집 폼은 미지원 항목을 잠그고(값은 유지) 런타임은 각 클라이언트가 자신의 규격 키로만 변환합니다. `undefined`는 "자동"으로 필드 자체를 생략합니다.
 - 기본 baseUrl: `http://127.0.0.1:11434` (Settings에서 변경 가능, `SettingsContext`).
-- Tauri v2 CSP의 `connect-src`에 `http://127.0.0.1:11434`를 허용해야 합니다 (`src-tauri/tauri.conf.json`의 `app.security.csp`, Phase 0).
+- Tauri v2 CSP의 `connect-src`에 `ipc: http://ipc.localhost`(웹뷰↔Rust IPC 호출용), `http://127.0.0.1:11434 http://localhost:11434`(Ollama 직접 호출용)를 허용해야 합니다 (`src-tauri/tauri.conf.json`의 `app.security.csp`, Phase 0 → TAURI-BLANK에서 IPC 항목 추가). CSP를 바꿀 때는 이 항목이 빠지지 않았는지 먼저 확인하십시오 — 빠지면 Tauri 창이 빈 화면이 됩니다.
 - **모델 호환성**: tool-calling을 지원하지 않는 모델이 선택되면 도구 없이 동작하고 UI에 경고 배지를 표시합니다. 어떤 모델이 멀티턴 tool-calling을 견디는지는 P0-08 스파이크에서 먼저 확인합니다.
 
 ---
